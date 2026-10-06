@@ -27,16 +27,13 @@
         }
     }
 
-    // -- Example queries --------------------------------------------------
+    // -- Example queries: fill the research box only, never start a run ----
     document.querySelectorAll('.example-query').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var input = document.getElementById('query-input');
-            if (input) {
-                input.value = this.dataset.query;
-            }
-            if (typeof beginResearch === 'function') {
-                beginResearch(this.dataset.query);
-            }
+            if (!input) return;
+            input.value = btn.dataset.query || '';
+            input.focus();
         });
     });
 
@@ -63,18 +60,70 @@
         });
     });
 
-    // -- Verify (hero, primary) form: no direct API call from home — just
-    //    hand the typed text to /verify, which prefills but does not
-    //    auto-submit (the user still confirms there before spending a run).
-    var verifyHeroForm = document.getElementById('verify-hero-form');
-    if (verifyHeroForm) {
-        verifyHeroForm.addEventListener('submit', function (e) {
+    // -- Verify forms (hero + final call to action): POST /api/verify, then
+    //    open /verify/<slug>. A saved verdict comes back with the same slug,
+    //    so it opens at once. Without JavaScript the form GETs /verify.
+    var VERIFY_NETWORK_ERROR = 'Could not reach Frank. Please try again.';
+    var VERIFY_BUSY_LABEL = 'Checking…';
+
+    ['verify-hero', 'verify-cta'].forEach(function (prefix) {
+        var form = document.getElementById(prefix + '-form');
+        if (form) wireVerifyForm(form, document.getElementById(prefix + '-status'));
+    });
+
+    function wireVerifyForm(form, status) {
+        var input = form.querySelector('input[name="product"]');
+        var btn = form.querySelector('button[type="submit"]');
+        var idleLabel = btn ? btn.textContent : '';
+        var busy = false;
+
+        function setBusy(on) {
+            busy = on;
+            if (!btn) return;
+            btn.disabled = on;
+            btn.textContent = on ? VERIFY_BUSY_LABEL : idleLabel;
+        }
+
+        form.addEventListener('submit', function (e) {
             e.preventDefault();
-            var input = document.getElementById('verify-hero-input');
             var product = (input && input.value || '').trim();
-            if (product.length < 3) return;
-            window.location.href = '/verify?product=' + encodeURIComponent(product);
+            if (product.length < 3 || busy) return;
+            setBusy(true);
+            showVerifyStatus(status, '', false);
+            fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product: product }),
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data && data.slug) {
+                        window.location.href = '/verify/' + encodeURIComponent(data.slug);
+                        return;
+                    }
+                    var message = (data && data.error) || VERIFY_NETWORK_ERROR;
+                    showVerifyStatus(status, message, data && data.code === 'signup_required');
+                    setBusy(false);
+                })
+                .catch(function () {
+                    showVerifyStatus(status, VERIFY_NETWORK_ERROR, false);
+                    setBusy(false);
+                });
         });
+    }
+
+    // Text only: server text never reaches innerHTML. The /account link is
+    // built with DOM APIs.
+    function showVerifyStatus(status, message, signupRequired) {
+        if (!status) return;
+        status.textContent = message;
+        if (!signupRequired) return;
+        var link = document.createElement('a');
+        link.href = '/account';
+        link.className = 'font-medium text-accent hover:text-accent-hover';
+        link.textContent = 'Create a free account';
+        status.appendChild(document.createTextNode(' '));
+        status.appendChild(link);
     }
 
     function esc(s) {

@@ -3,23 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Frank: Honest product research, with receipts</title>
-    <meta name="description" content="Frank reads the real reviews on Reddit, forums, and independent testers, filters out the affiliate bait and marketing-only sources, and gives you one honest ranking. Every claim is sourced.">
+    <title>Frank: paste a product link, see which claims hold up</title>
+    <meta name="description" content="Paste a product link or name. Frank checks each claim against independent tests and reviews. He shows what holds up, what does not, and what nobody could confirm.">
     <link rel="canonical" href="https://chrisputer.tech/">
     <meta name="robots" content="index, follow">
 
     <!-- Open Graph / Twitter -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Frank">
-    <meta property="og:title" content="Frank: Honest product research, with receipts">
-    <meta property="og:description" content="One honest ranking instead of 200 reviews. Real opinions, marketing bait filtered out, every claim sourced.">
+    <meta property="og:title" content="Frank: paste a product link, see which claims hold up">
+    <meta property="og:description" content="Paste a product link or name. Frank checks each claim against independent tests and reviews. He shows what holds up, what does not, and what nobody could confirm.">
     <meta property="og:url" content="https://chrisputer.tech/">
     <meta property="og:image" content="https://chrisputer.tech/og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Frank: Honest product research, with receipts">
-    <meta name="twitter:description" content="One honest ranking instead of 200 reviews. Real opinions, marketing bait filtered out, every claim sourced.">
+    <meta name="twitter:title" content="Frank: paste a product link, see which claims hold up">
+    <meta name="twitter:description" content="Paste a product link or name. Frank checks each claim against independent tests and reviews. He shows what holds up, what does not, and what nobody could confirm.">
     <meta name="twitter:image" content="https://chrisputer.tech/og.png">
 
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
@@ -158,15 +158,16 @@
                 <span>Instrument</span><span>&middot;</span><span>Claim Verification Console</span><span>&middot;</span><span class="text-trust-high">&#9679; Online</span>
             </div>
             <h1 class="mx-auto mt-5 max-w-3xl font-serif text-display font-semibold leading-tight text-ink">Meet Frank. <span class="text-accent">He reads the reviews so you don't have to.</span></h1>
-            <p class="mx-auto mt-5 max-w-[52ch] text-lead text-ink-2">Tell Frank a product. He checks what it claims about itself, specs, reviews, warranty terms, against independent sources, and tells you straight, including when he's not sure.</p>
+            <p class="mx-auto mt-5 max-w-[52ch] text-lead text-ink-2">Paste a product link or type a product name. Frank checks each claim against independent tests and tells you what holds up. Products Frank already checked open at once.</p>
 
-            <form id="verify-hero-form" class="mx-auto mt-9 flex max-w-2xl flex-col border border-line bg-surface-1 text-left transition-colors focus-within:border-line-strong sm:flex-row">
-                <label for="verify-hero-input" class="sr-only">What product do you want to verify?</label>
-                <input id="verify-hero-input" name="product" type="text" autocomplete="off" required minlength="3" maxlength="200"
-                    placeholder="INPUT_PRODUCT :: e.g. Anker Soundcore Liberty 4 NC"
+            <form id="verify-hero-form" action="/verify" method="get" class="mx-auto mt-9 flex max-w-2xl flex-col border border-line bg-surface-1 text-left transition-colors focus-within:border-line-strong sm:flex-row">
+                <label for="verify-hero-input" class="sr-only">Product link or name</label>
+                <input id="verify-hero-input" name="product" type="text" autocomplete="off" required minlength="3" maxlength="2048"
+                    placeholder="Paste a product link or type its name"
                     class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 focus:bg-surface-2 sm:border-b-0 sm:border-r">
                 <button type="submit" class="shrink-0 bg-ink px-6 py-4 font-mono text-sm font-semibold uppercase tracking-wide text-bg transition-colors hover:bg-accent disabled:opacity-60">Verify it &#9656;</button>
             </form>
+            <p id="verify-hero-status" role="status" aria-live="polite" class="mx-auto mt-2 min-h-[1em] max-w-2xl text-left font-mono text-[11px] text-ink-3"></p>
 
             <div class="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">
                 <span class="inline-flex items-center gap-1.5"><span aria-hidden="true" class="text-trust-high">&#10003;</span>Claims checked against independent sources</span>
@@ -174,16 +175,15 @@
                 <span class="inline-flex items-center gap-1.5"><span aria-hidden="true" class="text-trust-high">&#10003;</span>Every claim sourced</span>
             </div>
 
-            <!-- Mass search: secondary card, demoted from the old hero flow -->
+            <!-- Category research: secondary card, chips only fill the box -->
             <div class="mx-auto mt-10 max-w-2xl border border-line bg-surface-1 p-6 text-left">
-                <span class="font-mono text-[11px] uppercase tracking-widest text-accent">Mass search</span>
-                <h2 class="mt-2 font-serif text-h3 font-semibold text-ink">Compare a whole category</h2>
-                <p class="mt-1 max-w-[52ch] text-body-sm text-ink-2">Compare a whole category — we rank everything that holds up.</p>
+                <span class="font-mono text-[11px] uppercase tracking-widest text-accent">Not sure which product?</span>
+                <h2 class="mt-2 font-serif text-h3 font-semibold text-ink">Describe what you need</h2>
 
                 <form class="search-form mx-auto mt-4 flex w-full flex-col border border-line bg-bg transition-colors focus-within:border-line-strong sm:flex-row">
-                    <label for="query-input" class="sr-only">What are you trying to buy?</label>
+                    <label for="query-input" class="sr-only">Describe what you need</label>
                     <input id="query-input" name="query" type="text" autocomplete="off" required minlength="3" maxlength="500"
-                        placeholder="What are you trying to buy? e.g. best air fryer under $150"
+                        placeholder="e.g. wide hiking boots for a heavy hiker"
                         class="w-full border-b border-line bg-transparent px-3 py-3 font-mono text-sm text-ink outline-none placeholder:text-ink-3 sm:border-b-0 sm:border-r">
                     <button type="submit" class="shrink-0 bg-accent-strong px-5 py-3 font-mono text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-accent-hover disabled:opacity-60">
                         <span data-btn-label>Research it</span>
@@ -192,18 +192,16 @@
 
                 <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px]">
                     <span class="text-ink-3 uppercase tracking-wide">Try</span>
-                    <button class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="best air fryer for a family of four">air fryer</button>
+                    <button type="button" class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="tires for a 2010 mazda 3">tires for a 2010 Mazda 3</button>
                     <span class="text-ink-3">&middot;</span>
-                    <button class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="best running shoes for flat feet">running shoes</button>
+                    <button type="button" class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="wide 4E hiking boots for a heavy hiker">wide hiking boots</button>
                     <span class="text-ink-3">&middot;</span>
-                    <button class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="best cordless drill for home projects">cordless drill</button>
+                    <button type="button" class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="smart bulbs that work with Home Assistant">Home Assistant bulbs</button>
                     <span class="text-ink-3">&middot;</span>
-                    <button class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="best wireless earbuds under $100">wireless earbuds</button>
-                    <span class="text-ink-3">&middot;</span>
-                    <button class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="best dog food for puppies">dog food</button>
+                    <button type="button" class="example-query font-medium text-accent transition-colors hover:text-accent-hover" data-query="3d printer under $600">3D printer under $600</button>
                 </div>
 
-                <p class="mt-4 font-mono text-[11px] text-ink-3">Already researched? <a href="/research" class="font-medium text-accent hover:text-accent-hover">Browse every ranking &rarr;</a></p>
+                <p class="mt-4 font-mono text-[11px] text-ink-3">Already researched? <a href="/research" class="font-medium text-accent hover:text-accent-hover">Browse past research &rarr;</a></p>
 
                 <!-- Talk it out: chat-to-refine before running a research -->
                 <div class="mt-6">
@@ -262,7 +260,7 @@
 
             <!-- Trust strip -->
             <div class="border-y border-line py-6 text-center font-mono text-caption text-ink-3 num">
-                Real reviews read, marketing down-weighted, zero paid placements. The ranking is the ranking.
+                Every claim checked against independent tests. No paid placements.
             </div>
 
             <!-- Sample verdict readout (show, don't tell) -->
@@ -328,8 +326,8 @@
             </div>
             </section>
 
-            <!-- Recent research: server-injected at request time (see worker/pages/home.js) -->
-            <!--RECENT_REPORTS-->
+            <!-- Recent verdicts: server-injected at request time (see worker/pages/home.js) -->
+            <!--RECENT_VERDICTS-->
 
             <!-- How it works -->
             <section id="how-it-works" class="border-b border-line bg-surface-2">
@@ -464,16 +462,15 @@
             <!-- Final CTA -->
             <section class="grid-bg">
             <div class="mx-auto max-w-5xl px-6 py-14 text-center md:py-20">
-                <h2 class="mx-auto max-w-2xl font-serif text-h1 font-semibold text-ink">Stop reading 200 reviews. Read one honest ranking.</h2>
-                <form class="search-form mx-auto mt-8 flex w-full max-w-2xl flex-col border border-line bg-surface-1 text-left transition-colors focus-within:border-line-strong sm:flex-row">
-                    <label for="query-input-cta" class="sr-only">What are you trying to buy?</label>
-                    <input id="query-input-cta" name="query" type="text" autocomplete="off" required minlength="3" maxlength="500"
-                        placeholder="What are you trying to buy?"
+                <h2 class="mx-auto max-w-2xl font-serif text-h1 font-semibold text-ink">Paste a product link. See what holds up.</h2>
+                <form id="verify-cta-form" action="/verify" method="get" class="mx-auto mt-8 flex w-full max-w-2xl flex-col border border-line bg-surface-1 text-left transition-colors focus-within:border-line-strong sm:flex-row">
+                    <label for="verify-cta-input" class="sr-only">Product link or name</label>
+                    <input id="verify-cta-input" name="product" type="text" autocomplete="off" required minlength="3" maxlength="2048"
+                        placeholder="Paste a product link or type its name"
                         class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 sm:border-b-0 sm:border-r">
-                    <button type="submit" class="shrink-0 bg-ink px-6 py-4 font-mono text-sm font-semibold uppercase tracking-wide text-bg transition-colors hover:bg-accent disabled:opacity-60">
-                        <span data-btn-label>Research it</span>
-                    </button>
+                    <button type="submit" class="shrink-0 bg-ink px-6 py-4 font-mono text-sm font-semibold uppercase tracking-wide text-bg transition-colors hover:bg-accent disabled:opacity-60">Verify it &#9656;</button>
                 </form>
+                <p id="verify-cta-status" role="status" aria-live="polite" class="mx-auto mt-2 min-h-[1em] max-w-2xl text-left font-mono text-[11px] text-ink-3"></p>
             </div>
             </section>
 
