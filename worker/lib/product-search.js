@@ -4,7 +4,7 @@
 // builder unit-testable (no bindings needed) — see product-search.test.js.
 //
 // Every product row is products JOIN research; the base filter is always
-// "completed research with a real verdict" so junk/in-progress rows never show.
+// "completed, non-retired research with a real verdict" so junk/in-progress/retired rows never show.
 
 export const PAGE_SIZE = 24;
 
@@ -107,7 +107,8 @@ function escapeLike(s) {
  * Returns { clause, binds } where clause begins with the always-on base filter.
  */
 export function buildProductWhere(filters, exclude) {
-  const conds = ["r.status = 'complete'", "p.verdict IS NOT NULL", "p.verdict != ''"];
+  // Products of a retired report (research.retired_at set) never reach /reviews or its facets.
+  const conds = ["r.status = 'complete'", 'r.retired_at IS NULL', "p.verdict IS NOT NULL", "p.verdict != ''"];
   const binds = [];
 
   if (filters.q) {

@@ -107,6 +107,28 @@ export function runProductSearchTests() {
     eq('where: escapes % in q', binds[0], '%50\\%%');
   }
 
+  // ── Retired reports (refocus 2026-10, plan piece 5, spec D2) ──────────────
+  // Products of a retired report must never reach /reviews or its facets.
+  const RETIRED_COND = 'r.retired_at IS NULL';
+  {
+    const { clause, binds } = buildProductWhere(parseProductFilters(getOf({})));
+    ok('retired: base clause hides retired reports', clause.includes(RETIRED_COND));
+    eq('retired: base binds unchanged', binds, []);
+  }
+  {
+    const f = parseProductFilters(getOf({ q: 'head', category: 'Headphones', brand: 'Sony', price: '100-250', rating: '4.5' }));
+    for (const exclude of ['category', 'brand', 'price', 'rating']) {
+      const { clause } = buildProductWhere(f, exclude);
+      ok(`retired: exclude ${exclude} clause hides retired reports`, clause.includes(RETIRED_COND));
+    }
+    eq('retired: full filter binds unchanged', buildProductWhere(f).binds, ['%head%', '%head%', 'Headphones', 'Sony', 100, 250, 4.5]);
+    eq('retired: exclude brand binds unchanged', buildProductWhere(f, 'brand').binds, ['%head%', '%head%', 'Headphones', 100, 250, 4.5]);
+  }
+  {
+    eq('retired: open-ended band binds unchanged', buildProductWhere(parseProductFilters(getOf({ price: '1000+' }))).binds, [1000]);
+    eq('retired: custom range binds unchanged', buildProductWhere(parseProductFilters(getOf({ pmin: '50', pmax: '300' }))).binds, [50, 300]);
+  }
+
   // ── isNarrowed: category-only stays indexable; more is noindex ─────────────
   ok('narrowed: empty is not narrowed', !isNarrowed(parseProductFilters(getOf({}))));
   ok('narrowed: category-only is not narrowed', !isNarrowed(parseProductFilters(getOf({ category: 'NAS' }))));
