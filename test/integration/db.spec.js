@@ -5,8 +5,12 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import init from '../../schema/001_initial.sql?raw';
 import guides from '../../schema/002_guide_clicks.sql?raw';
 import v2 from '../../schema/003_research_v2.sql?raw';
+import keywords from '../../schema/006_keyword_queue.sql?raw';
+import claims from '../../schema/010_claims.sql?raw';
+import verification from '../../schema/011_verification.sql?raw';
 import squashedQuery from '../../schema/014_squashed_query.sql?raw';
 import processingStarted from '../../schema/015_processing_started.sql?raw';
+import retireSeoRows from '../../schema/017_retire_seo_rows.sql?raw';
 import * as db from '../../worker/lib/db.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
@@ -22,8 +26,12 @@ beforeAll(async () => {
   await applySql(init);
   await applySql(guides);
   await applySql(v2);
+  await applySql(keywords);
+  await applySql(claims);
+  await applySql(verification);
   await applySql(squashedQuery);
   await applySql(processingStarted);
+  await applySql(retireSeoRows);
 });
 
 describe('db.js', () => {

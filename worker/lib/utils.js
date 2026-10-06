@@ -175,6 +175,7 @@ export function publicResearchFilter(alias) {
   // "X vs Y" queries, where 2 is the natural count. Thin pages stay reachable
   // by direct link (and render noindex — see research-page.js) but are kept
   // out of the sitemap, browse, category hubs, and autocomplete.
+  // Retired rows are never public. See docs/refocus-2026-10/spec.md D2.
   return `${alias}.status = 'complete'
     AND (
       (SELECT COUNT(*) FROM products p WHERE p.research_id = ${alias}.id) >= 3
@@ -186,7 +187,8 @@ export function publicResearchFilter(alias) {
       )
     )
     AND LENGTH(${alias}.query) >= 10 AND ${alias}.query LIKE '% %'
-    AND ${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'`;
+    AND ${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'
+    AND ${alias}.retired_at IS NULL`;
 }
 
 export function canonicalizeQuery(query, clarifications) {

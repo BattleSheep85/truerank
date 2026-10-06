@@ -35,6 +35,7 @@ export async function findResearchByCanonicalQuery(db, canonicalQuery, maxAgeDay
         `SELECT * FROM research
          WHERE (canonical_query = ?1 OR (?2 IS NOT NULL AND ?2 != '' AND squashed_query = ?2))
            AND status = 'complete' AND created_at > ?3
+           AND retired_at IS NULL
            AND EXISTS (SELECT 1 FROM products p WHERE p.research_id = research.id)
          ORDER BY created_at DESC LIMIT 1`
     ).bind(canonicalQuery, squashedQuery || null, cutoff).first();
@@ -112,6 +113,7 @@ export async function findRankingForCategory(db, category, limit = 3) {
     const research = await db.prepare(
         `SELECT * FROM research
          WHERE status = 'complete'
+           AND retired_at IS NULL
            AND (kind IS NULL OR kind != 'verification')
            AND EXISTS (SELECT 1 FROM products p WHERE p.research_id = research.id)
            AND (
