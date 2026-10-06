@@ -1,6 +1,11 @@
 /**
  * Programmatic-SEO flywheel (Phase 5).
  *
+ * Off by default since the 2026-10 refocus (see
+ * docs/refocus-2026-10/spec.md, decision D3). runFlywheelTick() returns at once
+ * unless env.SEO_FLYWHEEL_ENABLED is true, 'true', or '1'. The re-research
+ * sweep runs inside the tick, so it stops too. The code stays in place.
+ *
  * runFlywheelTick() is called from the worker's scheduled() cron. It drains the
  * keyword_queue one keyword per tick into a real research run, behind three
  * hard gates so it can never run away with the LLM budget:
@@ -82,6 +87,12 @@ async function sweepOutcomes(env, now) {
     ).bind(ts).run();
 }
 
+/** True only when env.SEO_FLYWHEEL_ENABLED is true, 'true', or '1'. */
+export function seoFlywheelEnabled(env) {
+    const flag = env?.SEO_FLYWHEEL_ENABLED;
+    return flag === true || flag === 'true' || flag === '1';
+}
+
 /**
  * Drain at most one keyword from the queue into a research run.
  * @param {object} env Worker env bindings.
@@ -90,6 +101,8 @@ async function sweepOutcomes(env, now) {
  *          describing what the tick did (useful for logging/tests).
  */
 export async function runFlywheelTick(env, now = Date.now()) {
+    if (!seoFlywheelEnabled(env)) return { status: 'skipped', reason: 'disabled' };
+
     // Gate 1: no search key → dormant. Silent by design.
     if (!env.SERPER_API_KEY) {
         return { status: 'skipped', reason: 'no-serper-key' };
@@ -249,6 +262,7 @@ async function runReresearchSweep(env, now) {
                AND r.completed_at IS NOT NULL
                AND r.completed_at < ?2
                AND r.tier != 'exhaustive'
+               AND r.retired_at IS NULL
              GROUP BY r.id
              HAVING COUNT(ac.id) = 0
              ORDER BY r.view_count DESC
@@ -269,6 +283,7 @@ async function runReresearchSweep(env, now) {
                  WHERE status = 'complete' AND (kind IS NULL OR kind != 'verification')
                    AND completed_at IS NOT NULL
                    AND completed_at < ?1
+                   AND retired_at IS NULL
                  ORDER BY completed_at ASC
                  LIMIT 1`
             ).bind(staleCutoff).first();
