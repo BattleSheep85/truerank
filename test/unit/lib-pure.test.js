@@ -160,6 +160,31 @@ const PRODUCT_LINK_CASES = [
     { kind: 'name' }],
   ['empty input', '',
     { kind: 'name', name: null, url: null, key: null }],
+  ['review: fake amazon host', 'https://www.amazon.com.attacker.io/Some-Product-Name/dp/B0AAAAAAAA',
+    { kind: 'url', name: 'Some Product Name',
+      url: 'https://www.amazon.com.attacker.io/Some-Product-Name/dp/B0AAAAAAAA',
+      key: 'verify:url:amazon.com.attacker.io/some-product-name/dp/b0aaaaaaaa' }],
+  ['review: fake amazon host, look-alike domain', 'https://evilamazon.com/dp/B0AAAAAAAA',
+    { kind: 'url', key: 'verify:url:evilamazon.com/dp/b0aaaaaaaa' }],
+  ['review: fake amazon host, unknown amazon tld', 'https://www.amazon.attacker/dp/B0AAAAAAAA',
+    { kind: 'url', key: 'verify:url:amazon.attacker/dp/b0aaaaaaaa' }],
+  ['review: fake amazon host, real smile subdomain', 'https://smile.amazon.com/dp/B0F3PT1VBL',
+    { kind: 'url', url: 'https://smile.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
+  ['review: fake amazon host, real bare amazon.com.mx', 'https://amazon.com.mx/dp/B0F3PT1VBL',
+    { kind: 'url', key: 'verify:asin:B0F3PT1VBL' }],
+  ['review: query-identified product', 'https://item.taobao.com/item.htm?id=111',
+    { kind: 'url', name: null, url: 'https://item.taobao.com/item.htm?id=111',
+      key: 'verify:url:item.taobao.com/item.htm?id=111' }],
+  ['review: query-identified product, tracking removed and sorted',
+    'https://item.taobao.com/item.htm?utm_source=x&spm=a1&id=111&fbclid=z&ref=abc&gclid=q&UTM_Medium=y#reviews',
+    { kind: 'url', url: 'https://item.taobao.com/item.htm?id=111&spm=a1',
+      key: 'verify:url:item.taobao.com/item.htm?id=111&spm=a1' }],
+  ['review: query-identified product, only tracking params', 'https://item.taobao.com/item.htm?utm_source=x',
+    { kind: 'url', url: 'https://item.taobao.com/item.htm', key: 'verify:url:item.taobao.com/item.htm' }],
+  ['review: extra links stripped from name', 'Great https://amzn.to/xyz http://169.254.169.254/latest',
+    { kind: 'url', name: 'Great', url: 'https://amzn.to/xyz', key: 'verify:name:great' }],
+  ['review: extra links stripped from name, link before and after', 'https://a.co/d/abc123 Sony WH-1000XM6 https://evil.example/x?y=1',
+    { kind: 'url', name: 'Sony WH-1000XM6', key: 'verify:name:1000xm6 sony wh' }],
 ];
 
 function runProductLinkTests(eq, ok) {
@@ -189,4 +214,10 @@ function runProductLinkTests(eq, ok) {
 
   ok('parseProductInput result is frozen', Object.isFrozen(parseProductInput('Sony WH-1000XM6')));
   ok('parseProductInput url result is frozen', Object.isFrozen(parseProductInput('https://www.amazon.com/dp/B0F3PT1VBL')));
+
+  ok('review: query-identified product, different ids give different keys',
+    parseProductInput('https://item.taobao.com/item.htm?id=111').key
+      !== parseProductInput('https://item.taobao.com/item.htm?id=222').key);
+  ok('review: extra links stripped from name, no metadata host in name',
+    !String(parseProductInput('Great https://amzn.to/xyz http://169.254.169.254/latest').name).includes('169.254'));
 }

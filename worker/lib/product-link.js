@@ -19,8 +19,20 @@ const SLUG_NAME_MIN_WORDS = 2;
 const REMAINDER_MIN_ALNUM = 3;
 
 const LINK_RE = /https?:\/\/\S+/i;
+const ALL_LINKS_RE = /https?:\/\/\S+/gi;
 const TRAILING_PUNCT_RE = /[.,;:!?)\]}>"']+$/;
-const AMAZON_HOST_RE = /(^|\.)amazon\.[a-z.]+$/;
+// Real Amazon marketplace domains. A host counts as Amazon only when it is
+// one of these, or one of these behind an AMAZON_SUBDOMAINS label. A pattern
+// match would accept www.amazon.com.attacker.io.
+const AMAZON_DOMAINS = Object.freeze(new Set([
+  'amazon.com', 'amazon.ca', 'amazon.com.mx', 'amazon.com.br', 'amazon.co.uk',
+  'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es', 'amazon.nl', 'amazon.se',
+  'amazon.pl', 'amazon.com.be', 'amazon.com.tr', 'amazon.ae', 'amazon.sa',
+  'amazon.eg', 'amazon.in', 'amazon.co.jp', 'amazon.sg', 'amazon.com.au', 'amazon.cn',
+]));
+const AMAZON_SUBDOMAINS = Object.freeze(new Set(['www', 'smile', 'm']));
+// Query parameters that track the visit and never identify the product.
+const TRACKING_PARAM_RE = /^(?:utm_.*|ref|fbclid|gclid)$/i;
 const SHORT_LINK_HOSTS = new Set(['a.co', 'amzn.to', 'amzn.eu', 'amzn.asia']);
 const ASIN_RE = /\/(?:dp|gp\/product|gp\/aw\/d)\/([a-z0-9]{10})(?=[/?#]|$)/i;
 const NAME_TOKEN_RE = /[a-z0-9]+/g;
@@ -95,8 +107,24 @@ function longestSlugName(pathname) {
   return best.name;
 }
 
-function remainderName(raw, linkToken) {
-  const rest = raw.replace(linkToken, ' ').replace(/\s+/g, ' ').trim();
+function isAmazonHost(host) {
+  if (AMAZON_DOMAINS.has(host)) return true;
+  const dot = host.indexOf('.');
+  return dot > 0 && AMAZON_SUBDOMAINS.has(host.slice(0, dot)) && AMAZON_DOMAINS.has(host.slice(dot + 1));
+}
+
+// '?' + the non-tracking params sorted by name, or '' when none are left.
+function productQuery(searchParams) {
+  const kept = [...searchParams]
+    .filter(([name]) => !TRACKING_PARAM_RE.test(name))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return kept.length > 0 ? `?${new URLSearchParams(kept)}` : '';
+}
+
+// Every link comes out, not only the first, so a second pasted link (for
+// example a metadata address) never becomes part of the name.
+function remainderName(raw) {
+  const rest = raw.replace(ALL_LINKS_RE, ' ').replace(/\s+/g, ' ').trim();
   const alnum = rest.match(ALNUM_RE) || [];
   return alnum.length >= REMAINDER_MIN_ALNUM ? capName(rest) : null;
 }
@@ -121,7 +149,8 @@ function trimSlash(pathname) {
 // Rules 3 to 5. Returns { name, url, key } where key is null for a name key.
 function linkParts(link) {
   const host = link.hostname;
-  if (AMAZON_HOST_RE.test(host)) {
+  const amazon = isAmazonHost(host);
+  if (amazon) {
     const match = link.pathname.match(ASIN_RE);
     if (match) {
       const asin = match[1].toUpperCase();
@@ -130,12 +159,16 @@ function linkParts(link) {
   }
   // Short links, and Amazon pages with no ASIN: the path does not identify
   // the product, so only a name can make a key.
-  if (SHORT_LINK_HOSTS.has(host) || AMAZON_HOST_RE.test(host)) {
+  if (SHORT_LINK_HOSTS.has(host) || amazon) {
     return { name: null, url: link.href, key: null };
   }
+  // A path with a name slug identifies the product, so the query goes. A path
+  // with no name (item.htm?id=111) needs its query to tell products apart.
+  const name = longestSlugName(link.pathname);
   const path = trimSlash(link.pathname);
+  const query = name ? '' : productQuery(link.searchParams);
   const keyHost = link.host.replace(/^www\./, '');
-  return { name: longestSlugName(link.pathname), url: `https://${link.host}${path}`, key: URL_KEY_PREFIX + keyHost + path.toLowerCase() };
+  return { name, url: `https://${link.host}${path}${query}`, key: URL_KEY_PREFIX + keyHost + path.toLowerCase() + query };
 }
 
 /**
@@ -154,7 +187,7 @@ export function parseProductInput(raw) {
   const link = parsePublicLink(linkMatch[0]);
   if (!link) return EMPTY_URL_RESULT;
   const parts = linkParts(link);
-  const name = parts.name ? capName(parts.name) : remainderName(text, linkMatch[0]);
+  const name = parts.name ? capName(parts.name) : remainderName(text);
   const key = parts.key || (name ? productNameKey(name) : null);
   return result('url', name, parts.url, key);
 }
