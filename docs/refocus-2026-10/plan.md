@@ -20,17 +20,17 @@ Do the steps in this order. Steps 3 to 5 are owner steps on production.
 
 1. Merge piece 1 and push. This stops new keyword spend at once.
 2. Merge piece 2 (migration file only, no runtime change).
-3. Run the dry-run count on production. Expect about 362. If the number is below 300 or above 400, stop and investigate.
+3. Run the dry-run count on production. The query is the WHERE clause of migration 017 without `retired_at IS NULL` (that column does not exist yet). The exact number is unknown. Expect about 362 or fewer: the earlier rule counted about 362, and the current rule also keeps live the rows with clarifications, a `user_searches` link, or a `subscribers` link. If the number is above 400 or below 300, stop and investigate. If the query fails with "no such table", stop: migrations 005 and 007 are not in production.
    ```bash
    cd /home/chris/projects/web/frank && export $(grep -v '^#' .cf-token | xargs)
-   npx wrangler d1 execute DB --remote --command "SELECT COUNT(*) AS n FROM research r WHERE (r.kind IS NULL OR r.kind != 'verification') AND EXISTS (SELECT 1 FROM keyword_queue k WHERE k.research_id = r.id AND LOWER(TRIM(k.keyword)) = r.query)"
+   npx wrangler d1 execute DB --remote --command "SELECT COUNT(*) AS n FROM research r WHERE (r.kind IS NULL OR r.kind != 'verification') AND r.clarifications IS NULL AND EXISTS (SELECT 1 FROM keyword_queue k WHERE k.research_id = r.id AND LOWER(TRIM(k.keyword)) = r.query) AND NOT EXISTS (SELECT 1 FROM user_searches us WHERE us.research_id = r.id) AND NOT EXISTS (SELECT 1 FROM subscribers s WHERE s.research_id = r.id)"
    ```
 4. Apply migration 017 to dev and production.
    ```bash
    npx wrangler d1 execute DB --remote --config wrangler.dev.toml --file=schema/017_retire_seo_rows.sql
    npx wrangler d1 execute DB --remote --file=schema/017_retire_seo_rows.sql
    ```
-5. Check the result. Expect one `seo-flywheel` group of about 362 rows.
+5. Check the result. Expect one `seo-flywheel` group with the same number of rows as the step 3 count.
    ```bash
    npx wrangler d1 execute DB --remote --command "SELECT retired_reason, COUNT(*) AS n FROM research GROUP BY retired_reason"
    ```
