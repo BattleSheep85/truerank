@@ -1,7 +1,7 @@
 /**
  * Product-verification API handlers (Truth Audit pipeline).
- * POST /api/verify — start a new verification job, or resubmit with a
- *   product URL after a needs_input ask.
+ * POST /api/verify — start a new verification job, reuse a saved verdict for
+ *   the same product, or resubmit with a product URL after a needs_input ask.
  * GET /api/verify/:id — poll for status/progress/results.
  *
  * Mirrors worker/handlers/research.js's intake pattern (validation, safety
@@ -19,14 +19,24 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getSessionUser } from '../lib/auth.js';
 import { getQuota, consumeQuota, FREE_VERIFIES } from '../lib/quota.js';
+import { parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN } from '../lib/product-link.js';
 
 const PRODUCT_MIN_LEN = 3;
-const PRODUCT_MAX_LEN = 200;
+const PRODUCT_MIN_ALNUM = 3;
+const DAY_SECONDS = 86400;
+
+/** Saved verdicts younger than this many days answer a new submission. 0 turns reuse off. */
+export const VERIFY_REUSE_MAX_AGE_DAYS = 30;
+
+const LINK_BLOCKED_MESSAGE = 'Frank cannot check that link. Paste the address of a public product page.';
+const NAME_REQUIRED_MESSAGE = 'That link does not include the product name. Copy the full address from the product page, or type the product name.';
 
 /**
  * Handle POST /api/verify
  * Body: { product: string, productUrl?: string, reportId?: string }
- * - No reportId: creates a new verification research row + enqueues.
+ * - product: a product name, a product page link, or share text with a link.
+ * - No reportId: returns a saved verdict for the same product from the last
+ *   VERIFY_REUSE_MAX_AGE_DAYS days, else creates a new verification row + enqueues.
  * - reportId + productUrl: resubmits a row stuck in needs_input/failed with
  *   the user-supplied product URL, then re-enqueues.
  */
@@ -37,67 +47,170 @@ export async function handleStartVerify(request, env) {
     } catch {
         return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
 
-    const product = (body.product || '').trim();
-    if (!product || product.length < PRODUCT_MIN_LEN) {
+    const raw = typeof body.product === 'string' ? body.product.trim() : '';
+    const rawError = validateRawInput(raw);
+    if (rawError) return rawError;
+
+    const bodyUrl = readBodyProductUrl(body.productUrl);
+    if (bodyUrl.error) return bodyUrl.error;
+
+    const reportId = typeof body.reportId === 'string' ? body.reportId.trim() : '';
+    if (reportId) {
+        return startResubmit(request, env, reportId, bodyUrl.url);
+    }
+
+    const intake = resolveNewProduct(raw, bodyUrl.url);
+    if (intake.error) return intake.error;
+    return startNewSubmission(request, env, intake);
+}
+
+// Step 1: length rules on the raw input, before any parsing.
+function validateRawInput(raw) {
+    if (raw.length < PRODUCT_MIN_LEN) {
         return jsonResponse({ error: `Product must be at least ${PRODUCT_MIN_LEN} characters` }, 400);
     }
-    if (product.length > PRODUCT_MAX_LEN) {
-        return jsonResponse({ error: `Product must be under ${PRODUCT_MAX_LEN} characters` }, 400);
+    if (raw.length > PRODUCT_INPUT_MAX_LEN) {
+        return jsonResponse({ error: `Product must be under ${PRODUCT_INPUT_MAX_LEN} characters` }, 400);
     }
-    if ((product.match(/[a-z0-9]/gi) || []).length < 3) {
-        return jsonResponse({ error: 'Product must contain at least 3 letters or numbers' }, 400);
+    return null;
+}
+
+// The optional productUrl body field. Returns { url } or { error }.
+function readBodyProductUrl(value) {
+    if (value == null || value === '') return { url: null };
+    if (!isHttpUrl(value)) {
+        return { error: jsonResponse({ error: 'productUrl must be a valid http(s) URL' }, 400) };
     }
+    return { url: String(value).trim() };
+}
+
+// Step 3: derive name, url, and key from the input, then validate and screen the name.
+// Returns { name, productUrl, key } or { error }.
+function resolveNewProduct(raw, bodyUrl) {
+    const parsed = parseProductInput(raw);
+    if (parsed.kind === 'url' && !parsed.url) {
+        return { error: jsonResponse({ error: LINK_BLOCKED_MESSAGE }, 400) };
+    }
+    if (parsed.kind === 'url' && !parsed.name) {
+        return { error: jsonResponse({ error: NAME_REQUIRED_MESSAGE, code: 'name_required' }, 422) };
+    }
+    // A typed name keeps the old length rule on the full text (parseProductInput caps it silently).
+    const name = parsed.kind === 'name' ? raw : parsed.name;
+    const nameError = validateName(name);
+    if (nameError) return { error: nameError };
 
     // CONTENT SAFETY: deterministic, fail-closed screen allowing product URLs —
     // never create a row, enqueue, or research a blocked query.
-    const screen = screenQuery(product, { allowUrl: true });
+    const screen = screenQuery(name, { allowUrl: true });
     if (screen.blocked) {
-        return jsonResponse({ error: rejectionMessage(screen.reason), rejected: true, reason: screen.reason }, 422);
+        return { error: jsonResponse({ error: rejectionMessage(screen.reason), rejected: true, reason: screen.reason }, 422) };
     }
+    return { name, productUrl: bodyUrl || parsed.url, key: parsed.key || null };
+}
 
-    let productUrl = null;
-    if (body.productUrl != null && body.productUrl !== '') {
-        if (!isHttpUrl(body.productUrl)) {
-            return jsonResponse({ error: 'productUrl must be a valid http(s) URL' }, 400);
-        }
-        productUrl = String(body.productUrl).trim();
+function validateName(name) {
+    if (!name || name.length < PRODUCT_MIN_LEN) {
+        return jsonResponse({ error: `Product must be at least ${PRODUCT_MIN_LEN} characters` }, 400);
     }
+    if (name.length > PRODUCT_NAME_MAX_LEN) {
+        return jsonResponse({ error: `Product must be under ${PRODUCT_NAME_MAX_LEN} characters` }, 400);
+    }
+    if ((name.match(/[a-z0-9]/gi) || []).length < PRODUCT_MIN_ALNUM) {
+        return jsonResponse({ error: `Product must contain at least ${PRODUCT_MIN_ALNUM} letters or numbers` }, 400);
+    }
+    return null;
+}
 
-    const reportId = typeof body.reportId === 'string' ? body.reportId.trim() : '';
-
-    // Wallet-DoS defense. Same generous per-IP velocity cap as /api/research,
-    // and the same layering: the atomic RL_BURST binding caps concurrency
-    // (10/60s) in front of the non-atomic KV hourly window.
-    // Applies to both new submissions and resubmits (both enqueue paid work).
-    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+// Wallet-DoS defense. Same generous per-IP velocity cap as /api/research,
+// and the same layering: the atomic RL_BURST binding caps concurrency
+// (10/60s) in front of the non-atomic KV hourly window.
+// Applies to new submissions, reuse hits, and resubmits alike.
+// Returns a 429 Response, or null when the caller may proceed.
+async function velocityGate(env, clientIp) {
     const rateKey = await ipRateKey('verify', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
         ? await checkRateLimit(env.KV, rateKey, 20, 3600)
         : burst;
-    if (!velocity.allowed) {
-        const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
-        return jsonResponse(
-            { error: 'Too many verification runs from your connection in the last hour. Please try again shortly.' },
-            429,
-            { 'Retry-After': String(retryAfter) },
-        );
-    }
+    if (velocity.allowed) return null;
+    const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
+    return jsonResponse(
+        { error: 'Too many verification runs from your connection in the last hour. Please try again shortly.' },
+        429,
+        { 'Retry-After': String(retryAfter) },
+    );
+}
 
+async function budgetGate(env) {
     if (await budgetExhausted(env)) {
         return jsonResponse({ error: 'Monthly research budget exhausted — resets at the start of next month.' }, 503);
     }
-
-    if (reportId) {
-        return handleResubmit(env, reportId, product, productUrl);
-    }
-
-    const sessionUser = await getSessionUser(request, env);
-    return handleNewSubmission(env, product, productUrl, sessionUser, clientIp);
+    return null;
 }
 
-async function handleNewSubmission(env, product, productUrl, sessionUser, clientIp) {
+function clientIpOf(request) {
+    return request.headers.get('CF-Connecting-IP') || 'unknown';
+}
+
+async function startResubmit(request, env, reportId, productUrl) {
+    const blocked = await velocityGate(env, clientIpOf(request)) || await budgetGate(env);
+    if (blocked) return blocked;
+    return handleResubmit(env, reportId, productUrl);
+}
+
+async function startNewSubmission(request, env, intake) {
+    const clientIp = clientIpOf(request);
+    const throttled = await velocityGate(env, clientIp);
+    if (throttled) return throttled;
+
+    // Step 5: a saved verdict costs nothing. No quota, no budget gate, no queue, no row.
+    const saved = await lookupSavedVerdict(env.DB, intake.key);
+    if (saved) {
+        return jsonResponse({ id: saved.id, slug: saved.slug, status: 'completed', reused: true, checkedAt: saved.completed_at });
+    }
+
+    const overBudget = await budgetGate(env);
+    if (overBudget) return overBudget;
+
+    const sessionUser = await getSessionUser(request, env);
+    return handleNewSubmission(env, intake, sessionUser, clientIp);
+}
+
+/**
+ * Newest complete verification with this key that completed at or after
+ * nowSec - VERIFY_REUSE_MAX_AGE_DAYS days. Retired rows never match.
+ * Returns { id, slug, completed_at } or null.
+ */
+export async function findSavedVerdict(db, key, nowSec) {
+    if (!key || VERIFY_REUSE_MAX_AGE_DAYS <= 0) return null;
+    const since = nowSec - VERIFY_REUSE_MAX_AGE_DAYS * DAY_SECONDS;
+    const row = await db.prepare(
+        `SELECT id, slug, completed_at FROM research
+          WHERE canonical_query = ?1 AND kind = 'verification' AND status = 'complete'
+            AND completed_at >= ?2 AND retired_at IS NULL
+          ORDER BY completed_at DESC, id DESC LIMIT 1`
+    ).bind(key, since).first();
+    return row ? { id: row.id, slug: row.slug, completed_at: row.completed_at } : null;
+}
+
+// A failed lookup must not block a paid run: log it and treat it as a miss.
+async function lookupSavedVerdict(db, key) {
+    if (!key) return null;
+    try {
+        return await findSavedVerdict(db, key, Math.floor(Date.now() / 1000));
+    } catch (err) {
+        console.error('[verify] saved verdict lookup failed, starting a new run. key:', key,
+            'error:', err instanceof Error ? err.message : String(err));
+        return null;
+    }
+}
+
+async function handleNewSubmission(env, intake, sessionUser, clientIp) {
+    const { name, productUrl, key } = intake;
     // Free-tier gate: only a brand-new verification submission consumes
     // quota — a needs_input resubmit is a continuation of a run already
     // paid for, so it goes through handleResubmit below untouched.
@@ -114,15 +227,15 @@ async function handleNewSubmission(env, product, productUrl, sessionUser, client
     }
 
     const id = generateId();
-    const slug = generateSlug(product, id);
+    const slug = generateSlug(name, id);
 
     await env.DB.prepare(
-        `INSERT INTO research (id, slug, query, status, kind, subject_url, created_at)
-         VALUES (?, ?, ?, 'pending', 'verification', ?, ?)`
-    ).bind(id, slug, product, productUrl, Math.floor(Date.now() / 1000)).run();
+        `INSERT INTO research (id, slug, query, status, kind, subject_url, canonical_query, created_at)
+         VALUES (?, ?, ?, 'pending', 'verification', ?, ?, ?)`
+    ).bind(id, slug, name, productUrl, key, Math.floor(Date.now() / 1000)).run();
 
     try {
-        await env.RESEARCH_QUEUE.send({ reportId: id, kind: 'verification', product, productUrl });
+        await env.RESEARCH_QUEUE.send({ reportId: id, kind: 'verification', product: name, productUrl });
     } catch (err) {
         console.error('[verify] queue send failed:', err instanceof Error ? err.message : String(err));
         try {
@@ -138,7 +251,7 @@ async function handleNewSubmission(env, product, productUrl, sessionUser, client
     return jsonResponse({ id, slug, status: 'pending' });
 }
 
-async function handleResubmit(env, reportId, product, productUrl) {
+async function handleResubmit(env, reportId, productUrl) {
     if (!productUrl) {
         return jsonResponse({ error: 'productUrl is required to resubmit' }, 400);
     }
@@ -160,7 +273,7 @@ async function handleResubmit(env, reportId, product, productUrl) {
     }
 
     try {
-        await env.RESEARCH_QUEUE.send({ reportId, kind: 'verification', product, productUrl });
+        await env.RESEARCH_QUEUE.send({ reportId, kind: 'verification', product: row.query, productUrl });
     } catch (err) {
         console.error('[verify] resubmit queue send failed:', err instanceof Error ? err.message : String(err));
         try {
