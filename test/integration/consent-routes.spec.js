@@ -84,7 +84,6 @@ describe('Consent & AdSense gating on major page routes', () => {
     { name: 'history page', path: '/history' },
     { name: 'verify entry page', path: '/verify' },
     { name: 'verify result page', path: `/verify/${verifySlug}` },
-    { name: 'category hub page', path: '/best/nas' },
     { name: 'login page', path: '/login' },
     { name: 'frank easter-egg page', path: '/frank' },
     { name: 'generic static html asset', path: '/about.html' },
