@@ -1,5 +1,6 @@
 // Full-coverage assertions for the remaining small pure modules:
-// status.js, guides.js, engine-config.js, ads.js, and html.js's pure helpers + layout().
+// status.js, guides.js, engine-config.js, ads.js, html.js's pure helpers + layout(),
+// and product-link.js.
 import { apiStatus } from '../../worker/lib/status.js';
 import { STATIC_GUIDES, STATIC_GUIDE_SLUGS, GUIDES_LASTMOD } from '../../worker/lib/guides.js';
 import { ENGINE_CONFIG } from '../../worker/lib/engine-config.js';
@@ -8,6 +9,13 @@ import { html, raw, jsonForScript, jsonLdScript, layout } from '../../worker/lib
 import { searchBar } from '../../worker/lib/search-bar.js';
 import { screenQuery, rejectionMessage } from '../../worker/lib/safety.js';
 import { buildResearchSeo } from '../../worker/pages/research-jsonld.js';
+import {
+  PRODUCT_INPUT_MAX_LEN,
+  PRODUCT_NAME_MAX_LEN,
+  VERIFY_KEY_PREFIX,
+  parseProductInput,
+  productNameKey,
+} from '../../worker/lib/product-link.js';
 
 export function runLibPureTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -116,5 +124,69 @@ export function runLibPureTests() {
     }
   }
 
+  // product-link.js
+  runProductLinkTests(eq, ok);
+
   return report;
+}
+
+// product-link.js (refocus 2026-10, plan piece 10): what a person pastes into
+// the Verify box becomes { kind, name, url, key }. Fields compare one by one,
+// so the key order of the result does not matter.
+const PRODUCT_LINK_CASES = [
+  ['typed name', 'Sony WH-1000XM6',
+    { kind: 'name', name: 'Sony WH-1000XM6', url: null, key: 'verify:name:1000xm6 sony wh' }],
+  ['typed name, other word order', 'WH-1000XM6 sony',
+    { kind: 'name', url: null, key: 'verify:name:1000xm6 sony wh' }],
+  ['amazon long link', 'https://www.amazon.com/Sony-WH-1000XM6-Cancelling-Headphones/dp/B0F3PT1VBL/ref=sr_1_1?crid=X&th=1',
+    { kind: 'url', name: 'Sony WH 1000XM6 Cancelling Headphones', url: 'https://www.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
+  ['amazon lowercase asin', 'https://www.amazon.com/dp/b0f3pt1vbl',
+    { kind: 'url', name: null, url: 'https://www.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
+  ['amazon.co.uk gp/product', 'https://www.amazon.co.uk/gp/product/B0F3PT1VBL',
+    { kind: 'url', url: 'https://www.amazon.co.uk/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
+  ['best buy http link with query', 'http://www.bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p?skuId=6612345',
+    { kind: 'url', name: 'sony wh1000xm6 wireless headphones',
+      url: 'https://www.bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p',
+      key: 'verify:url:bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p' }],
+  ['share text with a.co link', 'Sony WH-1000XM6 https://a.co/d/abc123',
+    { kind: 'url', name: 'Sony WH-1000XM6', url: 'https://a.co/d/abc123', key: 'verify:name:1000xm6 sony wh' }],
+  ['bare a.co link', 'https://a.co/d/abc123',
+    { kind: 'url', name: null, url: 'https://a.co/d/abc123', key: null }],
+  ['private IP link', 'https://192.168.1.10/product',
+    { kind: 'url', name: null, url: null, key: null }],
+  ['trailing ) after a link', 'see https://example.com/p/widget-pro-max)',
+    { kind: 'url', url: 'https://example.com/p/widget-pro-max' }],
+  ['javascript: scheme is not a link', 'javascript:alert(1)',
+    { kind: 'name' }],
+  ['empty input', '',
+    { kind: 'name', name: null, url: null, key: null }],
+];
+
+function runProductLinkTests(eq, ok) {
+  eq('PRODUCT_INPUT_MAX_LEN', PRODUCT_INPUT_MAX_LEN, 2048);
+  eq('PRODUCT_NAME_MAX_LEN', PRODUCT_NAME_MAX_LEN, 200);
+  eq('VERIFY_KEY_PREFIX', VERIFY_KEY_PREFIX, 'verify:');
+
+  for (const [label, input, expected] of PRODUCT_LINK_CASES) {
+    const out = parseProductInput(input);
+    for (const [field, value] of Object.entries(expected)) {
+      eq(`parseProductInput ${label}: ${field}`, out ? out[field] : out, value);
+    }
+  }
+
+  const air2024 = parseProductInput('MacBook Air 2024').key;
+  const air2022 = parseProductInput('MacBook Air 2022').key;
+  ok('MacBook Air 2024 has a key', typeof air2024 === 'string');
+  ok('MacBook Air 2024 and 2022 keys differ', air2024 !== air2022);
+  ok('trailing ) is gone from url', !String(parseProductInput('see https://example.com/p/widget-pro-max)').url).includes(')'));
+
+  const longName = parseProductInput('a'.repeat(PRODUCT_NAME_MAX_LEN + 50)).name;
+  eq('typed name is capped at PRODUCT_NAME_MAX_LEN', longName ? longName.length : longName, PRODUCT_NAME_MAX_LEN);
+
+  eq('productNameKey sorts unique lowercase tokens', productNameKey('Sony WH-1000XM6 sony'), 'verify:name:1000xm6 sony wh');
+  eq('productNameKey with no token → null', productNameKey('!!! ---'), null);
+  eq('productNameKey empty → null', productNameKey(''), null);
+
+  ok('parseProductInput result is frozen', Object.isFrozen(parseProductInput('Sony WH-1000XM6')));
+  ok('parseProductInput url result is frozen', Object.isFrozen(parseProductInput('https://www.amazon.com/dp/B0F3PT1VBL')));
 }
