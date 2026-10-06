@@ -1,6 +1,7 @@
 // Deterministic verdict-core coverage: evidenceWeight/clamp01, verdictForClaim
 // (status thresholds, confidence, sort/tie-break, determinism), and
-// overallVerdict (claim-type weighting, score bands, empty input).
+// overallVerdict (honest score over decided claims only, claim-type
+// weighting, score bands, the not-enough-evidence state).
 import {
   clamp01,
   evidenceWeight,
@@ -11,6 +12,9 @@ import {
   CONTRADICT_MIN,
   WEAK_SUPPORT,
 } from '../../worker/lib/verdict.js';
+// Namespace import for the refocus 2026-10 constants: a missing export then
+// fails only these assertions, not the load of every suite in the runner.
+import * as verdictLib from '../../worker/lib/verdict.js';
 
 export function runVerdictTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -117,50 +121,82 @@ export function runVerdictTests() {
     ok('weights rounded to 3 decimals', v.supporting.every((e) => Number.isFinite(e.weight)));
   }
 
-  // ── overallVerdict: boundary labels ─────────────────────────────────────
+  // ── overallVerdict: band labels (every claim decided) ───────────────────
   {
-    eq('empty overall → Insufficient evidence', overallVerdict([]), { score: 0, label: 'Insufficient evidence' });
-    eq('non-array overall → Insufficient evidence', overallVerdict(undefined), { score: 0, label: 'Insufficient evidence' });
-
     const highBand = overallVerdict([
       { status: 'verified', claimType: 'spec' },
       { status: 'verified', claimType: 'spec' },
       { status: 'verified', claimType: 'marketing' },
       { status: 'partially-verified', claimType: 'support' },
     ]);
-    ok('~85 band lands >= 80', highBand.score >= 80);
-    eq('~85 band label', highBand.label, 'Lives up to its claims');
+    ok('~89 band lands >= 80', highBand.score >= 80);
+    eq('~89 band label', highBand.label, 'Lives up to its claims');
 
     const midHighBand = overallVerdict([
       { status: 'verified', claimType: 'support' },
       { status: 'partially-verified', claimType: 'support' },
     ]);
-    ok('~65 band lands in [60,80)', midHighBand.score >= 60 && midHighBand.score < 80);
-    eq('~65 band label', midHighBand.label, 'Mostly holds up');
+    ok('~75 band lands in [60,80)', midHighBand.score >= 60 && midHighBand.score < 80);
+    eq('~75 band label', midHighBand.label, 'Mostly holds up');
 
     const midBand = overallVerdict([
       { status: 'partially-verified', claimType: 'support' },
       { status: 'partially-verified', claimType: 'support' },
-      { status: 'unsubstantiated', claimType: 'support' },
     ]);
-    ok('~45 band lands in [40,60)', midBand.score >= 40 && midBand.score < 60);
-    eq('~45 band label', midBand.label, 'Mixed — verify the specifics');
+    ok('~50 band lands in [40,60)', midBand.score >= 40 && midBand.score < 60);
+    eq('~50 band label', midBand.label, 'Mixed — verify the specifics');
 
     const lowBand = overallVerdict([
       { status: 'partially-verified', claimType: 'support' },
-      { status: 'unsubstantiated', claimType: 'support' },
       { status: 'contradicted', claimType: 'support' },
     ]);
     ok('~25 band lands in [20,40)', lowBand.score >= 20 && lowBand.score < 40);
     eq('~25 band label', lowBand.label, 'Falls short of its claims');
 
     const bottomBand = overallVerdict([
-      { status: 'unsubstantiated', claimType: 'support' },
+      { status: 'partially-verified', claimType: 'support' },
+      { status: 'contradicted', claimType: 'support' },
       { status: 'contradicted', claimType: 'support' },
       { status: 'contradicted', claimType: 'support' },
     ]);
-    ok('~10 band lands < 20', bottomBand.score < 20);
-    eq('~10 band label', bottomBand.label, 'Does not live up to its claims');
+    ok('~13 band lands < 20', bottomBand.score < 20);
+    eq('~13 band label', bottomBand.label, 'Does not live up to its claims');
+  }
+
+  // ── overallVerdict: honest score over decided claims only (spec 4.5) ────
+  {
+    const { MIN_CHECKED_CLAIMS, MIN_CHECKED_SHARE, INSUFFICIENT_EVIDENCE_LABEL } = verdictLib;
+    eq('MIN_CHECKED_CLAIMS is 2', MIN_CHECKED_CLAIMS, 2);
+    eq('MIN_CHECKED_SHARE is 0.25', MIN_CHECKED_SHARE, 0.25);
+    eq('INSUFFICIENT_EVIDENCE_LABEL text', INSUFFICIENT_EVIDENCE_LABEL, 'Not enough independent evidence');
+
+    const claims = (status, n) => Array.from({ length: n }, () => ({ status, claimType: 'support' }));
+    // Compare field by field so the key order of the result does not matter.
+    const fields = (name, actual, expected) => {
+      for (const [k, v] of Object.entries(expected)) eq(`${name}: ${k}`, actual ? actual[k] : actual, v);
+    };
+    const noNumber = { score: null, label: INSUFFICIENT_EVIDENCE_LABEL };
+
+    fields('[] → no number', overallVerdict([]), { ...noNumber, checkedCount: 0, claimCount: 0 });
+    fields('undefined → no number', overallVerdict(undefined), { ...noNumber, checkedCount: 0, claimCount: 0 });
+    fields('4 unsubstantiated → no number', overallVerdict(claims('unsubstantiated', 4)),
+      { ...noNumber, checkedCount: 0, claimCount: 4 });
+    fields('1 verified + 3 unsubstantiated → no number (1 decided < 2)',
+      overallVerdict([...claims('verified', 1), ...claims('unsubstantiated', 3)]),
+      { ...noNumber, checkedCount: 1, claimCount: 4 });
+    fields('2 verified + 7 unsubstantiated → no number (2/9 < 0.25)',
+      overallVerdict([...claims('verified', 2), ...claims('unsubstantiated', 7)]),
+      { ...noNumber, checkedCount: 2, claimCount: 9 });
+    fields('2 verified + 6 unsubstantiated → 100 (2/8 meets the floor)',
+      overallVerdict([...claims('verified', 2), ...claims('unsubstantiated', 6)]),
+      { score: 100, label: 'Lives up to its claims', checkedCount: 2, claimCount: 8 });
+
+    const decidedOnly = overallVerdict([...claims('verified', 1), ...claims('contradicted', 1)]);
+    const withUnsubstantiated = overallVerdict([
+      ...claims('verified', 1), ...claims('contradicted', 1), ...claims('unsubstantiated', 2),
+    ]);
+    ok('decided-only score is a number', typeof decidedOnly.score === 'number');
+    eq('unsubstantiated claims do not move the score', withUnsubstantiated.score, decidedOnly.score);
   }
 
   // ── verificationWeight (strict-(a): hands-on measurement survives affiliate) ─
@@ -381,6 +417,8 @@ export function runVerdictTests() {
       { status: 'verified', claimType: 'support' },
       { status: 'contradicted', claimType: 'marketing' },
     ]);
+    ok('weighted scores are numbers (2 of 2 claims decided)',
+      typeof specContradicted.score === 'number' && typeof marketingContradicted.score === 'number');
     ok('spec contradiction weighs more than marketing contradiction', specContradicted.score < marketingContradicted.score);
   }
 

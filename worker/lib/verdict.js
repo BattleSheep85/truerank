@@ -32,13 +32,20 @@ const SCORE_BANDS = [
   { min: 0, label: 'Does not live up to its claims' },
 ];
 
-// Per-status contribution to the overall score (see overallVerdict).
+// Per-status contribution to the overall score (see overallVerdict). Only
+// decided statuses are here: an unsubstantiated claim counts neither for nor
+// against the product (spec section 4.5).
 const STATUS_VALUE = Object.freeze({
   verified: 1.0,
   'partially-verified': 0.5,
-  unsubstantiated: 0.2,
   contradicted: 0.0,
 });
+
+// overallVerdict() gives no number when independent evidence decided fewer
+// than MIN_CHECKED_CLAIMS claims, or less than MIN_CHECKED_SHARE of them.
+export const MIN_CHECKED_CLAIMS = 2;
+export const MIN_CHECKED_SHARE = 0.25;
+export const INSUFFICIENT_EVIDENCE_LABEL = 'Not enough independent evidence';
 
 // Per-claim-type weight multiplier for overallVerdict's weighted mean. Spec
 // and warranty claims are the most consequential to get wrong (a false spec
@@ -261,34 +268,50 @@ function scoreBandLabel(score) {
   return SCORE_BANDS[SCORE_BANDS.length - 1].label;
 }
 
+function isDecided(cv) {
+  return Boolean(cv) && Object.hasOwn(STATUS_VALUE, cv.status);
+}
+
+function hasEnoughEvidence(checkedCount, claimCount) {
+  return claimCount > 0
+    && checkedCount >= MIN_CHECKED_CLAIMS
+    && checkedCount / claimCount >= MIN_CHECKED_SHARE;
+}
+
 /**
  * Aggregates a set of per-claim verdicts (as produced by verdictForClaim,
  * each additionally carrying a `claimType`) into an overall score/label.
  *
- * Each verdict status maps to a value (verified=1.0, partially-verified=0.5,
- * unsubstantiated=0.2, contradicted=0.0), weighted by claim type (spec and
- * warranty claims count 1.5x — factual failures there are the most
- * consequential; marketing counts 0.75x — largely subjective puffery;
- * support counts 1.0x baseline; unknown types default to 1.0x). score is
- * round(100 * weightedMean). Empty input → { score: 0, label: 'Insufficient
- * evidence' }.
+ * Only decided claims feed the score: verified=1.0, partially-verified=0.5,
+ * contradicted=0.0. Unsubstantiated (and unknown) statuses count toward
+ * claimCount only. Each decided claim is weighted by claim type (spec and
+ * warranty 1.5x, support 1.0x, marketing 0.75x, unknown types 1.0x). score is
+ * round(100 * weightedMean) over decided claims, and SCORE_BANDS give the label.
+ *
+ * score is null and label is INSUFFICIENT_EVIDENCE_LABEL when claimCount is 0,
+ * checkedCount < MIN_CHECKED_CLAIMS, or checkedCount / claimCount <
+ * MIN_CHECKED_SHARE. A non-array input acts like [].
+ *
+ * @param {Array<{status: string, claimType?: string}>} claimVerdicts
+ * @returns {{ score: number|null, label: string, checkedCount: number, claimCount: number }}
  */
 export function overallVerdict(claimVerdicts) {
   const list = Array.isArray(claimVerdicts) ? claimVerdicts : [];
-  if (list.length === 0) {
-    return { score: 0, label: 'Insufficient evidence' };
+  const decided = list.filter(isDecided);
+  const claimCount = list.length;
+  const checkedCount = decided.length;
+  if (!hasEnoughEvidence(checkedCount, claimCount)) {
+    return { score: null, label: INSUFFICIENT_EVIDENCE_LABEL, checkedCount, claimCount };
   }
 
   let weightedSum = 0;
   let weightTotal = 0;
-  for (const cv of list) {
-    const value = STATUS_VALUE[cv && cv.status] ?? 0;
-    const weight = CLAIM_TYPE_WEIGHT[cv && cv.claimType] ?? DEFAULT_CLAIM_TYPE_WEIGHT;
-    weightedSum += value * weight;
+  for (const cv of decided) {
+    const weight = Object.hasOwn(CLAIM_TYPE_WEIGHT, cv.claimType) ? CLAIM_TYPE_WEIGHT[cv.claimType] : DEFAULT_CLAIM_TYPE_WEIGHT;
+    weightedSum += STATUS_VALUE[cv.status] * weight;
     weightTotal += weight;
   }
 
-  const mean = weightTotal > 0 ? weightedSum / weightTotal : 0;
-  const score = Math.round(100 * mean);
-  return { score, label: scoreBandLabel(score) };
+  const score = Math.round((100 * weightedSum) / weightTotal);
+  return { score, label: scoreBandLabel(score), checkedCount, claimCount };
 }
