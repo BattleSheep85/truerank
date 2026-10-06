@@ -11,6 +11,10 @@ import { escapeHtml, displayQuery, isValidHttpsUrl, parseJsonSafe } from '../lib
 import { getResearchBySlug, findRankingForCategory } from '../lib/db.js';
 import { buildAffiliateUrl, retailerLabel, resolveAmazonTag } from '../lib/affiliate-links.js';
 import { starMarkup, renderItemImage } from './research-primitives.js';
+import { overallVerdict, INSUFFICIENT_EVIDENCE_LABEL } from '../lib/verdict.js';
+
+// Longest prefill the entry form keeps. A pasted product link can be long.
+const MAX_PREFILL_LENGTH = 2048;
 
 /**
  * GET /verify — the product-entry form. `prefillProduct` comes from the
@@ -19,7 +23,7 @@ import { starMarkup, renderItemImage } from './research-primitives.js';
  * auto-submitted, so the user still confirms before spending a verify run.
  */
 export function renderVerifyEntryPage(prefillProduct = '') {
-    const prefill = String(prefillProduct || '').slice(0, 200);
+    const prefill = String(prefillProduct || '').slice(0, MAX_PREFILL_LENGTH);
     const body = `<div class="grid-bg border-b border-line">
 <div class="mx-auto max-w-3xl px-6 py-12 md:py-16">
 <nav aria-label="Breadcrumb" class="mb-6 font-mono text-[11px] uppercase tracking-widest text-ink-3">
@@ -30,12 +34,12 @@ export function renderVerifyEntryPage(prefillProduct = '') {
 
 <p class="font-mono text-[11px] uppercase tracking-widest text-ink-3">Instrument &middot; Claim verification console</p>
 <h1 class="mt-3 font-serif text-h1 font-semibold text-ink">Verify a product&rsquo;s claims</h1>
-<p class="mt-3 max-w-xl text-body text-ink-2">Tell us a product. We check what it claims about itself against independent sources &mdash; specs, reviews, warranty terms &mdash; and score how well the claims hold up.</p>
+<p class="mt-3 max-w-xl text-body text-ink-2">Paste a product link or type its name. We check what it claims about itself against independent sources &mdash; specs, reviews, warranty terms &mdash; and score how well the claims hold up.</p>
 
 <form id="verify-form" class="verify-form mt-8 border border-line bg-surface-1">
 <div class="flex flex-col gap-0 sm:flex-row">
-<label for="verify-product" class="sr-only">Product to verify</label>
-<input type="text" id="verify-product" name="product" required minlength="3" maxlength="200" placeholder="INPUT_PRODUCT :: e.g. Anker Soundcore Liberty 4 NC" value="${escapeHtml(prefill)}" class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 focus:bg-surface-2 sm:border-b-0 sm:border-r">
+<label for="verify-product" class="sr-only">Product link or name</label>
+<input type="text" id="verify-product" name="product" required minlength="3" maxlength="${MAX_PREFILL_LENGTH}" placeholder="Paste a product link or type its name" value="${escapeHtml(prefill)}" class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 focus:bg-surface-2 sm:border-b-0 sm:border-r">
 <button type="submit" id="verify-submit" class="shrink-0 bg-ink px-6 py-4 font-mono text-sm font-semibold uppercase tracking-wide text-bg transition-colors hover:bg-accent">Verify it &#9656;</button>
 </div>
 </form>
@@ -346,8 +350,12 @@ function verdictPill(status) {
 
 // Overall score band -> trust color + glyph, per the brief's thresholds.
 // Icon travels with the color so the band is never color-only.
+// A null score (not enough evidence) gets the neutral band.
+const NEUTRAL_BAND = { bg: 'bg-surface-2', text: 'text-ink-3', stroke: 'text-ink-3', glyph: '&#9650;' };
+
 function scoreBandClasses(score) {
-    const n = Number(score) || 0;
+    if (typeof score !== 'number') return NEUTRAL_BAND;
+    const n = score;
     if (n >= 80) return { bg: 'bg-trust-high-bg', text: 'text-trust-high', stroke: 'text-trust-high', glyph: '&#10003;' };
     if (n >= 60) return { bg: 'bg-trust-high-bg', text: 'text-trust-high', stroke: 'text-trust-high', glyph: '&#10003;' };
     if (n >= 40) return { bg: 'bg-trust-medium-bg', text: 'text-trust-medium', stroke: 'text-trust-medium', glyph: '&#9680;' };
@@ -498,7 +506,8 @@ function sortedClaims(claims) {
 // 2*pi*52 ≈ 326.73; dash-offset is computed from the 0-100 score so the arc
 // fills clockwise from the top.
 function renderScoreGauge(score, band) {
-    const n = Math.max(0, Math.min(100, Number(score) || 0));
+    if (typeof score !== 'number') return renderNoScoreGauge();
+    const n = Math.max(0, Math.min(100, score));
     const circumference = 326.73;
     const offset = (circumference * (100 - n)) / 100;
     return `<div class="relative mx-auto h-32 w-32 sm:h-36 sm:w-36">
@@ -509,6 +518,18 @@ function renderScoreGauge(score, band) {
 <div class="absolute inset-0 flex flex-col items-center justify-center">
 <span class="readout font-mono text-3xl font-bold text-ink sm:text-4xl">${escapeHtml(String(Math.round(n)))}</span>
 <span class="font-mono text-[10px] uppercase tracking-wide text-ink-3">/ 100</span>
+</div>
+</div>`;
+}
+
+// Empty gauge for a null score. It never shows a number.
+function renderNoScoreGauge() {
+    return `<div class="relative mx-auto h-32 w-32 sm:h-36 sm:w-36">
+<svg viewBox="0 0 120 120" class="h-full w-full -rotate-90" role="img" aria-label="No score. ${escapeHtml(INSUFFICIENT_EVIDENCE_LABEL)}">
+<circle cx="60" cy="60" r="52" fill="none" stroke="currentColor" stroke-width="10" class="text-line"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="readout font-mono text-sm font-bold text-ink-3">No score</span>
 </div>
 </div>`;
 }
@@ -553,14 +574,37 @@ ${Object.values(VERDICT_PILL).map((v) => `<div class="flex items-center gap-2">
 </div>`;
 }
 
-function renderVerdictHeader(prettyProduct, overall, claimCount, evidenceCount) {
+// Score pill text: "<n>/100" for a number, "No score" for null.
+function scoreReadout(score) {
+    return typeof score === 'number' ? `${score}/100` : 'No score';
+}
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Unix seconds to "Mon D, YYYY" in UTC. Gives '' for a missing or bad value.
+export function formatCheckedDate(unixSeconds) {
+    const secs = Number(unixSeconds);
+    if (!Number.isFinite(secs) || secs <= 0) return '';
+    const d = new Date(secs * 1000);
+    return `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+function renderVerdictMeta(overall, completedAt) {
+    const checkedOn = formatCheckedDate(completedAt);
+    return `<p class="mt-2 max-w-2xl text-body-sm text-ink-2">Frank found independent tests for ${escapeHtml(String(overall.checkedCount))} of ${escapeHtml(String(overall.claimCount))} claims.</p>
+${checkedOn ? `<p class="mt-1 font-mono text-[11px] text-ink-3">Checked on ${escapeHtml(checkedOn)}</p>` : ''}`;
+}
+
+function renderVerdictHeader(prettyProduct, overall, evidenceCount, completedAt) {
     const band = scoreBandClasses(overall.score);
+    const claimCount = overall.claimCount;
     return `<div>
 <div class="flex flex-wrap items-center gap-3">
 <span aria-hidden="true" class="text-2xl ${band.text}">${band.glyph}</span>
-<p class="font-sans text-2xl font-bold text-ink sm:text-3xl">${escapeHtml(overall.label || 'Unknown')}</p>
-<span class="inline-flex items-center gap-1 border border-current px-2 py-1 font-mono text-xs font-semibold ${band.text}">${escapeHtml(String(overall.score ?? 0))}/100</span>
+<p class="font-sans text-2xl font-bold text-ink sm:text-3xl">${escapeHtml(overall.label)}</p>
+<span class="inline-flex items-center gap-1 border border-current px-2 py-1 font-mono text-xs font-semibold ${band.text}">${escapeHtml(scoreReadout(overall.score))}</span>
 </div>
+${renderVerdictMeta(overall, completedAt)}
 <p class="mt-3 max-w-2xl text-body-sm text-ink-2">We audited ${escapeHtml(String(claimCount))} of ${escapeHtml(prettyProduct)}&rsquo;s claims against ${escapeHtml(String(evidenceCount))} independent evidence source${evidenceCount === 1 ? '' : 's'}.</p>
 </div>`;
 }
@@ -617,14 +661,33 @@ ${hasBuyLink ? `<a href="${escapeHtml(affiliateUrl)}" target="_blank" rel="noope
 // flow when no matching ranking exists yet. `findRanking` is injected
 // (defaults to the real db.js helper) so the unit layer can test this
 // without a DB.
+/**
+ * The verdict to show for a stored verification result. Computes it again from
+ * result.claims with overallVerdict. Never reads result.overall or row.overall_score.
+ * Never throws: a missing, non-object, or non-array input gives
+ * { score: null, label: INSUFFICIENT_EVIDENCE_LABEL, checkedCount: 0, claimCount: 0 }.
+ */
+export function honestOverall(result) {
+    const claims = result && typeof result === 'object' && Array.isArray(result.claims) ? result.claims : [];
+    try {
+        return overallVerdict(claims);
+    } catch {
+        return { score: null, label: INSUFFICIENT_EVIDENCE_LABEL, checkedCount: 0, claimCount: 0 };
+    }
+}
+
+// Only a real number below 50 is low. A null score is not low.
+function isLowHonestScore(score) {
+    return typeof score === 'number' && score < 50;
+}
+
 export async function renderAlternatives(row, resultJson, env, findRanking = findRankingForCategory) {
     const category = String(
-        resultJson.category || row.category || row.topical_category || displayQuery(row.query) || ''
+        resultJson?.category || row.category || row.topical_category || displayQuery(row.query) || ''
     ).trim();
     if (!category) return '';
 
-    const score = Number(resultJson?.overall?.score);
-    const isLowScore = Number.isFinite(score) && score < 50;
+    const isLowScore = isLowHonestScore(honestOverall(resultJson).score);
 
     const heading = isLowScore
         ? 'This one falls short — here are better-rated options'
@@ -659,11 +722,29 @@ ${linkHtml}
 </div>`;
 }
 
+// Page title from the honest verdict. layout() adds " | Frank".
+function reportTitle(product, overall) {
+    return typeof overall.score === 'number'
+        ? `${product}: ${overall.score}/100, ${overall.label}`
+        : `${product}: claim check`;
+}
+
+// Meta description from the honest verdict. Old row.summary text can carry an old score.
+function reportDescription(product, overall) {
+    const coverage = `Frank found independent tests for ${overall.checkedCount} of ${overall.claimCount} claims.`;
+    const verdict = typeof overall.score === 'number'
+        ? `${overall.label} (${overall.score}/100).`
+        : `${overall.label}.`;
+    return `${product} claim check: ${verdict} ${coverage}`;
+}
+
 async function renderCompleteReport(row, env) {
     const prettyProduct = displayQuery(row.query);
-    const result = parseJsonSafe(row.result, {});
-    const claims = Array.isArray(result.claims) ? result.claims : [];
-    const overall = result.overall || { score: row.overall_score ?? 0, label: row.overall_verdict || 'Unknown' };
+    // Old rows can hold odd JSON (null, a number, a list). Treat those as empty.
+    const parsed = parseJsonSafe(row.result, {});
+    const result = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    const claims = Array.isArray(result.claims) ? result.claims.filter((c) => c && typeof c === 'object') : [];
+    const overall = honestOverall({ claims });
     const evidenceCount = Number.isFinite(result.evidenceCount) ? result.evidenceCount : 0;
     const productUrl = result.productUrl || row.subject_url || '';
 
@@ -678,8 +759,7 @@ ${sortedClaims(claims).map(renderClaimCard).join('')}
     // failed the audit should see better options before wading through why.
     // Healthy scores keep the section at the bottom, after the buy CTA, as a
     // lower-pressure "you might also like" nudge.
-    const score = Number(result?.overall?.score ?? row.overall_score);
-    const isLowScore = Number.isFinite(score) && score < 50;
+    const isLowScore = isLowHonestScore(overall.score);
     const alternativesHtml = await renderAlternatives(row, result, env);
 
     const body = `<div class="grid-bg border-b border-line">
@@ -695,7 +775,7 @@ ${sortedClaims(claims).map(renderClaimCard).join('')}
 <p class="font-mono text-[11px] uppercase tracking-widest text-ink-3">Readout &middot; Truth Audit</p>
 <h1 class="mt-2 mb-4 font-serif text-h1 font-semibold text-ink">${escapeHtml(prettyProduct)}</h1>
 
-${renderVerdictHeader(prettyProduct, overall, claims.length, evidenceCount)}
+${renderVerdictHeader(prettyProduct, overall, evidenceCount, row.completed_at)}
 ${renderInstrumentPanel(overall, claims, evidenceCount)}
 
 ${isLowScore ? alternativesHtml : ''}
@@ -713,8 +793,8 @@ ${isLowScore ? '' : alternativesHtml}
 
     return {
         html: layout(
-            prettyProduct,
-            row.summary || `Verification report for ${prettyProduct}.`,
+            reportTitle(prettyProduct, overall),
+            reportDescription(prettyProduct, overall),
             body,
             '',
             { ogUrl: `https://chrisputer.tech/verify/${row.slug}`, canonical: `https://chrisputer.tech/verify/${row.slug}` },
