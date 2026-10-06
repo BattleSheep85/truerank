@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TrueRank off-Cloudflare research worker (blackbox, track 2 / Approach B).
+// Frank off-Cloudflare research worker (blackbox, track 2 / Approach B).
 //
 // Polls Cloudflare for pending research jobs, runs the PARALLEL engine on this
 // host with no subrequest/time cap and high concurrency, then hands the finished

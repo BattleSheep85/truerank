@@ -65,11 +65,11 @@ async function main() {
 
     const raw = buildMimeMessage({
         from: username,
-        fromName: 'Chris at TrueRank',
+        fromName: 'Chris at Frank',
         to,
-        subject: 'TrueRank mail path check',
-        text: 'This is a one-off check of the TrueRank mail path. No action is needed.\n',
-        html: '<p>This is a one-off check of the TrueRank mail path. No action is needed.</p>',
+        subject: 'Frank mail path check',
+        text: 'This is a one-off check of the Frank mail path. No action is needed.\n',
+        html: '<p>This is a one-off check of the Frank mail path. No action is needed.</p>',
     });
 
     const result = await sendViaSmtp({

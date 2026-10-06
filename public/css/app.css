@@ -1,4 +1,4 @@
-/* TrueRank - design tokens + base styles.
+/* Frank - design tokens + base styles.
    Editorial-authority system: serif headlines, sans UI, mono numerals.
    Theming is done with CSS variables; a single `.dark` class on <html> flips
    every token. Tailwind utilities (see tailwind.config.cjs) alias these vars

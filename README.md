@@ -1,8 +1,10 @@
-# TrueRank
+# Frank
 
 Honest product research. We search real reviews across the web (expert review sites, forums, and communities), filter out fakes and affiliate bait, and give you a sourced comparison report.
 
 > **Current stack of record:** `CLAUDE.md` is the authoritative, always-current description of the models, search providers, and architecture. This README is a high-level overview; if the two disagree, `CLAUDE.md` wins.
+
+> **Name:** the product was renamed from TrueRank to Frank. Infrastructure identifiers keep the old name on purpose (Worker `truerank`, D1 `truerank-db`, queues, the `truerank-research-worker` container, `TRUERANK_*` secret keys in BWS, browser storage keys), because renaming them needs a coordinated redeploy and data migration.
 
 ## What it does
 

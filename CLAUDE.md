@@ -1,4 +1,4 @@
-# TrueRank — Honest Product Research Tool
+# Frank: Honest Product Research Tool
 
 ## Overview
 Product research web app that scrapes real reviews, filters out fakes/affiliate garbage,

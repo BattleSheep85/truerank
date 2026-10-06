@@ -22,8 +22,8 @@ Dependency-free Node — no `npm install`. Copy the entrypoint + the engine/lib 
 
 ```bash
 sudo mkdir -p /mnt/pods/truerank-research-worker/src
-rsync -a --delete ~/projects/truerank/worker /mnt/pods/truerank-research-worker/src/
-cp               ~/projects/truerank/research-worker.mjs /mnt/pods/truerank-research-worker/src/
+rsync -a --delete ~/projects/web/frank/worker /mnt/pods/truerank-research-worker/src/
+cp               ~/projects/web/frank/research-worker.mjs /mnt/pods/truerank-research-worker/src/
 # Re-run this rsync to ship engine updates, then restart the container.
 ```
 

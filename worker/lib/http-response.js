@@ -43,7 +43,7 @@ export function notFound(requestOrAccept) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>404 Not Found — TrueRank</title>
+  <title>404 Not Found | Frank</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 2rem; background: #0f172a; color: #f8fafc; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; }
     h1 { font-size: 3rem; margin: 0 0 0.5rem 0; color: #38bdf8; }

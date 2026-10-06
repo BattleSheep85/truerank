@@ -6,7 +6,7 @@ import {
   renderConsentBanner,
   CONSENT_COUNTRIES,
 } from '../../worker/lib/consent.js';
-import { htmlPageResponse, injectHtml } from '../../worker/lib/http-response.js';
+import { htmlPageResponse, injectHtml, notFound } from '../../worker/lib/http-response.js';
 
 export async function runConsentTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -162,6 +162,10 @@ export async function runConsentTests() {
     ok('No publisher ID: omits AdSense script', !text.includes('pagead2.googlesyndication.com'));
     ok('No publisher ID: omits consent banner', !text.includes('id="consent-banner"'));
   }
+
+  const nf = await notFound('text/html').text();
+  ok('404 html title names Frank', nf.includes('<title>404 Not Found | Frank</title>'));
+  ok('404 html has no TrueRank brand', !nf.includes('TrueRank'));
 
   return report;
 }

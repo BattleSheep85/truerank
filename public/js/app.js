@@ -1,5 +1,5 @@
 /**
- * TrueRank frontend - theme toggle, example queries, and the live research
+ * Frank frontend - theme toggle, example queries, and the live research
  * flow (submit -> queue -> SSE progress -> redirect). Reports are rendered
  * server-side at /research/:slug; on completion we always navigate there.
  */

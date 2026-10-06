@@ -1,4 +1,4 @@
-// TrueRank production Tailwind v3 build config (no package manager).
+// Frank production Tailwind v3 build config (no package manager).
 // Build with the standalone tailwindcss binary (see README "Build CSS"):
 //   ./tailwindcss -c tailwind.config.cjs -i build/input.css -o public/css/tailwind.css --minify
 // Colors alias CSS variables (defined in public/css/app.css) via color-mix so a
