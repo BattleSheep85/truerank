@@ -39,6 +39,7 @@ import { notFound, redirect301, maybe304, withSecurityHeaders, htmlPageResponse,
 import { handleResearchPage, handleBestHub, handleNewResearch, handleSearchSuggest } from './routes/pages.js';
 import { renderFrankPage } from './pages/frank-egg.js';
 import { deadUrlResponse } from './lib/dead-urls.js';
+import { isRetiredResearchSlug, retiredReportResponse } from './lib/retired.js';
 import { processResearchMessage, processVerificationMessage, runScheduledTick } from './jobs.js';
 
 // Dev-only HTTP Basic Auth wall. Active ONLY when BOTH DEV_AUTH_USER and
@@ -346,6 +347,8 @@ export default {
 
                 const slugMatch = path.match(/^\/research\/([a-z0-9-]+)$/);
                 if (slugMatch) {
+                    // Retired reports answer 410 before the KV page cache.
+                    if (await isRetiredResearchSlug(env.DB, slugMatch[1])) return retiredReportResponse(request);
                     return handleResearchPage(slugMatch[1], url, request, env, ctx);
                 }
 
