@@ -29,6 +29,7 @@ async function getRelatedResearch(db, currentSlug, canonical, category) {
   const sql = `SELECT slug, query, category, canonical_query, view_count, created_at
                FROM research
                WHERE status = 'complete'
+                 AND research.retired_at IS NULL
                  AND slug != ?1
                  AND canonical_query IS NOT NULL
                  AND canonical_query != ?${tokens.length + 2}
