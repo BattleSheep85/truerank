@@ -19,11 +19,14 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getSessionUser } from '../lib/auth.js';
 import { getQuota, consumeQuota, FREE_VERIFIES } from '../lib/quota.js';
-import { parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN } from '../lib/product-link.js';
+import { parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN, VERIFY_KEY_PREFIX } from '../lib/product-link.js';
+import { isFetchableUrl } from '../lib/url-guard.js';
+import { overallVerdict } from '../lib/verdict.js';
 
 const PRODUCT_MIN_LEN = 3;
 const PRODUCT_MIN_ALNUM = 3;
 const DAY_SECONDS = 86400;
+const NAME_KEY_PREFIX = `${VERIFY_KEY_PREFIX}name:`;
 
 /** Saved verdicts younger than this many days answer a new submission. 0 turns reuse off. */
 export const VERIFY_REUSE_MAX_AGE_DAYS = 30;
@@ -80,9 +83,10 @@ function validateRawInput(raw) {
 }
 
 // The optional productUrl body field. Returns { url } or { error }.
+// The page is fetched server-side, so only a public https address passes (SSRF guard).
 function readBodyProductUrl(value) {
     if (value == null || value === '') return { url: null };
-    if (!isHttpUrl(value)) {
+    if (typeof value !== 'string' || !isFetchableUrl(value)) {
         return { error: jsonResponse({ error: 'productUrl must be a valid http(s) URL' }, 400) };
     }
     return { url: String(value).trim() };
@@ -109,7 +113,17 @@ function resolveNewProduct(raw, bodyUrl) {
     if (screen.blocked) {
         return { error: jsonResponse({ error: rejectionMessage(screen.reason), rejected: true, reason: screen.reason }, 422) };
     }
-    return { name, productUrl: bodyUrl || parsed.url, key: parsed.key || null };
+    return { name, productUrl: bodyUrl || parsed.url, key: reuseKey(parsed, bodyUrl) };
+}
+
+// A saved verdict is served to everyone under its key, so the key must describe
+// only the page that is fetched. Returns the key, or null when the fetched page
+// is not the one the key names: a body productUrl, or a link (for example a
+// short a.co link) whose key comes from the typed name and not from the link.
+function reuseKey(parsed, bodyUrl) {
+    if (bodyUrl || !parsed.key) return null;
+    if (parsed.url && parsed.key.startsWith(NAME_KEY_PREFIX)) return null;
+    return parsed.key;
 }
 
 function validateName(name) {
@@ -182,7 +196,8 @@ async function startNewSubmission(request, env, intake) {
 
 /**
  * Newest complete verification with this key that completed at or after
- * nowSec - VERIFY_REUSE_MAX_AGE_DAYS days. Retired rows never match.
+ * nowSec - VERIFY_REUSE_MAX_AGE_DAYS days. Retired rows never match, and a
+ * row whose result holds no claim (for example a failed page read) never matches.
  * Returns { id, slug, completed_at } or null.
  */
 export async function findSavedVerdict(db, key, nowSec) {
@@ -192,6 +207,7 @@ export async function findSavedVerdict(db, key, nowSec) {
         `SELECT id, slug, completed_at FROM research
           WHERE canonical_query = ?1 AND kind = 'verification' AND status = 'complete'
             AND completed_at >= ?2 AND retired_at IS NULL
+            AND (CASE WHEN json_valid(result) THEN json_array_length(result, '$.claims') END) >= 1
           ORDER BY completed_at DESC, id DESC LIMIT 1`
     ).bind(key, since).first();
     return row ? { id: row.id, slug: row.slug, completed_at: row.completed_at } : null;
@@ -263,8 +279,9 @@ async function handleResubmit(env, reportId, productUrl) {
 
     // Guard: only allow the needs_input/failed → pending transition on verification rows.
     // A row in pending/processing/complete or a ranking row must not be clobbered by a stray resubmit.
+    // The new URL is caller-supplied, so the row loses its reuse key in the same write.
     const update = await env.DB.prepare(
-        `UPDATE research SET subject_url = ?1, status = 'pending'
+        `UPDATE research SET subject_url = ?1, status = 'pending', canonical_query = NULL
            WHERE id = ?2 AND status IN ('needs_input', 'failed') AND kind = 'verification'`
     ).bind(productUrl, reportId).run();
 
@@ -297,12 +314,13 @@ export async function handleVerifyStatus(reportId, env) {
     }
 
     if (row.status === 'complete') {
+        const overall = overallFromResult(row.result, row.id);
         return jsonResponse({
             id: row.id,
             slug: row.slug,
             status: 'completed',
-            overallVerdict: row.overall_verdict ?? null,
-            overallScore: row.overall_score ?? null,
+            overallVerdict: overall.label,
+            overallScore: overall.score,
         });
     }
 
@@ -323,17 +341,22 @@ export async function handleVerifyStatus(reportId, env) {
     return jsonResponse({ id: row.id, slug: row.slug, status: row.status });
 }
 
-// Basic http(s) URL validator (both schemes allowed — user-pasted retailer
-// links are frequently plain http on older/regional storefronts; the page
-// itself is only ever fetched server-side, never rendered as a live link
-// without the sanitizeUrl/isValidHttpsUrl https-only checks downstream).
-function isHttpUrl(value) {
-    try {
-        const u = new URL(String(value));
-        return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-        return false;
+// Score and label from the stored claims, the same way the verdict page computes
+// them, so an old row's stored overall_score (0 for "not enough evidence") is
+// never served. Bad or missing JSON gives a null score. Never throws.
+function overallFromResult(resultJson, reportId) {
+    let claims = [];
+    if (typeof resultJson === 'string' && resultJson) {
+        try {
+            const parsed = JSON.parse(resultJson);
+            claims = Array.isArray(parsed?.claims) ? parsed.claims : [];
+        } catch (err) {
+            console.error('[verify] stored result is not valid JSON. id:', reportId,
+                'error:', err instanceof Error ? err.message : String(err));
+        }
     }
+    const { score, label } = overallVerdict(claims);
+    return { score, label };
 }
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {

@@ -7,6 +7,7 @@ import { applySchema } from './_schema.js';
 import * as verifyHandlers from '../../worker/handlers/verify.js';
 import { generateId, getResearchById } from '../../worker/lib/db.js';
 import { quotaKey } from '../../worker/lib/quota.js';
+import { overallVerdict, INSUFFICIENT_EVIDENCE_LABEL } from '../../worker/lib/verdict.js';
 
 // Namespace import: findSavedVerdict and VERIFY_REUSE_MAX_AGE_DAYS (piece 11)
 // can be missing from the handler module until it lands.
@@ -237,8 +238,11 @@ async function researchCount() {
   return Number(row.n);
 }
 
+// One decided claim: a saved verdict needs at least one claim to be reused.
+const SEED_CLAIMS = [{ text: 'Seeded claim', status: 'verified', claimType: 'spec' }];
+
 // Inserts a verification row with a stored key. Returns { id, slug, completedAt }.
-async function seedVerification({ key, status = 'complete', ageDays = 1, query = 'Seeded Product', retired = false }) {
+async function seedVerification({ key, status = 'complete', ageDays = 1, query = 'Seeded Product', retired = false, claims = SEED_CLAIMS }) {
   const id = generateId();
   const slug = 'verify-seeded-' + id;
   const completedAt = nowSec() - Math.round(ageDays * DAY_SECONDS);
@@ -247,7 +251,7 @@ async function seedVerification({ key, status = 'complete', ageDays = 1, query =
      VALUES (?1, ?2, ?3, ?4, 'verification', ?5, ?6, ?7, ?8, ?9)`
   ).bind(
     id, slug, query, status, key,
-    JSON.stringify({ claims: [] }),
+    JSON.stringify({ claims }),
     completedAt - 600, completedAt,
     retired ? completedAt + 60 : null,
   ).run();
@@ -462,5 +466,139 @@ describe('findSavedVerdict (piece 11)', () => {
       "INSERT INTO research (id, slug, query, status, kind, canonical_query, created_at, completed_at) VALUES (?1, ?2, 'ranking row', 'complete', NULL, ?3, ?4, ?4)"
     ).bind(id, 'ranking-' + id, key, nowSec() - DAY_SECONDS).run();
     expect(await verifyHandlers.findSavedVerdict(env.DB, key, nowSec())).toBeNull();
+  });
+});
+
+// ── Review fixes: the reuse key describes only the page that is checked ──────
+
+describe('review fixes: saved-verdict key and status score', () => {
+  it('review: body productUrl stores no key', async () => {
+    await seedVerification({ key: 'verify:name:body keyed url widget', ageDays: 1, query: 'Body Url Keyed Widget' });
+    const { env: capEnv, sent } = capturingEnv();
+
+    const res = await handleStartVerify(post({
+      product: 'Body Url Keyed Widget',
+      productUrl: 'https://attacker.example/some-other-page',
+    }, '203.0.113.120'), capEnv);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('pending');
+    expect(data.reused).toBeUndefined();
+
+    const row = await getResearchById(env.DB, data.id);
+    expect(row.subject_url).toBe('https://attacker.example/some-other-page');
+    expect(row.canonical_query).toBeNull();
+    expect(sent[0].productUrl).toBe('https://attacker.example/some-other-page');
+
+    const linkRes = await handleStartVerify(post({
+      product: 'https://www.amazon.com/Body-Url-Echo-Dot/dp/B0DTESTBDY',
+      productUrl: 'https://attacker.example/echo-dot',
+    }, '203.0.113.121'), testEnv);
+    expect(linkRes.status).toBe(200);
+    const linkRow = await getResearchById(env.DB, (await linkRes.json()).id);
+    expect(linkRow.canonical_query).toBeNull();
+  });
+
+  it('review: short link plus name stores no key', async () => {
+    await seedVerification({ key: 'verify:name:link max short speaker', ageDays: 1, query: 'Short Link Speaker Max' });
+
+    const res = await handleStartVerify(post({ product: 'Short Link Speaker Max https://a.co/d/xyz789' }, '203.0.113.122'), testEnv);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('pending');
+    expect(data.reused).toBeUndefined();
+
+    const row = await getResearchById(env.DB, data.id);
+    expect(row.subject_url).toBe('https://a.co/d/xyz789');
+    expect(row.canonical_query).toBeNull();
+  });
+
+  it('review: resubmit clears key', async () => {
+    const submitRes = await handleStartVerify(post({ product: 'Resubmit Key Clear Gadget' }, '203.0.113.123'), testEnv);
+    const { id } = await submitRes.json();
+    expect((await getResearchById(env.DB, id)).canonical_query).toBe('verify:name:clear gadget key resubmit');
+    await env.DB.prepare("UPDATE research SET status = 'needs_input' WHERE id = ?").bind(id).run();
+
+    const res = await handleStartVerify(post({
+      reportId: id,
+      product: 'Resubmit Key Clear Gadget',
+      productUrl: 'https://attacker.example/not-the-gadget',
+    }, '203.0.113.124'), testEnv);
+    expect(res.status).toBe(200);
+
+    const row = await getResearchById(env.DB, id);
+    expect(row.status).toBe('pending');
+    expect(row.subject_url).toBe('https://attacker.example/not-the-gadget');
+    expect(row.canonical_query).toBeNull();
+  });
+
+  it('review: private productUrl rejected', async () => {
+    const before = await researchCount();
+    for (const [i, url] of ['https://10.0.0.5/item', 'https://localhost/item', 'http://maker.example/item'].entries()) {
+      const res = await handleStartVerify(post({ product: 'Private Url Widget', productUrl: url }, `203.0.113.${125 + i}`), testEnv);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('productUrl must be a valid http(s) URL');
+    }
+    expect(await researchCount()).toBe(before);
+
+    const submitRes = await handleStartVerify(post({ product: 'Private Resubmit Widget' }, '203.0.113.128'), testEnv);
+    const { id } = await submitRes.json();
+    await env.DB.prepare("UPDATE research SET status = 'needs_input' WHERE id = ?").bind(id).run();
+    const res = await handleStartVerify(post({
+      reportId: id,
+      product: 'Private Resubmit Widget',
+      productUrl: 'https://192.168.1.1/admin',
+    }, '203.0.113.129'), testEnv);
+    expect(res.status).toBe(400);
+    const row = await getResearchById(env.DB, id);
+    expect(row.status).toBe('needs_input');
+    expect(row.subject_url).toBeNull();
+  });
+
+  it('review: zero-claim verdict not reused', async () => {
+    const key = 'verify:asin:B0DTESTZER';
+    const empty = await seedVerification({ key, ageDays: 1, claims: [] });
+    expect(await verifyHandlers.findSavedVerdict(env.DB, key, nowSec())).toBeNull();
+
+    const badKey = 'verify:asin:B0DTESTBAD';
+    const bad = await seedVerification({ key: badKey, ageDays: 1 });
+    await env.DB.prepare('UPDATE research SET result = ? WHERE id = ?').bind('{not json', bad.id).run();
+    expect(await verifyHandlers.findSavedVerdict(env.DB, badKey, nowSec())).toBeNull();
+
+    const res = await handleStartVerify(post({ product: 'https://www.amazon.com/Zero-Claim-Blender/dp/B0DTESTZER' }, '203.0.113.130'), testEnv);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('pending');
+    expect(data.id).not.toBe(empty.id);
+  });
+
+  it('review: status recomputes score', async () => {
+    const unsubstantiated = [
+      { text: 'a', status: 'unsubstantiated', claimType: 'spec' },
+      { text: 'b', status: 'unsubstantiated', claimType: 'marketing' },
+    ];
+    const thin = await seedVerification({ key: null, claims: unsubstantiated });
+    await env.DB.prepare("UPDATE research SET overall_score = 0, overall_verdict = 'Mostly false' WHERE id = ?").bind(thin.id).run();
+    const thinData = await (await handleVerifyStatus(thin.id, env)).json();
+    expect(thinData.status).toBe('completed');
+    expect(thinData.overallScore).toBeNull();
+    expect(thinData.overallVerdict).toBe(INSUFFICIENT_EVIDENCE_LABEL);
+
+    const decided = [
+      { text: 'a', status: 'verified', claimType: 'spec' },
+      { text: 'b', status: 'contradicted', claimType: 'marketing' },
+      { text: 'c', status: 'partially-verified', claimType: 'warranty' },
+    ];
+    const scored = await seedVerification({ key: null, claims: decided });
+    await env.DB.prepare('UPDATE research SET overall_score = 0 WHERE id = ?').bind(scored.id).run();
+    const scoredData = await (await handleVerifyStatus(scored.id, env)).json();
+    expect(scoredData.overallScore).toBe(overallVerdict(decided).score);
+    expect(scoredData.overallScore).not.toBeNull();
+
+    const broken = await seedVerification({ key: null });
+    await env.DB.prepare("UPDATE research SET result = '{oops', overall_score = 0 WHERE id = ?").bind(broken.id).run();
+    const brokenRes = await handleVerifyStatus(broken.id, env);
+    expect(brokenRes.status).toBe(200);
+    expect((await brokenRes.json()).overallScore).toBeNull();
   });
 });
