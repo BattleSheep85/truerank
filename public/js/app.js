@@ -84,6 +84,11 @@
             btn.textContent = on ? VERIFY_BUSY_LABEL : idleLabel;
         }
 
+        // Back restores this page from bfcache with the button still busy.
+        window.addEventListener('pageshow', function () {
+            if (busy) setBusy(false);
+        });
+
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             var product = (input && input.value || '').trim();

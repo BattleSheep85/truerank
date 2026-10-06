@@ -497,4 +497,13 @@ async function runHonestVerdictTests(ok) {
     ok('entry page: input maxlength="2048"', entryHtml.includes('maxlength="2048"'));
     ok('entry page: a 600-character prefill survives', entryHtml.includes(`value="${longPrefill}"`));
   }
+
+  // Review fix: malformed stored evidence lists must not crash the page.
+  for (const [label, bad] of [['{}', {}], ['"abc"', 'abc'], ['[null]', [null]]]) {
+    for (const field of ['supporting', 'contradicting']) {
+      const claims = RESULT_FIXTURE.claims.map((c) => ({ ...c, [field]: bad }));
+      const { html, threw } = await renderSafely({ ...RESULT_FIXTURE, claims });
+      ok(`review: malformed supporting does not throw (${field} = ${label})`, !threw && html.includes('Claim ledger'));
+    }
+  }
 }

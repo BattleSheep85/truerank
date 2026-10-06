@@ -671,7 +671,11 @@ export function honestOverall(result) {
     const claims = result && typeof result === 'object' && Array.isArray(result.claims) ? result.claims : [];
     try {
         return overallVerdict(claims);
-    } catch {
+    } catch (err) {
+        console.error('[verify-page] honestOverall: overallVerdict failed', {
+            claimCount: claims.length,
+            error: err && err.message,
+        });
         return { score: null, label: INSUFFICIENT_EVIDENCE_LABEL, checkedCount: 0, claimCount: 0 };
     }
 }
@@ -738,12 +742,30 @@ function reportDescription(product, overall) {
     return `${product} claim check: ${verdict} ${coverage}`;
 }
 
+// Old or malformed rows can hold non-array evidence ({}, "abc", [null]).
+// Return a new claim whose evidence lists hold only plain objects.
+function evidenceList(value) {
+    return Array.isArray(value)
+        ? value.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+        : [];
+}
+
+function normalizeClaim(claim) {
+    return {
+        ...claim,
+        supporting: evidenceList(claim.supporting),
+        contradicting: evidenceList(claim.contradicting),
+    };
+}
+
 async function renderCompleteReport(row, env) {
     const prettyProduct = displayQuery(row.query);
     // Old rows can hold odd JSON (null, a number, a list). Treat those as empty.
     const parsed = parseJsonSafe(row.result, {});
     const result = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    const claims = Array.isArray(result.claims) ? result.claims.filter((c) => c && typeof c === 'object') : [];
+    const claims = Array.isArray(result.claims)
+        ? result.claims.filter((c) => c && typeof c === 'object' && !Array.isArray(c)).map(normalizeClaim)
+        : [];
     const overall = honestOverall({ claims });
     const evidenceCount = Number.isFinite(result.evidenceCount) ? result.evidenceCount : 0;
     const productUrl = result.productUrl || row.subject_url || '';
