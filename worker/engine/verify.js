@@ -32,13 +32,194 @@ Include one verdict entry per source given (use neutral if not addressed or if m
 
 // ── PURE helpers ──────────────────────────────────────────────────────────────
 
-// Ranks by verificationWeight (strict-(a): hands-on measurements outrank
-// affiliate-tainted opinion, not raw credibility×independence) and widens
-// the window to top ~15 so measured numbers have more room to show up.
-export function topEvidenceForClaim(evidence, n = 15) {
-  return [...evidence]
-    .sort((a, b) => verificationWeight(b) - verificationWeight(a))
-    .slice(0, n);
+// Words that carry no claim meaning. Numbers and unit tokens stay.
+const CLAIM_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 'up', 'in', 'on', 'at', 'by',
+  'for', 'with', 'from', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its',
+  'this', 'that', 'these', 'those', 'than', 'then', 'into', 'over', 'per', 'can',
+  'will', 'has', 'have', 'had', 'your', 'you', 'our', 'we', 'their', 'all', 'any',
+  'more', 'most', 'less', 'so', 'not', 'no', 'just', 'about', 'via',
+]);
+const MAX_CLAIM_TERMS = 12;
+const TOKEN_RE = /[a-z0-9]+/g;
+const DIGIT_RE = /\d/;
+
+// Default count of evidence sources per claim.
+const DEFAULT_EVIDENCE_N = 15;
+// Default passage length sent to the stance model per source.
+const DEFAULT_PASSAGE_CHARS = 1200;
+// Step between candidate passage windows. Keeps the scan linear.
+const PASSAGE_STEP_CHARS = 200;
+// Output cap for one stance call. The stance model reasons before it answers
+// and its reasoning tokens count against this cap: about 600 to 1,000 tokens
+// of reasoning, then about 900 tokens of JSON for 15 sources. At the old cap
+// (1,500) the JSON was cut off, did not parse, and the claim lost every row.
+const STANCE_MAX_TOKENS = 6000;
+
+// The verdict options of the production verification path.
+export const VERDICT_OPTS = Object.freeze({ policy: 'verification' });
+
+function tokenize(text) {
+  return String(text || '').toLowerCase().match(TOKEN_RE) || [];
+}
+
+function isClaimTerm(token) {
+  if (CLAIM_STOPWORDS.has(token)) return false;
+  return token.length > 1 || DIGIT_RE.test(token);
+}
+
+/** Lowercase claim tokens without stopwords. Keeps numbers and unit tokens. Unique, at most 12. */
+export function claimTerms(claimText) {
+  const unique = [...new Set(tokenize(claimText).filter(isClaimTerm))];
+  return unique.slice(0, MAX_CLAIM_TERMS);
+}
+
+// Count of distinct claim terms that occur in the content.
+function termHits(content, terms) {
+  const text = String(content ?? '').toLowerCase();
+  return terms.filter((t) => text.includes(t)).length;
+}
+
+function byWeightDesc(a, b) {
+  return verificationWeight(b) - verificationWeight(a);
+}
+
+// claim null: rank by verificationWeight (strict-(a): hands-on measurements
+// outrank affiliate-tainted opinion). The window is the top ~15.
+// claim given: sources that mention a claim term come first, ranked by
+// (hits / terms) * verificationWeight. The others follow by weight.
+export function topEvidenceForClaim(evidence, n = DEFAULT_EVIDENCE_N, claim = null) {
+  const terms = claim ? claimTerms(claim.text) : [];
+  if (terms.length === 0) return [...evidence].sort(byWeightDesc).slice(0, n);
+
+  const scored = evidence.map((source) => {
+    const hits = termHits(source.content, terms);
+    return { source, hits, score: (hits / terms.length) * verificationWeight(source) };
+  });
+  const withHits = scored.filter((x) => x.hits > 0).sort((a, b) => b.score - a.score || byWeightDesc(a.source, b.source));
+  const withoutHits = scored.filter((x) => x.hits === 0).sort((a, b) => byWeightDesc(a.source, b.source));
+  return [...withHits, ...withoutHits].slice(0, n).map((x) => x.source);
+}
+
+// Markdown link targets and bare URLs. Scraped pages repeat the product slug
+// in every navigation link, so a term inside a URL is not a claim about the
+// product and does not count as a hit.
+const URL_RE = /\]\([^)\s]*\)|https?:\/\/[^\s)\]]+/gi;
+// Below this length a word term must match a whole word.
+const MIN_SUBSTRING_TERM_CHARS = 4;
+const REGEXP_SPECIAL_RE = /[.*+?^${}()|[\]\\]/g;
+
+// Regex source for one term. A long word matches anywhere, without its plural
+// "s" ("hours" also finds "hour"). A short word or a term with a digit must
+// start a word and must not run into a longer word or number: "hi" does not
+// hit "this", "anc" does not hit "balance", "50" does not hit "1500". A number
+// can carry a unit: "50" hits "50H".
+function termPattern(term) {
+  const escaped = term.replace(REGEXP_SPECIAL_RE, '\\$&');
+  const hasDigit = DIGIT_RE.test(term);
+  if (!hasDigit && term.length >= MIN_SUBSTRING_TERM_CHARS) {
+    return term.endsWith('s') ? escaped.slice(0, -1) : escaped;
+  }
+  const end = DIGIT_RE.test(term.at(-1)) ? '(?![0-9])' : '(?![a-z0-9])';
+  return `(?<![a-z0-9])${escaped}${end}`;
+}
+
+// True when pos is inside one of the sorted, non-overlapping ranges.
+function isInside(ranges, pos) {
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (pos < ranges[mid].start) hi = mid - 1;
+    else if (pos >= ranges[mid].end) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+
+// Term matches outside URLs, sorted by start: [{ start, end, term }].
+function termMatches(text, terms) {
+  const urls = [...text.matchAll(URL_RE)].map((m) => ({ start: m.index, end: m.index + m[0].length }));
+  const matches = terms.flatMap((term, id) =>
+    [...text.matchAll(new RegExp(termPattern(String(term).toLowerCase()), 'gi'))]
+      .filter((m) => !isInside(urls, m.index))
+      .map((m) => ({ start: m.index, end: m.index + m[0].length, term: id })),
+  );
+  return matches.sort((a, b) => a.start - b.start || a.term - b.term);
+}
+
+// Candidate window starts: every step, plus the last full window.
+function windowStarts(length, maxChars) {
+  const last = Math.max(0, length - maxChars);
+  const starts = [];
+  for (let s = 0; s < last; s += PASSAGE_STEP_CHARS) starts.push(s);
+  return [...starts, last];
+}
+
+// Start of the window with the most distinct terms, then the most matches,
+// then the earliest. Two pointers over the sorted matches: the scan is linear.
+function bestWindowStart(matches, length, maxChars, termCount) {
+  const counts = new Array(termCount).fill(0);
+  let best = { start: 0, distinct: 0, total: 0 };
+  let distinct = 0;
+  let lo = 0;
+  let hi = 0;
+  for (const start of windowStarts(length, maxChars)) {
+    while (hi < matches.length && matches[hi].end <= start + maxChars) {
+      if (counts[matches[hi].term] === 0) distinct += 1;
+      counts[matches[hi].term] += 1;
+      hi += 1;
+    }
+    while (lo < hi && matches[lo].start < start) {
+      counts[matches[lo].term] -= 1;
+      if (counts[matches[lo].term] === 0) distinct -= 1;
+      lo += 1;
+    }
+    const total = hi - lo;
+    if (distinct > best.distinct || (distinct === best.distinct && total > best.total)) {
+      best = { start, distinct, total };
+    }
+  }
+  return best.start;
+}
+
+/**
+ * The maxChars window of content with the most term hits: the most distinct
+ * terms, then the most matches. Hits inside a URL do not count (see
+ * termPattern for how one term matches). No hits: content.slice(0, maxChars).
+ */
+export function claimPassage(content, terms, maxChars = DEFAULT_PASSAGE_CHARS) {
+  const text = String(content ?? '');
+  const list = Array.isArray(terms) ? terms.filter(Boolean) : [];
+  const matches = list.length > 0 ? termMatches(text, list) : [];
+  if (matches.length === 0) return text.slice(0, maxChars);
+
+  const start = bestWindowStart(matches, text.length, maxChars, list.length);
+  return text.slice(start, start + maxChars);
+}
+
+// Complete JSON objects with no nested braces. Each stance verdict is one, so
+// this finds the finished verdicts in a reply that was cut off mid-JSON.
+const FLAT_OBJECT_RE = /\{[^{}]*\}/g;
+
+/**
+ * The verdict objects of a stance reply. A reply that does not parse (for
+ * example, cut off at the token cap) keeps each verdict object it completed.
+ */
+export function parseStanceVerdicts(raw) {
+  const parsed = parseFencedJson(raw);
+  if (Array.isArray(parsed?.verdicts)) return parsed.verdicts;
+  if (typeof raw !== 'string') return [];
+
+  const complete = [];
+  for (const m of raw.matchAll(FLAT_OBJECT_RE)) {
+    try {
+      complete.push(JSON.parse(m[0]));
+    } catch {
+      // a malformed object carries no verdict
+    }
+  }
+  return complete;
 }
 
 // Sources tagged `manufacturer` (official product/retailer page) or
@@ -209,8 +390,9 @@ export async function classifyStance({ claim, evidence, apiKey, model, callLLM, 
   const picked = Array.isArray(evidence) ? evidence : [];
   if (picked.length === 0) return { rows: [], costUsd: 0 };
 
+  const terms = claimTerms(claim.text);
   const block = picked
-    .map((s, i) => `${i + 1}. ${s.url}\n${(s.content || '').slice(0, 1200)}`)
+    .map((s, i) => `${i + 1}. ${s.url}\n${claimPassage(s.content, terms, DEFAULT_PASSAGE_CHARS)}`)
     .join('\n\n');
   const messages = [
     { role: 'system', content: STANCE_SYSTEM },
@@ -218,24 +400,46 @@ export async function classifyStance({ claim, evidence, apiKey, model, callLLM, 
   ];
   // `reasoning` is optional (undefined in every production call site today).
   // See extractClaims above for why this parameter exists.
-  const resp = await callLLM(apiKey, model, messages, { maxTokens: 1500, reasoning });
+  const resp = await callLLM(apiKey, model, messages, { maxTokens: STANCE_MAX_TOKENS, reasoning });
   const costUsd = Number.isFinite(resp?.usage?.cost) ? resp.usage.cost : 0;
-  const raw = resp.choices?.[0]?.message?.content ?? '';
-  const parsed = parseFencedJson(raw);
-  const verdictsRaw = Array.isArray(parsed?.verdicts) ? parsed.verdicts : [];
+  const choice = resp?.choices?.[0];
+  const raw = choice?.message?.content ?? '';
+  const verdictsRaw = parseStanceVerdicts(raw);
 
+  // One row per given source: a repeated url keeps its first verdict.
   const byUrl = new Set(picked.map((s) => s.url));
+  const seen = new Set();
   const rows = [];
   for (const v of verdictsRaw) {
-    if (v && typeof v.url === 'string' && byUrl.has(v.url)) {
-      rows.push({
-        url: v.url,
-        stance: ['support', 'contradict', 'neutral'].includes(v.stance) ? v.stance : 'neutral',
-        span: typeof v.span === 'string' ? v.span : '',
-      });
-    }
+    if (!v || typeof v.url !== 'string' || !byUrl.has(v.url) || seen.has(v.url)) continue;
+    seen.add(v.url);
+    rows.push({
+      url: v.url,
+      stance: ['support', 'contradict', 'neutral'].includes(v.stance) ? v.stance : 'neutral',
+      span: typeof v.span === 'string' ? v.span : '',
+    });
+  }
+
+  if (rows.length < picked.length) {
+    console.warn(
+      `[verify] stance ${claim.id}: ${rows.length} of ${picked.length} sources judged (finish_reason=${choice?.finish_reason ?? 'none'})`,
+    );
   }
   return { rows, costUsd };
+}
+
+/**
+ * One claim, end to end: claim-aware top evidence -> stance -> deterministic
+ * backstops -> verdict under VERDICT_OPTS. runVerification and
+ * benchmarks/verify-product.mjs both call it, so the harness measures the
+ * production path. Returns { verdict, evidence, costUsd }.
+ */
+export async function judgeClaim({ claim, scoredEvidence, apiKey, model, callLLM }) {
+  const picked = topEvidenceForClaim(scoredEvidence, DEFAULT_EVIDENCE_N, claim);
+  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM });
+  const evidence = buildClaimEvidence(claim, picked, rows);
+  const verdict = verdictForClaim(claim, evidence, VERDICT_OPTS);
+  return { verdict, evidence, costUsd };
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -385,18 +589,14 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   // 5. PER-CLAIM: top evidence → stance → build claim evidence → verdict
   const claimVerdicts = [];
   for (const claim of claims) {
-    const picked = topEvidenceForClaim(scoredEvidence, 15);
-    const { rows, costUsd: stanceCost } = await classifyStance({
+    const { verdict, costUsd: stanceCost } = await judgeClaim({
       claim,
-      evidence: picked,
+      scoredEvidence,
       apiKey,
       model: config.stanceModel || config.synthModel,
       callLLM,
     });
     costUsd += stanceCost;
-
-    const claimEvidence = buildClaimEvidence(claim, picked, rows);
-    const verdict = verdictForClaim(claim, claimEvidence, { policy: 'verification' });
     claimVerdicts.push({ ...claim, ...verdict, claimType: claim.type });
   }
 

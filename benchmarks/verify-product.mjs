@@ -18,19 +18,23 @@
 //     gather/extraction non-determinism: same claims + same evidence pool in,
 //     directly observe what changed. Output is written to a NEW file
 //     (`verify-<slug>-replay.json`) so the pinned input is never overwritten.
+//
+//   STANCE_LOG=<path> node benchmarks/verify-product.mjs
+//     Appends one JSON line per stance call to <path>: claim id, finish
+//     reason, token usage, and the raw model reply. Use it to see why a claim
+//     got no stance rows.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { gatherParallel } from '../worker/engine/parallel-engine.js';
 import { readPageInto } from '../worker/engine/tools.js';
 import { callLLM } from '../worker/engine/llm.js';
 import { scoreSource, isManufacturerDomain } from '../worker/lib/credibility.js';
-import { verdictForClaim, overallVerdict, verificationWeight } from '../worker/lib/verdict.js';
+import { verdictForClaim, overallVerdict } from '../worker/lib/verdict.js';
 import { ENGINE_CONFIG } from '../worker/lib/engine-config.js';
 import {
-  topEvidenceForClaim,
-  buildClaimEvidence,
+  VERDICT_OPTS,
+  judgeClaim,
   extractClaims as extractClaimsShared,
-  classifyStance as classifyStanceShared,
 } from '../worker/engine/verify.js';
 
 // ── ENV ──────────────────────────────────────────────────────────────────────
@@ -73,18 +77,12 @@ const replayInput = REPLAY_PATH ? loadReplayInput(REPLAY_PATH) : null;
 const PRODUCT = process.env.PRODUCT || process.argv[2] || replayInput?.product || 'Anker Soundcore Space A40';
 const PRODUCT_URL = process.env.PRODUCT_URL || replayInput?.productUrl || null;
 
+// Same model choice as runVerification in worker/engine/verify.js.
 const cfg = ENGINE_CONFIG;
-const synthModel = cfg.synthModel;
+const extractModel = cfg.extractModel || cfg.synthModel;
+const stanceModel = cfg.stanceModel || cfg.synthModel;
 
 let totalCostUsd = 0;
-
-function hostOf(url) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
-}
 
 // ── 1. GATHER ─────────────────────────────────────────────────────────────────
 async function gather() {
@@ -148,7 +146,7 @@ async function extractClaims(claimSources) {
     product: PRODUCT,
     claimText: block,
     apiKey: OPENROUTER_API_KEY,
-    model: synthModel,
+    model: extractModel,
     callLLM,
   });
   totalCostUsd += costUsd;
@@ -172,41 +170,55 @@ function scoreEvidence(evidenceSources) {
   });
 }
 
-// ── 5. STANCE per claim ────────────────────────────────────────────────────────
-// STANCE_SYSTEM, topEvidenceForClaim, and the deterministic stance backstops
-// (applyStanceBackstops/isMarketingEcho/spanHasGenuineTestLanguage/
-// NON_CORROBORATING_TAGS) are shared with worker/engine/verify.js — single
-// source of truth. This wraps the shared classifyStance() I/O call and joins
-// its rows against the scored evidence via the shared buildClaimEvidence().
-async function stanceForClaim(claim, evidence) {
-  const picked = topEvidenceForClaim(evidence);
-  if (picked.length === 0) return [];
+// ── 5. STANCE + VERDICT per claim ──────────────────────────────────────────────
+// judgeClaim() in worker/engine/verify.js is the per-claim step of
+// runVerification (claim-aware top evidence, STANCE_SYSTEM call, deterministic
+// backstops, verdict under VERDICT_OPTS). The harness calls it as is, so a
+// replay measures the production path.
+const STANCE_LOG = process.env.STANCE_LOG || null;
 
-  const { rows, costUsd } = await classifyStanceShared({
+// callLLM, plus one STANCE_LOG line per call when STANCE_LOG is set.
+function stanceCallLLM(claimId) {
+  if (!STANCE_LOG) return callLLM;
+  return async (...args) => {
+    const resp = await callLLM(...args);
+    const choice = resp?.choices?.[0] ?? {};
+    const line = {
+      claimId,
+      finishReason: choice.finish_reason ?? null,
+      usage: resp?.usage ?? null,
+      reasoningChars: String(choice.message?.reasoning ?? '').length,
+      content: choice.message?.content ?? null,
+    };
+    appendFileSync(STANCE_LOG, `${JSON.stringify(line)}\n`);
+    return resp;
+  };
+}
+
+async function judgeOne(claim, scoredEvidence) {
+  const { verdict, evidence, costUsd } = await judgeClaim({
     claim,
-    evidence: picked,
+    scoredEvidence,
     apiKey: OPENROUTER_API_KEY,
-    model: synthModel,
-    callLLM,
+    model: stanceModel,
+    callLLM: stanceCallLLM(claim.id),
   });
   totalCostUsd += costUsd;
-
-  return buildClaimEvidence(claim, picked, rows);
+  return { verdict, evidence };
 }
 
 // ── OUTPUT FORMATTING ──────────────────────────────────────────────────────────
 function formatSourceLine(arrow, ev) {
-  const host = hostOf(ev.url);
   const flagTags = (ev.tags || []).filter((t) =>
     ['seeded-unit', 'incentivized-review', 'affiliate-conflict', 'embargo-nda'].includes(t),
   );
   const flags = flagTags.length ? ` {${flagTags.join(',')}}` : '';
   const span = ev.span ? ` — "${ev.span}"` : '';
-  // ev.weight is populated by verdictForClaim's sortedSide() using whatever
-  // `weigh` function was passed in — here that's verificationWeight, so this
-  // is the strict-(a) verification weight, not raw credibility×independence.
+  // ev.weight is populated by verdictForClaim's sortedSide() using the weigh
+  // function of VERDICT_OPTS (the verification policy uses verificationWeight),
+  // so this is the strict-(a) verification weight, not raw credibility×independence.
   const weight = Number.isFinite(ev.weight) ? ` weight=${ev.weight}` : '';
-  return `      ${arrow} [cred=${ev.credibility} indep=${ev.independence}${weight}] ${host}${span}${flags}`;
+  return `      ${arrow} [cred=${ev.credibility} indep=${ev.independence}${weight}] ${ev.url}${span}${flags}`;
 }
 
 function printLedger({ overall, claimVerdicts, evidenceCount, spent }) {
@@ -223,7 +235,7 @@ function printLedger({ overall, claimVerdicts, evidenceCount, spent }) {
     for (const ev of supporting) console.log(formatSourceLine('↑', ev));
     for (const ev of contradicting) console.log(formatSourceLine('↓', ev));
     if (supporting.length === 0 && contradicting.length === 0) {
-      console.log('      (no matched evidence — unsubstantiated)');
+      console.log('      (no source supports or contradicts the claim)');
     }
   }
 
@@ -256,32 +268,28 @@ async function loadClaimsAndEvidence() {
 async function main() {
   const { claims, scoredEvidence } = await loadClaimsAndEvidence();
 
-  process.stderr.write('[stance] scoring stance per claim...\n');
-  const claimEvidence = [];
+  process.stderr.write('[stance] judging each claim...\n');
+  const judged = [];
   for (const claim of claims) {
-    const evArr = await stanceForClaim(claim, scoredEvidence);
-    claimEvidence.push({ claim, evidence: evArr });
-    process.stderr.write(`[stance] ${claim.id}: ${evArr.length} matched evidence items\n`);
+    const { verdict, evidence } = await judgeOne(claim, scoredEvidence);
+    judged.push({ claim, verdict, evidence });
+    process.stderr.write(
+      `[stance] ${claim.id}: ${evidence.length} sources judged, ${verdict.supporting.length} support, ${verdict.contradicting.length} contradict\n`,
+    );
   }
 
-  process.stderr.write('[verdict] computing per-claim verdicts...\n');
-  const claimVerdicts = claimEvidence.map(({ claim, evidence: evArr }) => {
-    const v = verdictForClaim(claim, evArr, { weigh: verificationWeight });
-    return { ...v, claim, claimType: claim.type };
-  });
-
+  const claimVerdicts = judged.map(({ claim, verdict }) => ({ ...verdict, claim, claimType: claim.type }));
   const overall = overallVerdict(claimVerdicts);
 
   process.stderr.write('[determinism] re-running verdictForClaim on pinned evidence...\n');
   let reproducible = true;
   const diffs = [];
-  for (const { claim, evidence: evArr } of claimEvidence) {
-    const first = verdictForClaim(claim, evArr, { weigh: verificationWeight });
-    const second = verdictForClaim(claim, evArr, { weigh: verificationWeight });
-    const same = JSON.stringify(first) === JSON.stringify(second);
+  for (const { claim, verdict, evidence } of judged) {
+    const again = verdictForClaim(claim, evidence, VERDICT_OPTS);
+    const same = JSON.stringify(verdict) === JSON.stringify(again);
     if (!same) {
       reproducible = false;
-      diffs.push({ claimId: claim.id, first, second });
+      diffs.push({ claimId: claim.id, first: verdict, second: again });
     }
   }
 
