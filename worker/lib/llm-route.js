@@ -3,7 +3,8 @@
 //
 // A route is a frozen object: { kind, baseUrl, apiKey, fallback }.
 // kind is 'litellm' or 'openrouter'. fallback is an OpenRouter route or null.
-// A litellm route also has gateToken (D7): a string or null.
+// A litellm route also has gateToken (D7): a string or null, and modelMap: the
+// frozen LITELLM_MODEL_MAP overlaid by LITELLM_MODEL_MAP_JSON overrides.
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_CHAT_PATH = '/chat/completions';
@@ -61,6 +62,46 @@ function gateTokenFromEnv(raw) {
   return token.length > 0 ? token : null;
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// Models an override may target: known LiteLLM models that have a price.
+function isKnownLitellmModel(model) {
+  return Object.values(LITELLM_MODEL_MAP).includes(model) || Object.hasOwn(LITELLM_PRICES, model);
+}
+
+// Returns the reason the override is invalid, or null when it is valid.
+function overrideProblem(parsed) {
+  if (!isPlainObject(parsed)) return 'not a JSON object';
+  for (const [source, target] of Object.entries(parsed)) {
+    if (!isNonEmptyString(source) || !isNonEmptyString(target)) return 'keys and values must be strings';
+    if (!isKnownLitellmModel(target)) return `unknown target model ${target}`;
+  }
+  return null;
+}
+
+function parseOverride(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+// LITELLM_MODEL_MAP_JSON remaps models without a deploy. Any invalid input
+// logs one warning and the defaults apply unchanged.
+function modelMapFromEnv(raw) {
+  if (raw === undefined || raw === null || raw === '') return LITELLM_MODEL_MAP;
+  const parsed = typeof raw === 'string' ? parseOverride(raw) : undefined;
+  const problem = parsed === undefined ? 'not valid JSON' : overrideProblem(parsed);
+  if (problem) {
+    console.warn(`[llm-route] LITELLM_MODEL_MAP_JSON ignored: ${problem}`);
+    return LITELLM_MODEL_MAP;
+  }
+  return Object.freeze({ ...LITELLM_MODEL_MAP, ...parsed });
+}
+
 // D2. LLM_PROVIDER=litellm needs a valid base URL and a key. Otherwise OpenRouter.
 export function llmRouteFromEnv(env) {
   const source = env ?? {};
@@ -73,7 +114,8 @@ export function llmRouteFromEnv(env) {
   }
   const fallback = isNonEmptyString(openrouterKey) ? openRouterRoute(openrouterKey) : null;
   const gateToken = gateTokenFromEnv(source.LITELLM_GATE_TOKEN);
-  return Object.freeze({ kind: 'litellm', baseUrl, apiKey: litellmKey, gateToken, fallback });
+  const modelMap = modelMapFromEnv(source.LITELLM_MODEL_MAP_JSON);
+  return Object.freeze({ kind: 'litellm', baseUrl, apiKey: litellmKey, gateToken, modelMap, fallback });
 }
 
 // A plain string (or nothing) is an OpenRouter key, as before this module existed.
@@ -96,8 +138,9 @@ function litellmBody(body, model) {
 }
 
 function buildLitellmRequest(route, model, body) {
-  if (!Object.hasOwn(LITELLM_MODEL_MAP, model)) return null;
-  const mapped = LITELLM_MODEL_MAP[model];
+  const modelMap = route.modelMap ?? LITELLM_MODEL_MAP;
+  if (!Object.hasOwn(modelMap, model)) return null;
+  const mapped = modelMap[model];
   const gateHeader = isNonEmptyString(route.gateToken) ? { [LITELLM_GATE_HEADER]: route.gateToken } : {};
   const headers = Object.freeze({
     'Content-Type': 'application/json',

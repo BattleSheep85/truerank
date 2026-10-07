@@ -89,6 +89,7 @@ const LLM_KEY = USE_LITELLM
       LLM_PROVIDER: 'litellm',
       LITELLM_BASE_URL: process.env.LITELLM_BASE_URL,
       LITELLM_API_KEY: process.env.LITELLM_API_KEY,
+      LITELLM_MODEL_MAP_JSON: process.env.LITELLM_MODEL_MAP_JSON,
       OPENROUTER_API_KEY: process.env.NO_FALLBACK === '1' ? '' : OPENROUTER_API_KEY,
     })
   : OPENROUTER_API_KEY;

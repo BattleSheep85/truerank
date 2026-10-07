@@ -1,7 +1,7 @@
 // Contract tests for worker/lib/llm-route.js (docs/litellm-2026-10.md D2 to D5).
 // Pure logic: route selection from env, request shaping per route, fallback
 // statuses, and cost from usage. No network calls.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as llmRoute from '../../worker/lib/llm-route.js';
 import {
   LITELLM_MODEL_MAP,
@@ -691,5 +691,106 @@ describe('upstream billing errors', () => {
     expect(routeKind).toBe('openrouter');
     expect(calls).toHaveLength(1);
     expect(await response.text()).toBe(BILLING_TEXT);
+  });
+});
+
+describe('LITELLM_MODEL_MAP_JSON override', () => {
+  const ALL_FLASH = JSON.stringify({
+    'minimax/minimax-m3': 'google/gemini-3.8-flash',
+    'anthropic/claude-haiku-4.5': 'google/gemini-3.8-flash',
+  });
+  const overrideRoute = (raw) => llmRouteFromEnv(litellmEnv({ LITELLM_MODEL_MAP_JSON: raw }));
+  const warnSpy = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('applies the override on top of the defaults', () => {
+    const route = overrideRoute(ALL_FLASH);
+    expect(route.modelMap).toEqual({
+      'google/gemini-3.8-flash': 'google/gemini-3.8-flash',
+      'minimax/minimax-m3': 'google/gemini-3.8-flash',
+      'anthropic/claude-haiku-4.5': 'google/gemini-3.8-flash',
+    });
+    const req = buildRequest(route, 'minimax/minimax-m3', sampleBody());
+    expect(req.model).toBe('google/gemini-3.8-flash');
+    expect(req.body.model).toBe('google/gemini-3.8-flash');
+  });
+
+  it('adds a new source model when the target is known', () => {
+    const route = overrideRoute(JSON.stringify({ 'x/new-model': 'anthropic/claude-sonnet-5' }));
+    expect(buildRequest(route, 'x/new-model', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
+    expect(route.modelMap['minimax/minimax-m3']).toBe('anthropic/claude-sonnet-5');
+  });
+
+  it('prices the mapped model', () => {
+    const req = buildRequest(overrideRoute(ALL_FLASH), 'anthropic/claude-haiku-4.5', sampleBody());
+    const price = LITELLM_PRICES['google/gemini-3.8-flash'];
+    expect(costFromUsage(req.model, { prompt_tokens: 1000, completion_tokens: 100 }))
+      .toBeCloseTo(1000 * price.in + 100 * price.out, 12);
+  });
+
+  it('ignores invalid JSON with one warning', () => {
+    const warn = warnSpy();
+    const route = overrideRoute('{not json');
+    expect(route.modelMap).toBe(LITELLM_MODEL_MAP);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).not.toContain('{not json');
+  });
+
+  it('ignores the whole override when one target is unknown', () => {
+    const warn = warnSpy();
+    const route = overrideRoute(JSON.stringify({
+      'minimax/minimax-m3': 'google/gemini-3.8-flash',
+      'anthropic/claude-haiku-4.5': 'openai/gpt-9',
+    }));
+    expect(route.modelMap).toBe(LITELLM_MODEL_MAP);
+    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['an array', '["google/gemini-3.8-flash"]'],
+    ['a string', '"google/gemini-3.8-flash"'],
+    ['null', 'null'],
+    ['a number', '42'],
+    ['a non-string value', '{"minimax/minimax-m3": 1}'],
+    ['a non-string env value', { 'minimax/minimax-m3': 'google/gemini-3.8-flash' }],
+  ])('ignores %s', (_label, raw) => {
+    const warn = warnSpy();
+    expect(overrideRoute(raw).modelMap).toBe(LITELLM_MODEL_MAP);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a frozen route and a frozen map', () => {
+    const route = overrideRoute(ALL_FLASH);
+    expect(Object.isFrozen(route)).toBe(true);
+    expect(Object.isFrozen(route.modelMap)).toBe(true);
+    expect(Object.isFrozen(buildRequest(route, 'minimax/minimax-m3', sampleBody()))).toBe(true);
+  });
+
+  it('keeps the defaults without the env var and does not warn', () => {
+    const warn = warnSpy();
+    const route = litellmRoute();
+    expect(route.modelMap).toBe(LITELLM_MODEL_MAP);
+    for (const [source, target] of Object.entries(LITELLM_MODEL_MAP)) {
+      expect(buildRequest(route, source, sampleBody()).model).toBe(target);
+    }
+    expect(overrideRoute('').modelMap).toBe(LITELLM_MODEL_MAP);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to LITELLM_MODEL_MAP for a litellm route without modelMap', () => {
+    const route = resolveRoute({ kind: 'litellm', baseUrl: LITELLM_BASE, apiKey: 'k', fallback: null });
+    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
+    expect(buildRequest(route, 'x/unmapped', sampleBody())).toBeNull();
+  });
+
+  it('does not change an openrouter route', () => {
+    const route = llmRouteFromEnv({ OPENROUTER_API_KEY: 'sk-or-test', LITELLM_MODEL_MAP_JSON: ALL_FLASH });
+    expect(route.kind).toBe('openrouter');
+    expect(route.modelMap).toBeUndefined();
+    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody()).model).toBe('minimax/minimax-m3');
   });
 });
