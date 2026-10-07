@@ -1,9 +1,10 @@
 // Product link parsing for the Verify box (refocus 2026-10, spec D8).
 // A person types a product name, pastes a product page link, or pastes share
 // text that holds a link. parseProductInput turns that into one frozen
-// { kind, name, url, key } object. The key identifies the product for saved
-// verdicts. Keys prefer a miss over a wrong match: they keep every number and
-// never stem or drop words. Pure. Never throws.
+// { kind, name, url, key } object. The key identifies a saved verdict. The
+// engine checks the page and searches by the name, so a link key holds both.
+// Keys prefer a miss over a wrong match: they keep every word and number in
+// any script, never stem, and are null rather than cut short. Pure. Never throws.
 import { isFetchableUrl } from './url-guard.js';
 
 export const PRODUCT_INPUT_MAX_LEN = 2048;
@@ -13,6 +14,10 @@ export const VERIFY_KEY_PREFIX = 'verify:';
 const NAME_KEY_PREFIX = `${VERIFY_KEY_PREFIX}name:`;
 const ASIN_KEY_PREFIX = `${VERIFY_KEY_PREFIX}asin:`;
 const URL_KEY_PREFIX = `${VERIFY_KEY_PREFIX}url:`;
+// Joins a page key to the name words. A word never holds '|', so the last
+// LINK_KEY_NAME_PART in a key always starts the name.
+const LINK_KEY_NAME_PART = '|name:';
+// A longer name gets no key: a cut key would join names that differ in a later word.
 const NAME_KEY_MAX_TOKENS = 20;
 const SLUG_NAME_MAX_WORDS = 10;
 const SLUG_NAME_MIN_WORDS = 2;
@@ -35,7 +40,9 @@ const AMAZON_SUBDOMAINS = Object.freeze(new Set(['www', 'smile', 'm']));
 const TRACKING_PARAM_RE = /^(?:utm_.*|ref|fbclid|gclid)$/i;
 const SHORT_LINK_HOSTS = new Set(['a.co', 'amzn.to', 'amzn.eu', 'amzn.asia']);
 const ASIN_RE = /\/(?:dp|gp\/product|gp\/aw\/d)\/([a-z0-9]{10})(?=[/?#]|$)/i;
-const NAME_TOKEN_RE = /[a-z0-9]+/g;
+// One word: a run of letters, numbers, and their marks (Devanagari vowel
+// signs, for example) in any script. A CJK run with no spaces is one word.
+const NAME_TOKEN_RE = /[\p{L}\p{N}\p{M}]+/gu;
 const ALNUM_RE = /[\p{L}\p{N}]/gu;
 const LETTER_RE = /\p{L}/u;
 const TWO_LETTERS_RE = /\p{L}{2}/u;
@@ -62,12 +69,32 @@ function safeDecode(segment) {
   }
 }
 
-/** 'verify:name:' + sorted unique lowercase [a-z0-9]+ tokens joined by ' ' (at most 20). null when no token. */
-export function productNameKey(name) {
+/** True when key is a name key ('verify:name:...'). A link key that holds a name part is not a name key. */
+export function isNameKey(key) {
+  return typeof key === 'string' && key.startsWith(NAME_KEY_PREFIX);
+}
+
+// The sorted unique lowercase words of name (NFKC first, so full-width
+// letters fold) joined by ' '. null when there is no word or more than
+// NAME_KEY_MAX_TOKENS.
+function nameTokens(name) {
   if (typeof name !== 'string') return null;
-  const tokens = [...new Set(name.toLowerCase().match(NAME_TOKEN_RE) || [])].sort();
-  if (tokens.length === 0) return null;
-  return NAME_KEY_PREFIX + tokens.slice(0, NAME_KEY_MAX_TOKENS).join(' ');
+  const words = name.normalize('NFKC').toLowerCase().match(NAME_TOKEN_RE) || [];
+  const tokens = [...new Set(words)].sort();
+  if (tokens.length === 0 || tokens.length > NAME_KEY_MAX_TOKENS) return null;
+  return tokens.join(' ');
+}
+
+/** 'verify:name:' + the sorted unique lowercase words of name joined by ' '. null when no word or more than 20. */
+export function productNameKey(name) {
+  const tokens = nameTokens(name);
+  return tokens ? NAME_KEY_PREFIX + tokens : null;
+}
+
+// The page key bound to the name words, or null when the name has no key.
+function boundKey(pageKey, name) {
+  const tokens = nameTokens(name);
+  return tokens ? pageKey + LINK_KEY_NAME_PART + tokens : null;
 }
 
 // A slug that is only an ID: no word holds two letters in a row (A-12345),
@@ -146,7 +173,9 @@ function trimSlash(pathname) {
   return pathname.replace(/\/+$/, '');
 }
 
-// Rules 3 to 5. Returns { name, url, key } where key is null for a name key.
+// Rules 3 to 5. Returns { name, url, pageKey, nameKeyOnly }. pageKey names
+// the page and is null when the path does not identify the product.
+// nameKeyOnly is true when only a name can make the key.
 function linkParts(link) {
   const host = link.hostname;
   const amazon = isAmazonHost(host);
@@ -154,28 +183,44 @@ function linkParts(link) {
     const match = link.pathname.match(ASIN_RE);
     if (match) {
       const asin = match[1].toUpperCase();
-      return { name: amazonName(link.pathname), url: `https://${link.host}/dp/${asin}`, key: ASIN_KEY_PREFIX + asin };
+      // hostname drops a port, so every link for one ASIN fetches the same page.
+      const url = `https://${host}/dp/${asin}`;
+      return { name: amazonName(link.pathname), url, pageKey: ASIN_KEY_PREFIX + asin, nameKeyOnly: false };
     }
   }
   // Short links, and Amazon pages with no ASIN: the path does not identify
   // the product, so only a name can make a key.
   if (SHORT_LINK_HOSTS.has(host) || amazon) {
-    return { name: null, url: link.href, key: null };
+    return { name: null, url: link.href, pageKey: null, nameKeyOnly: true };
   }
   // A path with a name slug identifies the product, so the query goes. A path
   // with no name (item.htm?id=111) needs its query to tell products apart.
   const name = longestSlugName(link.pathname);
   const path = trimSlash(link.pathname);
   const query = name ? '' : productQuery(link.searchParams);
+  const url = `https://${link.host}${path}${query}`;
+  // A whole-site link (path '/') identifies no product: no key of any kind.
+  if (!path) return { name, url, pageKey: null, nameKeyOnly: false };
+  // The URL parser lowercases the host. The path keeps its case, because the
+  // fetched URL keeps it too (bit.ly/3AbC and bit.ly/3abc are two pages).
   const keyHost = link.host.replace(/^www\./, '');
-  return { name, url: `https://${link.host}${path}${query}`, key: URL_KEY_PREFIX + keyHost + path.toLowerCase() + query };
+  return { name, url, pageKey: URL_KEY_PREFIX + keyHost + path + query, nameKeyOnly: false };
+}
+
+// The key for a link. With a name: the page key bound to the name, a name key
+// when only the name identifies the product, else null. With no name: the
+// page key alone (the Verify handler asks for a name and never stores it).
+function linkKey(parts, name) {
+  if (!name) return parts.pageKey;
+  if (parts.pageKey) return boundKey(parts.pageKey, name);
+  return parts.nameKeyOnly ? productNameKey(name) : null;
 }
 
 /**
  * Parse what a person typed or pasted into the Verify box. Pure. Never throws.
  * @param {string} raw product name, product page link, or share text that contains a link
  * @returns {Readonly<{ kind: 'url'|'name', name: string|null, url: string|null, key: string|null }>}
- *   key is the full stored key, prefix included (for example 'verify:asin:B0F3PT1VBL').
+ *   key is the full stored key, prefix included (for example 'verify:asin:B0F3PT1VBL|name:1000xm6 sony wh').
  */
 export function parseProductInput(raw) {
   const text = typeof raw === 'string' ? raw.slice(0, PRODUCT_INPUT_MAX_LEN) : '';
@@ -188,6 +233,5 @@ export function parseProductInput(raw) {
   if (!link) return EMPTY_URL_RESULT;
   const parts = linkParts(link);
   const name = parts.name ? capName(parts.name) : remainderName(text);
-  const key = parts.key || (name ? productNameKey(name) : null);
-  return result('url', name, parts.url, key);
+  return result('url', name, parts.url, linkKey(parts, name));
 }

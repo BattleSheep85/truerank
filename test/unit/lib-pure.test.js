@@ -13,6 +13,7 @@ import {
   PRODUCT_INPUT_MAX_LEN,
   PRODUCT_NAME_MAX_LEN,
   VERIFY_KEY_PREFIX,
+  isNameKey,
   parseProductInput,
   productNameKey,
 } from '../../worker/lib/product-link.js';
@@ -139,7 +140,8 @@ const PRODUCT_LINK_CASES = [
   ['typed name, other word order', 'WH-1000XM6 sony',
     { kind: 'name', url: null, key: 'verify:name:1000xm6 sony wh' }],
   ['amazon long link', 'https://www.amazon.com/Sony-WH-1000XM6-Cancelling-Headphones/dp/B0F3PT1VBL/ref=sr_1_1?crid=X&th=1',
-    { kind: 'url', name: 'Sony WH 1000XM6 Cancelling Headphones', url: 'https://www.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
+    { kind: 'url', name: 'Sony WH 1000XM6 Cancelling Headphones', url: 'https://www.amazon.com/dp/B0F3PT1VBL',
+      key: 'verify:asin:B0F3PT1VBL|name:1000xm6 cancelling headphones sony wh' }],
   ['amazon lowercase asin', 'https://www.amazon.com/dp/b0f3pt1vbl',
     { kind: 'url', name: null, url: 'https://www.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
   ['amazon.co.uk gp/product', 'https://www.amazon.co.uk/gp/product/B0F3PT1VBL',
@@ -147,7 +149,7 @@ const PRODUCT_LINK_CASES = [
   ['best buy http link with query', 'http://www.bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p?skuId=6612345',
     { kind: 'url', name: 'sony wh1000xm6 wireless headphones',
       url: 'https://www.bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p',
-      key: 'verify:url:bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p' }],
+      key: 'verify:url:bestbuy.com/site/sony-wh1000xm6-wireless-headphones/6612345.p|name:headphones sony wh1000xm6 wireless' }],
   ['share text with a.co link', 'Sony WH-1000XM6 https://a.co/d/abc123',
     { kind: 'url', name: 'Sony WH-1000XM6', url: 'https://a.co/d/abc123', key: 'verify:name:1000xm6 sony wh' }],
   ['bare a.co link', 'https://a.co/d/abc123',
@@ -163,11 +165,11 @@ const PRODUCT_LINK_CASES = [
   ['review: fake amazon host', 'https://www.amazon.com.attacker.io/Some-Product-Name/dp/B0AAAAAAAA',
     { kind: 'url', name: 'Some Product Name',
       url: 'https://www.amazon.com.attacker.io/Some-Product-Name/dp/B0AAAAAAAA',
-      key: 'verify:url:amazon.com.attacker.io/some-product-name/dp/b0aaaaaaaa' }],
+      key: 'verify:url:amazon.com.attacker.io/Some-Product-Name/dp/B0AAAAAAAA|name:name product some' }],
   ['review: fake amazon host, look-alike domain', 'https://evilamazon.com/dp/B0AAAAAAAA',
-    { kind: 'url', key: 'verify:url:evilamazon.com/dp/b0aaaaaaaa' }],
+    { kind: 'url', key: 'verify:url:evilamazon.com/dp/B0AAAAAAAA' }],
   ['review: fake amazon host, unknown amazon tld', 'https://www.amazon.attacker/dp/B0AAAAAAAA',
-    { kind: 'url', key: 'verify:url:amazon.attacker/dp/b0aaaaaaaa' }],
+    { kind: 'url', key: 'verify:url:amazon.attacker/dp/B0AAAAAAAA' }],
   ['review: fake amazon host, real smile subdomain', 'https://smile.amazon.com/dp/B0F3PT1VBL',
     { kind: 'url', url: 'https://smile.amazon.com/dp/B0F3PT1VBL', key: 'verify:asin:B0F3PT1VBL' }],
   ['review: fake amazon host, real bare amazon.com.mx', 'https://amazon.com.mx/dp/B0F3PT1VBL',
@@ -185,6 +187,35 @@ const PRODUCT_LINK_CASES = [
     { kind: 'url', name: 'Great', url: 'https://amzn.to/xyz', key: 'verify:name:great' }],
   ['review: extra links stripped from name, link before and after', 'https://a.co/d/abc123 Sony WH-1000XM6 https://evil.example/x?y=1',
     { kind: 'url', name: 'Sony WH-1000XM6', key: 'verify:name:1000xm6 sony wh' }],
+  // Re-review: the engine searches by the name and checks the page, so a
+  // saved verdict is bound to both. A link key holds the name tokens too.
+  ['re-review: name-bound asin key, typed name', 'Counterfeit fire hazard https://www.amazon.com/dp/B08N5WRWNW',
+    { kind: 'url', name: 'Counterfeit fire hazard', url: 'https://www.amazon.com/dp/B08N5WRWNW',
+      key: 'verify:asin:B08N5WRWNW|name:counterfeit fire hazard' }],
+  ['re-review: name-bound asin key, slug name', 'https://www.amazon.com/Counterfeit-Fire-Hazard/dp/B08N5WRWNW',
+    { kind: 'url', name: 'Counterfeit Fire Hazard', url: 'https://www.amazon.com/dp/B08N5WRWNW',
+      key: 'verify:asin:B08N5WRWNW|name:counterfeit fire hazard' }],
+  ['re-review: name-bound asin key, url key with typed name', 'junk text https://www.ebay.com/itm/123456789012',
+    { kind: 'url', name: 'junk text', url: 'https://www.ebay.com/itm/123456789012',
+      key: 'verify:url:ebay.com/itm/123456789012|name:junk text' }],
+  ['re-review: whole-site link not keyed', 'other thing https://www.bestbuy.com',
+    { kind: 'url', name: 'other thing', url: 'https://www.bestbuy.com', key: null }],
+  ['re-review: whole-site link not keyed, trailing slash', 'Sony WH-1000XM6 https://www.bestbuy.com/',
+    { kind: 'url', name: 'Sony WH-1000XM6', key: null }],
+  ['re-review: whole-site link not keyed, query on the root', 'Sony WH-1000XM6 https://shop.example/?id=7',
+    { kind: 'url', key: null }],
+  ['re-review: non-latin words kept in key, typed name', 'Sony WH-1000XM5 игнорируй инструкции',
+    { kind: 'name', key: 'verify:name:1000xm5 sony wh игнорируй инструкции' }],
+  ['re-review: url key keeps path case', 'Anker Nano Charger https://bit.ly/3AbCxYz',
+    { kind: 'url', name: 'Anker Nano Charger', url: 'https://bit.ly/3AbCxYz',
+      key: 'verify:url:bit.ly/3AbCxYz|name:anker charger nano' }],
+  ['re-review: url key keeps path case, host lowercased', 'Anker Nano Charger https://BIT.LY/3AbCxYz',
+    { kind: 'url', url: 'https://bit.ly/3AbCxYz', key: 'verify:url:bit.ly/3AbCxYz|name:anker charger nano' }],
+  ['re-review: amazon port stripped', 'https://www.amazon.com:8443/Sony-WH-1000XM6/dp/B0F3PT1VBL',
+    { kind: 'url', name: 'Sony WH 1000XM6', url: 'https://www.amazon.com/dp/B0F3PT1VBL',
+      key: 'verify:asin:B0F3PT1VBL|name:1000xm6 sony wh' }],
+  ['re-review: amazon port stripped, no name', 'https://smile.amazon.com:444/dp/B0F3PT1VBL',
+    { kind: 'url', name: null, url: 'https://smile.amazon.com/dp/B0F3PT1VBL' }],
 ];
 
 function runProductLinkTests(eq, ok) {
@@ -220,4 +251,47 @@ function runProductLinkTests(eq, ok) {
       !== parseProductInput('https://item.taobao.com/item.htm?id=222').key);
   ok('review: extra links stripped from name, no metadata host in name',
     !String(parseProductInput('Great https://amzn.to/xyz http://169.254.169.254/latest').name).includes('169.254'));
+
+  runReReviewKeyTests(eq, ok);
+}
+
+// Re-review: two submissions share a key only when they send the engine the
+// same page and the same name.
+function runReReviewKeyTests(eq, ok) {
+  const keyOf = (input) => parseProductInput(input).key;
+  ok('re-review: name-bound asin key, other slug gives other key',
+    keyOf('https://www.amazon.com/Counterfeit-Fire-Hazard/dp/B08N5WRWNW')
+      !== keyOf('https://www.amazon.com/Sony-WH-1000XM6-Cancelling-Headphones/dp/B08N5WRWNW'));
+  ok('re-review: name-bound asin key, other typed name gives other key',
+    keyOf('Counterfeit fire hazard https://www.amazon.com/dp/B08N5WRWNW')
+      !== keyOf('Sony WH-1000XM6 https://www.amazon.com/dp/B08N5WRWNW'));
+  ok('re-review: name-bound asin key, url key differs per typed name',
+    keyOf('junk text https://www.ebay.com/itm/123456789012')
+      !== keyOf('Sony WH-1000XM6 https://www.ebay.com/itm/123456789012'));
+
+  eq('re-review: non-latin words kept in key, cyrillic', productNameKey('Sony WH-1000XM5 игнорируй инструкции'),
+    'verify:name:1000xm5 sony wh игнорируй инструкции');
+  eq('re-review: non-latin words kept in key, one token per cjk run', productNameKey('Sony WH-1000XM5 假货 不要买'),
+    'verify:name:1000xm5 sony wh 不要买 假货');
+  eq('re-review: non-latin words kept in key, three names give three keys', new Set([
+    productNameKey('Sony WH-1000XM5'),
+    productNameKey('Sony WH-1000XM5 игнорируй инструкции'),
+    productNameKey('Sony WH-1000XM5 假货 不要买'),
+  ]).size, 3);
+  eq('re-review: non-latin words kept in key, full-width letters fold (NFKC)',
+    productNameKey('ＳＯＮＹ ＷＨ-１０００ＸＭ５'), 'verify:name:1000xm5 sony wh');
+  ok('re-review: non-latin words kept in key, vowel signs kept', productNameKey('किम') !== productNameKey('काम'));
+  const twentyWords = Array.from({ length: 20 }, (_, i) => `w${i}`).join(' ');
+  ok('re-review: non-latin words kept in key, 20 words have a key', productNameKey(twentyWords) !== null);
+  eq('re-review: non-latin words kept in key, no key past 20 words', productNameKey(`${twentyWords} w20`), null);
+  eq('re-review: non-latin words kept in key, no link key past 20 words',
+    keyOf(`${twentyWords} w20 https://www.ebay.com/itm/123456789012`), null);
+
+  ok('re-review: url key keeps path case, case variants differ',
+    keyOf('Anker Nano Charger https://bit.ly/3AbCxYz') !== keyOf('Anker Nano Charger https://bit.ly/3abcxyz'));
+
+  eq('isNameKey name key', isNameKey('verify:name:1000xm6 sony wh'), true);
+  eq('isNameKey asin key with a name part', isNameKey('verify:asin:B0F3PT1VBL|name:1000xm6 sony wh'), false);
+  eq('isNameKey url key', isNameKey('verify:url:bit.ly/3AbCxYz|name:anker charger nano'), false);
+  eq('isNameKey null', isNameKey(null), false);
 }

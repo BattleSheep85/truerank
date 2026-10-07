@@ -19,14 +19,13 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getSessionUser } from '../lib/auth.js';
 import { getQuota, consumeQuota, FREE_VERIFIES } from '../lib/quota.js';
-import { parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN, VERIFY_KEY_PREFIX } from '../lib/product-link.js';
+import { isNameKey, parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN } from '../lib/product-link.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { overallVerdict } from '../lib/verdict.js';
 
 const PRODUCT_MIN_LEN = 3;
 const PRODUCT_MIN_ALNUM = 3;
 const DAY_SECONDS = 86400;
-const NAME_KEY_PREFIX = `${VERIFY_KEY_PREFIX}name:`;
 
 /** Saved verdicts younger than this many days answer a new submission. 0 turns reuse off. */
 export const VERIFY_REUSE_MAX_AGE_DAYS = 30;
@@ -117,12 +116,13 @@ function resolveNewProduct(raw, bodyUrl) {
 }
 
 // A saved verdict is served to everyone under its key, so the key must describe
-// only the page that is fetched. Returns the key, or null when the fetched page
+// the page that is fetched and the name the engine searches by (parseProductInput
+// binds a link key to the name). Returns the key, or null when the fetched page
 // is not the one the key names: a body productUrl, or a link (for example a
 // short a.co link) whose key comes from the typed name and not from the link.
 function reuseKey(parsed, bodyUrl) {
     if (bodyUrl || !parsed.key) return null;
-    if (parsed.url && parsed.key.startsWith(NAME_KEY_PREFIX)) return null;
+    if (parsed.url && isNameKey(parsed.key)) return null;
     return parsed.key;
 }
 

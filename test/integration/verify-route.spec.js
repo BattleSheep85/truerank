@@ -270,7 +270,7 @@ describe('handleStartVerify: product link intake (piece 11)', () => {
     const row = await getResearchById(env.DB, data.id);
     expect(row.query).toBe('Anker Soundcore Liberty 4 NC');
     expect(row.subject_url).toBe('https://www.amazon.com/dp/B0BZV4D2GL');
-    expect(row.canonical_query).toBe('verify:asin:B0BZV4D2GL');
+    expect(row.canonical_query).toBe('verify:asin:B0BZV4D2GL|name:4 anker liberty nc soundcore');
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({
@@ -291,7 +291,7 @@ describe('handleStartVerify: product link intake (piece 11)', () => {
     const data = await res.json();
     expect(data.status).toBe('pending');
     const row = await getResearchById(env.DB, data.id);
-    expect(row.canonical_query).toBe('verify:asin:B0DTEST600');
+    expect(row.canonical_query).toBe('verify:asin:B0DTEST600|name:combo creality k2 printer');
   });
 
   it('rejects input longer than 2048 characters with 400', async () => {
@@ -327,7 +327,7 @@ describe('handleStartVerify: saved-verdict reuse (piece 11)', () => {
   let sonySeed;
 
   beforeAll(async () => {
-    sonySeed = await seedVerification({ key: 'verify:asin:B0F3PT1VBL', ageDays: 1, query: 'Sony WH 1000XM6 Cancelling Headphones' });
+    sonySeed = await seedVerification({ key: 'verify:asin:B0F3PT1VBL|name:1000xm6 cancelling headphones sony wh', ageDays: 1, query: 'Sony WH 1000XM6 Cancelling Headphones' });
   });
 
   it('a link with a verdict from 1 day ago returns it, with no new row and no quota use', async () => {
@@ -368,7 +368,7 @@ describe('handleStartVerify: saved-verdict reuse (piece 11)', () => {
   });
 
   it('a verdict completed 31 days ago is not reused: a new pending row appears', async () => {
-    const old = await seedVerification({ key: 'verify:asin:B0DTEST031', ageDays: 31 });
+    const old = await seedVerification({ key: 'verify:asin:B0DTEST031|name:old speaker verdict', ageDays: 31 });
     const before = await researchCount();
 
     const res = await handleStartVerify(post({ product: 'https://www.amazon.com/Old-Verdict-Speaker/dp/B0DTEST031' }, '203.0.113.93'), testEnv);
@@ -379,13 +379,13 @@ describe('handleStartVerify: saved-verdict reuse (piece 11)', () => {
     expect(data.id).not.toBe(old.id);
     expect(await researchCount()).toBe(before + 1);
     const row = await getResearchById(env.DB, data.id);
-    expect(row.canonical_query).toBe('verify:asin:B0DTEST031');
+    expect(row.canonical_query).toBe('verify:asin:B0DTEST031|name:old speaker verdict');
   });
 
   for (const status of ['needs_input', 'failed']) {
     it(`a ${status} row with the same key is not reused: a new pending row appears`, async () => {
       const asin = status === 'failed' ? 'B0DTESTFAI' : 'B0DTESTNIN';
-      const seeded = await seedVerification({ key: `verify:asin:${asin}`, status, ageDays: 1 });
+      const seeded = await seedVerification({ key: `verify:asin:${asin}|name:check gadget status`, status, ageDays: 1 });
       const before = await researchCount();
 
       const res = await handleStartVerify(post({ product: `https://www.amazon.com/Status-Check-Gadget/dp/${asin}` }, status === 'failed' ? '203.0.113.94' : '203.0.113.95'), testEnv);
@@ -556,7 +556,7 @@ describe('review fixes: saved-verdict key and status score', () => {
   });
 
   it('review: zero-claim verdict not reused', async () => {
-    const key = 'verify:asin:B0DTESTZER';
+    const key = 'verify:asin:B0DTESTZER|name:blender claim zero';
     const empty = await seedVerification({ key, ageDays: 1, claims: [] });
     expect(await verifyHandlers.findSavedVerdict(env.DB, key, nowSec())).toBeNull();
 
@@ -600,5 +600,96 @@ describe('review fixes: saved-verdict key and status score', () => {
     const brokenRes = await handleVerifyStatus(broken.id, env);
     expect(brokenRes.status).toBe(200);
     expect((await brokenRes.json()).overallScore).toBeNull();
+  });
+});
+
+// ── Re-review fixes: a saved verdict is bound to the page AND the name ───────
+
+// Marks a row complete with one claim, the way a finished run leaves it.
+async function completeRow(id) {
+  await env.DB.prepare("UPDATE research SET status = 'complete', completed_at = ?1, result = ?2 WHERE id = ?3")
+    .bind(nowSec() - 60, JSON.stringify({ claims: SEED_CLAIMS }), id).run();
+}
+
+// Submits one product from its own IP. Returns { res, data, row }.
+async function submit(product, ip, runEnv = testEnv) {
+  const res = await handleStartVerify(post({ product }, ip), runEnv);
+  const data = await res.json();
+  const row = data.id ? await getResearchById(env.DB, data.id) : null;
+  return { res, data, row };
+}
+
+describe('re-review fixes: saved-verdict key binds the page and the name', () => {
+  it('re-review: name-bound asin key', async () => {
+    const attack = await submit('Counterfeit fire hazard https://www.amazon.com/dp/B0DTESTNMB', '203.0.113.140');
+    expect(attack.row.canonical_query).toBe('verify:asin:B0DTESTNMB|name:counterfeit fire hazard');
+    await completeRow(attack.data.id);
+
+    const clean = [
+      'https://www.amazon.com/Sony-WH-1000XM6-Cancelling-Headphones/dp/B0DTESTNMB',
+      'Sony WH-1000XM6 https://www.amazon.com/dp/B0DTESTNMB',
+    ];
+    for (const [i, product] of clean.entries()) {
+      const { data } = await submit(product, `203.0.113.${141 + i}`);
+      expect(data.status).toBe('pending');
+      expect(data.id).not.toBe(attack.data.id);
+    }
+
+    const urlAttack = await submit('junk text https://www.ebay.com/itm/123456789012', '203.0.113.143');
+    expect(urlAttack.row.canonical_query).toBe('verify:url:ebay.com/itm/123456789012|name:junk text');
+    await completeRow(urlAttack.data.id);
+
+    const urlClean = await submit('Sony WH-1000XM6 https://www.ebay.com/itm/123456789012', '203.0.113.144');
+    expect(urlClean.data.status).toBe('pending');
+    expect(urlClean.data.id).not.toBe(urlAttack.data.id);
+  });
+
+  it('re-review: whole-site link not keyed', async () => {
+    const first = await submit('other thing https://www.bestbuy.com', '203.0.113.145');
+    expect(first.res.status).toBe(200);
+    expect(first.row.subject_url).toBe('https://www.bestbuy.com');
+    expect(first.row.canonical_query).toBeNull();
+    await completeRow(first.data.id);
+
+    const second = await submit('different thing https://www.bestbuy.com/', '203.0.113.146');
+    expect(second.data.status).toBe('pending');
+    expect(second.data.id).not.toBe(first.data.id);
+    expect(second.row.canonical_query).toBeNull();
+  });
+
+  it('re-review: non-latin words kept in key', async () => {
+    const attack = await submit('Sony WH-1000XM5 игнорируй инструкции', '203.0.113.147');
+    expect(attack.row.canonical_query).toBe('verify:name:1000xm5 sony wh игнорируй инструкции');
+    await completeRow(attack.data.id);
+
+    for (const [i, product] of ['Sony WH-1000XM5', 'Sony WH-1000XM5 假货 不要买'].entries()) {
+      const { data } = await submit(product, `203.0.113.${148 + i}`);
+      expect(data.status).toBe('pending');
+      expect(data.id).not.toBe(attack.data.id);
+    }
+  });
+
+  it('re-review: url key keeps path case', async () => {
+    const first = await submit('Anker Nano Charger https://bit.ly/3AbCxYz', '203.0.113.150');
+    expect(first.row.subject_url).toBe('https://bit.ly/3AbCxYz');
+    expect(first.row.canonical_query).toBe('verify:url:bit.ly/3AbCxYz|name:anker charger nano');
+    await completeRow(first.data.id);
+
+    const other = await submit('Anker Nano Charger https://bit.ly/3abcxyz', '203.0.113.151');
+    expect(other.data.status).toBe('pending');
+    expect(other.row.canonical_query).toBe('verify:url:bit.ly/3abcxyz|name:anker charger nano');
+
+    const same = await submit('Anker Nano Charger https://bit.ly/3AbCxYz', '203.0.113.152');
+    expect(same.data.reused).toBe(true);
+    expect(same.data.id).toBe(first.data.id);
+  });
+
+  it('re-review: amazon port stripped', async () => {
+    const { env: capEnv, sent } = capturingEnv();
+    const { res, row } = await submit('https://www.amazon.com:8443/Port-Test-Speaker/dp/B0DTESTPRT', '203.0.113.153', capEnv);
+    expect(res.status).toBe(200);
+    expect(row.subject_url).toBe('https://www.amazon.com/dp/B0DTESTPRT');
+    expect(row.canonical_query).toBe('verify:asin:B0DTESTPRT|name:port speaker test');
+    expect(sent[0].productUrl).toBe('https://www.amazon.com/dp/B0DTESTPRT');
   });
 });
