@@ -1,9 +1,11 @@
 // ENGINE CONFIG: the one model set and research depth used for every run.
 //
 // Benchmark-derived (see benchmarks/engine-llm-bench-2026-06.md):
-//   - classifier: google/gemini-2.5-flash-lite  (set in worker/lib/classifier.js)
-//   - planner:    google/gemini-2.5-flash        (perfect skepticism + tool-calls,
-//                 cheapest + fastest; the feared "15% BS" failure did not reproduce)
+//   - classifier: google/gemini-3.8-flash  (set in worker/lib/classifier.js)
+//   - planner:    google/gemini-3.8-flash  (the older Gemini Flash generation won the
+//                 planner bench: perfect skepticism + tool-calls, cheapest + fastest;
+//                 the feared "15% BS" failure did not reproduce. Retired 2026-10, the
+//                 current Gemini Flash replaces it, see docs/litellm-2026-10.md)
 //   - synthesis:  minimax/minimax-m3             (owner no-OpenAI directive, 2026-07-24;
 //                 was the synth-gold co-leader, see synthModel comment below)
 //   - extract:    anthropic/claude-haiku-4.5     (owner no-OpenAI directive, 2026-07-24;
@@ -24,7 +26,7 @@ export const ENGINE_CONFIG = {
   // 8/8 reliable, 1 num_ung across 8 reports; benchmarks/ft-data/README.md).
   // Cheaper + richer reports than the incumbent.
   synthModel: 'minimax/minimax-m3',
-  plannerModel: 'google/gemini-2.5-flash',
+  plannerModel: 'google/gemini-3.8-flash',
   synthReasoning: undefined,
   stanceModel: 'minimax/minimax-m3', // verify stance judge: won the independent-gold stance bench. extractClaims now has its own model below (extractModel); synth uses synthModel.
   extractModel: 'anthropic/claude-haiku-4.5', // extractClaims: no-OpenAI pick; only non-OpenAI model matching the incumbent on the extract-gold bench.
@@ -36,21 +38,22 @@ export const ENGINE_CONFIG = {
   // Hybrid con-SELECTOR model (used only when the engine runs SYNTH_ENGINE=extract):
   // a cheap model PICKS criticism from real source spans for products the deterministic
   // pass left thin; its groundedness gate drops anything not verbatim, so it adds con
-  // recall without a fabrication surface. flash-lite is plenty for selection.
-  conSelectorModel: 'google/gemini-2.5-flash-lite',
+  // recall without a fabrication surface. A cheap Flash model is plenty for selection.
+  conSelectorModel: 'google/gemini-3.8-flash',
   // Gated LLM name-cleanup model (engine-shootout-v2 winner): cleans names + drops junk/
-  // platforms/dupes over the ML candidate set, groundedness-gated. Stronger than flash-lite
+  // platforms/dupes over the ML candidate set, groundedness-gated. Stronger than the old Lite tier
   // (needs product/category understanding), still cheap (~$0.01/run).
-  cleanupModel: 'google/gemini-2.5-flash',
+  cleanupModel: 'google/gemini-3.8-flash',
   // Recall-supplement model (engine-shootout-v2 "C win"): proposes category leaders the harvest
   // missed; grounding-gated downstream (the name must appear in the gathered sources with credible
-  // evidence, else it's dropped). Knowledge task → gemini-2.5-flash, ~$0.01/run.
-  recallModel: 'google/gemini-2.5-flash',
-  // NO provider object for the planner: gemini-2.5-flash is served by a SINGLE
+  // evidence, else it's dropped). Knowledge task → a cheap Gemini Flash model, ~$0.01/run.
+  recallModel: 'google/gemini-3.8-flash',
+  // NO provider object for the planner: the Gemini Flash planner is served by a SINGLE
   // provider (Google) on OpenRouter that does not expose a quantization tag, so a
   // `quantizations` filter 404s ("no endpoints"), and sort/max_price can only hurt
   // (filter to zero) with no routing benefit. The planner's real speed lever is
-  // reasoning:{effort:'low'} above. Verified empirically 2026-06-22.
+  // reasoning:{effort:'low'} above. Verified empirically 2026-06-22 on the older Flash
+  // generation; not re-verified on gemini-3.8-flash.
   plannerProvider: null,
   // No provider routing pin for the synth model — left null after the openai/
   // gpt-5.4-mini era single-provider constraint; minimax-m3 has no quantization
