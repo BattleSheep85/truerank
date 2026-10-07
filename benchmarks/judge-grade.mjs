@@ -18,6 +18,13 @@
 //                       its worst-case cost before launch.
 //   GRADE_IN_DIR        judge-bench results directory.
 //   GRADE_OUT_DIR       output directory for grades.json.
+//   GRADER_OUT          full output path (overrides GRADE_OUT_DIR/grades.json).
+//   GRADE_REUSE         path of an earlier grades.json. Its decided grades
+//                       (correct, wrong_direction, unsupported) are kept; only
+//                       the other items (error, parse-error, skipped) are sent
+//                       to the grader again.
+//   GRADER_MAX_TOKENS   grader max_tokens (default 1000). A reasoning grader
+//                       can spend all of it on reasoning and reply empty.
 //   BENCH_CONCURRENCY   grader calls at a time (default 8).
 //   BENCH_TIMEOUT_MS    per-call timeout (default 90000).
 //
@@ -25,20 +32,23 @@
 // output are data: they are parsed and counted, never acted on.
 
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { assertNotAnthropicOnOpenRouter } from './lib/no-anthropic-on-openrouter.mjs';
 
 // ── CONFIG ───────────────────────────────────────────────────────────────────
 const RUN_DIR = '/tmp/godmode-b4b435cf-bdb4-4216-bd87-ed204c9640e5';
 const IN_DIR = process.env.GRADE_IN_DIR || `${RUN_DIR}/jb`;
 const OUT_DIR = process.env.GRADE_OUT_DIR || `${RUN_DIR}/jg`;
+const OUT_PATH = process.env.GRADER_OUT || join(OUT_DIR, 'grades.json');
+const REUSE_PATH = process.env.GRADE_REUSE || null;
 const GRADER = process.env.GRADER || 'anthropic/claude-sonnet-5.5';
 const MAX_USD = numEnv('BENCH_MAX_USD', 3);
 const CONCURRENCY = Math.max(1, Math.floor(numEnv('BENCH_CONCURRENCY', 8)));
 const TIMEOUT_MS = numEnv('BENCH_TIMEOUT_MS', 90_000);
 const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODELS_URL = 'https://openrouter.ai/api/v1/models';
-const MAX_TOKENS = 1000;
+const MAX_TOKENS = Math.floor(numEnv('GRADER_MAX_TOKENS', 1000));
 const CHARS_PER_TOKEN = 3;
 const MAX_SPAN_CHARS = 600;
 const CLAIMS_PER_MODEL = 56;
@@ -46,20 +56,20 @@ const EXAMPLE_COUNT = 5;
 const DECIDED = new Set(['verified', 'partially-verified', 'contradicted']);
 const GRADES = Object.freeze(['correct', 'wrong_direction', 'unsupported']);
 
-function numEnv(name, fallback) {
+export function numEnv(name, fallback) {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 // ── GUARDS AND KEY ───────────────────────────────────────────────────────────
-function assertGraderAllowed(id) {
+export function assertGraderAllowed(id) {
   if (id.startsWith('openai/')) throw new Error('owner veto: no OpenAI models');
   if (id.includes('deepseek-r1')) throw new Error('owner veto: no deepseek-r1');
   if (process.env.BENCH_ALLOW_ANTHROPIC === '1' && id.startsWith('anthropic/')) return;
   assertNotAnthropicOnOpenRouter(id);
 }
 
-function loadOpenRouterKey() {
+export function loadOpenRouterKey() {
   const text = readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8');
   const line = text.split('\n').find((l) => l.startsWith('OPENROUTER_API_KEY='));
   const key = line ? line.slice('OPENROUTER_API_KEY='.length).trim() : '';
@@ -67,7 +77,7 @@ function loadOpenRouterKey() {
   return key;
 }
 
-async function graderPrice(id) {
+export async function graderPrice(id) {
   const res = await fetch(MODELS_URL);
   if (!res.ok) throw new Error(`OpenRouter model list: HTTP ${res.status}`);
   const listed = (await res.json())?.data?.find((m) => m.id === id);
@@ -130,9 +140,9 @@ function userMessage(r) {
 }
 
 // ── GRADER CALL ──────────────────────────────────────────────────────────────
-class BudgetSkip extends Error {}
+export class BudgetSkip extends Error {}
 
-function createBudget(maxUsd) {
+export function createBudget(maxUsd) {
   const state = { spent: 0, reserved: 0 };
   return {
     spent: () => state.spent,
@@ -152,7 +162,7 @@ function worstCallUsd(price, messages) {
   return Math.ceil(chars / CHARS_PER_TOKEN) * price.prompt + MAX_TOKENS * price.completion;
 }
 
-async function postChat(apiKey, body) {
+export async function postChat(apiKey, body) {
   const res = await fetch(CHAT_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -164,24 +174,37 @@ async function postChat(apiKey, body) {
 }
 
 // temperature 0 first. A 400 that names temperature retries once without it.
-async function chatOnce(apiKey, messages) {
-  const base = { model: GRADER, messages, max_tokens: MAX_TOKENS, usage: { include: true } };
+export async function chatOnce(apiKey, messages, { model = GRADER, maxTokens = MAX_TOKENS } = {}) {
+  const base = { model, messages, max_tokens: maxTokens, usage: { include: true } };
   let out = await postChat(apiKey, { ...base, temperature: 0 });
   if (!out.ok && out.status === 400 && /temperature/i.test(out.text)) out = await postChat(apiKey, base);
   if (!out.ok) throw new Error(`HTTP ${out.status}: ${out.text.slice(0, 200)}`);
   return JSON.parse(out.text);
 }
 
+// A reply whose reason breaks the JSON (an unescaped quote, a cut-off tail)
+// still names its grade. That grade field is the fallback.
+const GRADE_FIELD_RE = /"grade"\s*:\s*"(correct|wrong_direction|unsupported)"/;
+
 function parseGrade(content) {
-  const match = String(content ?? '').match(/\{[\s\S]*\}/);
-  if (!match) return null;
+  const text = String(content ?? '');
+  const match = text.match(/\{[\s\S]*\}/);
   try {
-    const obj = JSON.parse(match[0]);
-    if (!GRADES.includes(obj?.grade)) return null;
-    return { grade: obj.grade, reason: String(obj.reason ?? '').slice(0, 400) };
+    const obj = match ? JSON.parse(match[0]) : null;
+    if (GRADES.includes(obj?.grade)) return { grade: obj.grade, reason: String(obj.reason ?? '').slice(0, 400) };
   } catch {
-    return null;
+    // fall through to the grade field
   }
+  const field = text.match(GRADE_FIELD_RE);
+  return field ? { grade: field[1], reason: `(lenient parse) ${text.slice(0, 380)}` } : null;
+}
+
+// Decided grades of an earlier run, by item key.
+function loadReusable(path) {
+  if (!path) return new Map();
+  const prior = JSON.parse(readFileSync(path, 'utf8'));
+  const rows = Array.isArray(prior?.grades) ? prior.grades : [];
+  return new Map(rows.filter((g) => GRADES.includes(g.grade)).map((g) => [g.key, { grade: g.grade, reason: g.reason }]));
 }
 
 async function gradeItem(item, { apiKey, price, budget }) {
@@ -201,7 +224,8 @@ async function gradeItem(item, { apiKey, price, budget }) {
     const cost = Number(resp?.usage?.cost);
     actual = Number.isFinite(cost) ? cost : reserved;
     const parsed = parseGrade(resp?.choices?.[0]?.message?.content);
-    return parsed ?? { grade: 'parse-error', reason: String(resp?.choices?.[0]?.message?.content ?? '').slice(0, 200) };
+    const choice = resp?.choices?.[0];
+    return parsed ?? { grade: 'parse-error', reason: `finish_reason=${choice?.finish_reason ?? 'none'} ${String(choice?.message?.content ?? '').slice(0, 180)}` };
   } catch (err) {
     return { grade: 'error', reason: String(err?.message ?? err).slice(0, 200) };
   } finally {
@@ -210,7 +234,7 @@ async function gradeItem(item, { apiKey, price, budget }) {
   }
 }
 
-async function mapLimit(items, limit, fn) {
+export async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
   const worker = async () => {
@@ -289,21 +313,24 @@ async function main() {
   const ctx = { apiKey: loadOpenRouterKey(), price: await graderPrice(GRADER), budget: createBudget(MAX_USD) };
   process.stderr.write(`[grade] ${runs.length} judge runs, ${items.length} distinct decided verdicts, grader ${GRADER}, cap $${MAX_USD}\n`);
 
-  const results = await mapLimit(items, CONCURRENCY, (item) => gradeItem(item, ctx));
+  const reusable = loadReusable(REUSE_PATH);
+  const results = await mapLimit(items, CONCURRENCY, (item) => reusable.get(item.key) ?? gradeItem(item, ctx));
+  const regraded = items.filter((item) => !reusable.has(item.key)).length;
   const graded = expandPerModel(items, results);
   const rows = runs.map((run) => modelRow(run, graded)).sort((a, b) => b.correct - a.correct || b.precision - a.precision);
 
-  mkdirSync(OUT_DIR, { recursive: true });
+  mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(
-    join(OUT_DIR, 'grades.json'),
-    JSON.stringify({ grader: GRADER, cap: MAX_USD, spent: ctx.budget.spent(), table: rows, grades: graded }, null, 2),
+    OUT_PATH,
+    JSON.stringify({ grader: GRADER, cap: MAX_USD, spent: ctx.budget.spent(), reusedFrom: REUSE_PATH, regraded, table: rows, grades: graded }, null, 2),
   );
-  console.log(`\nGrader ${GRADER}: ${items.length} distinct verdicts graded. Spent $${ctx.budget.spent().toFixed(4)} of cap $${MAX_USD}.\n`);
+  console.log(`\nGrader ${GRADER}: ${items.length} distinct verdicts (${regraded} sent to the grader). Spent $${ctx.budget.spent().toFixed(4)} of cap $${MAX_USD}.\n`);
   printTable(rows);
   printExamples(graded);
 }
 
-main().catch((err) => {
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) main().catch((err) => {
   console.error(`[fatal] ${err instanceof Error ? err.stack || err.message : String(err)}`);
   process.exit(1);
 });

@@ -24,6 +24,7 @@
 // counted, never acted on.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { callLLM } from '../worker/engine/llm.js';
 import { judgeClaim, evidencePool } from '../worker/engine/verify.js';
 import { evidenceText } from '../worker/engine/verify-resolve.js';
@@ -74,7 +75,7 @@ console.log = (...args) => {
 };
 
 // ── KEY (.dev.vars, never printed) ───────────────────────────────────────────
-function loadOpenRouterKey() {
+export function loadOpenRouterKey() {
   const text = readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8');
   const line = text.split('\n').find((l) => l.startsWith('OPENROUTER_API_KEY='));
   const key = line ? line.slice('OPENROUTER_API_KEY='.length).trim() : '';
@@ -97,7 +98,7 @@ function loadProduct(path) {
 }
 
 // ── MODEL LIST: veto, guard, OpenRouter listing, price order ───────────────
-function vetoReason(id) {
+export function vetoReason(id) {
   if (id.startsWith('openai/')) return 'owner veto: no OpenAI models';
   if (id.includes('deepseek-r1')) return 'owner veto: no deepseek-r1';
   // BENCH_ALLOW_ANTHROPIC=1: owner-approved exception (2026-10-08) to bench a
@@ -111,7 +112,7 @@ function vetoReason(id) {
   return null;
 }
 
-async function fetchListing() {
+export async function fetchListing() {
   const res = await fetch(MODELS_URL);
   if (!res.ok) throw new Error(`OpenRouter model list: HTTP ${res.status}`);
   const body = await res.json();
@@ -119,7 +120,7 @@ async function fetchListing() {
   return new Map(rows.map((m) => [m.id, m]));
 }
 
-function priceOf(listed) {
+export function priceOf(listed) {
   const prompt = Number(listed?.pricing?.prompt);
   const completion = Number(listed?.pricing?.completion);
   return {
@@ -147,9 +148,9 @@ async function planModels(ids, typicalPromptTokens) {
 }
 
 // ── BUDGET (shared across all models) ────────────────────────────────────────
-class BudgetSkip extends Error {}
+export class BudgetSkip extends Error {}
 
-function createBudget(maxUsd) {
+export function createBudget(maxUsd) {
   const state = { spent: 0, reserved: 0 };
   return {
     remaining: () => maxUsd - state.spent - state.reserved,
@@ -171,7 +172,7 @@ function messageChars(messages) {
 
 // Worst case of one call: prompt at a low chars-per-token rate, plus the
 // full max_tokens of completion.
-function worstCallUsd(price, messages, maxTokens) {
+export function worstCallUsd(price, messages, maxTokens) {
   const promptTokens = Math.ceil(messageChars(messages) / CHARS_PER_TOKEN);
   return promptTokens * price.prompt + (maxTokens || 0) * price.completion;
 }
@@ -179,7 +180,7 @@ function worstCallUsd(price, messages, maxTokens) {
 // callLLM with a cost reservation, the per-call timeout, and a record of the
 // raw reply. Arguments pass through to production callLLM unchanged except
 // hardMsOverride (the timeout).
-function instrumentedCallLLM({ price, budget, probe }) {
+export function instrumentedCallLLM({ price, budget, probe }) {
   return async (apiKey, model, messages, opts = {}) => {
     const reserved = worstCallUsd(price, messages, opts.maxTokens);
     budget.reserve(reserved);
@@ -293,7 +294,7 @@ async function judgeOne({ model, item, apiKey, price, budget }) {
   }
 }
 
-async function mapLimit(items, limit, fn) {
+export async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
   const worker = async () => {
@@ -307,7 +308,7 @@ async function mapLimit(items, limit, fn) {
 }
 
 // ── STATS ────────────────────────────────────────────────────────────────────
-function percentile(values, p) {
+export function percentile(values, p) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
@@ -347,7 +348,7 @@ function summarize(model, records, productCount) {
 }
 
 // ── RUN ──────────────────────────────────────────────────────────────────────
-function slugOf(model) {
+export function slugOf(model) {
   return model.replace(/[^a-z0-9.]+/gi, '-').replace(/^-+|-+$/g, '');
 }
 
@@ -462,7 +463,8 @@ async function main() {
   writeFileSync(`${OUT_DIR}/summary.json`, JSON.stringify({ cap: MAX_USD, spent: ctx.budget.spent(), summaries: done.map((d) => d.summary), skipped, spotChecks: top.map((d) => ({ model: d.summary.model, claims: spotCheck(d.records) })) }, null, 2));
 }
 
-main().catch((err) => {
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) main().catch((err) => {
   console.error(`[fatal] ${err instanceof Error ? err.stack || err.message : String(err)}`);
   process.exit(1);
 });

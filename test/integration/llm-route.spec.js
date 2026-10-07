@@ -43,8 +43,6 @@ describe('LITELLM_MODEL_MAP and LITELLM_PRICES', () => {
   it('maps each production model to its LiteLLM model (D3)', () => {
     expect(LITELLM_MODEL_MAP).toEqual({
       'google/gemini-3.8-flash': 'google/gemini-3.8-flash',
-      'minimax/minimax-m3': 'anthropic/claude-sonnet-5',
-      'anthropic/claude-haiku-4.5': 'anthropic/claude-haiku-4-5',
     });
   });
 
@@ -171,26 +169,31 @@ describe('resolveRoute', () => {
 
 describe('buildRequest: litellm', () => {
   it('posts to baseUrl + /v1/chat/completions with the LiteLLM key', () => {
-    const req = buildRequest(litellmRoute(), 'anthropic/claude-haiku-4.5', sampleBody());
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', sampleBody());
     expect(req.url).toBe(`${LITELLM_BASE}/v1/chat/completions`);
     expect(req.headers.Authorization).toBe('Bearer sk-litellm-test');
   });
 
   it('builds the URL without a double slash when the base URL had a trailing slash', () => {
     const route = llmRouteFromEnv(litellmEnv({ LITELLM_BASE_URL: `${LITELLM_BASE}/` }));
-    const req = buildRequest(route, 'anthropic/claude-haiku-4.5', sampleBody());
+    const req = buildRequest(route, 'google/gemini-3.8-flash', sampleBody());
     expect(req.url).toBe(`${LITELLM_BASE}/v1/chat/completions`);
   });
 
   it.each(Object.entries({
     'google/gemini-3.8-flash': 'google/gemini-3.8-flash',
-    'minimax/minimax-m3': 'anthropic/claude-sonnet-5',
-    'anthropic/claude-haiku-4.5': 'anthropic/claude-haiku-4-5',
   }))('maps %s to %s in the result and the body', (from, to) => {
     const req = buildRequest(litellmRoute(), from, { ...sampleBody(), model: from });
     expect(req.model).toBe(to);
     expect(req.body.model).toBe(to);
   });
+
+  it.each(['minimax/minimax-m3', 'anthropic/claude-haiku-4.5'])(
+    'returns null for %s by default so it falls back to OpenRouter',
+    (model) => {
+      expect(buildRequest(litellmRoute(), model, sampleBody())).toBeNull();
+    },
+  );
 
   it('returns null for an unmapped model so the caller uses the fallback', () => {
     expect(buildRequest(litellmRoute(), 'x-ai/grok-4', sampleBody())).toBeNull();
@@ -198,19 +201,19 @@ describe('buildRequest: litellm', () => {
   });
 
   it('strips OpenRouter-only fields: provider, models, reasoning object', () => {
-    const req = buildRequest(litellmRoute(), 'anthropic/claude-haiku-4.5', sampleBody());
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', sampleBody());
     expect(req.body).not.toHaveProperty('provider');
     expect(req.body).not.toHaveProperty('models');
     expect(req.body).not.toHaveProperty('reasoning');
   });
 
   it('strips the OpenRouter-only usage field', () => {
-    const req = buildRequest(litellmRoute(), 'anthropic/claude-haiku-4.5', sampleBody());
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', sampleBody());
     expect(req.body).not.toHaveProperty('usage');
   });
 
   it('keeps the other body fields', () => {
-    const req = buildRequest(litellmRoute(), 'anthropic/claude-haiku-4.5', sampleBody());
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', sampleBody());
     expect(req.body.messages).toEqual([{ role: 'user', content: 'hi' }]);
     expect(req.body.stream).toBe(true);
     expect(req.body.max_tokens).toBe(1024);
@@ -219,27 +222,27 @@ describe('buildRequest: litellm', () => {
 
   it.each(['low', 'medium', 'high'])('sends reasoning effort %s as reasoning_effort', (effort) => {
     const body = { ...sampleBody(), reasoning: { effort } };
-    const req = buildRequest(litellmRoute(), 'minimax/minimax-m3', body);
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', body);
     expect(req.body.reasoning_effort).toBe(effort);
     expect(req.body).not.toHaveProperty('reasoning');
   });
 
   it('sends no reasoning_effort when the body has no reasoning', () => {
     const { reasoning, ...body } = sampleBody();
-    const req = buildRequest(litellmRoute(), 'minimax/minimax-m3', body);
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', body);
     expect(req.body).not.toHaveProperty('reasoning_effort');
   });
 
   it('sends no reasoning_effort for an effort outside low|medium|high', () => {
     const body = { ...sampleBody(), reasoning: { effort: 'minimal' } };
-    const req = buildRequest(litellmRoute(), 'minimax/minimax-m3', body);
+    const req = buildRequest(litellmRoute(), 'google/gemini-3.8-flash', body);
     expect(req.body).not.toHaveProperty('reasoning_effort');
     expect(req.body).not.toHaveProperty('reasoning');
   });
 
   it('does not mutate the input body', () => {
     const body = sampleBody();
-    buildRequest(litellmRoute(), 'anthropic/claude-haiku-4.5', body);
+    buildRequest(litellmRoute(), 'google/gemini-3.8-flash', body);
     expect(body).toEqual(sampleBody());
   });
 });
@@ -276,7 +279,7 @@ describe('buildRequest: openrouter', () => {
 describe('buildRequest: frozen output', () => {
   it('returns a frozen request with frozen headers on both routes', () => {
     for (const route of [litellmRoute(), openrouterRoute()]) {
-      const req = buildRequest(route, 'anthropic/claude-haiku-4.5', sampleBody());
+      const req = buildRequest(route, 'google/gemini-3.8-flash', sampleBody());
       expect(Object.isFrozen(req), route.kind).toBe(true);
       expect(Object.isFrozen(req.headers), route.kind).toBe(true);
     }
@@ -386,7 +389,7 @@ describe('fetchWithFallback', () => {
   const { fetchWithFallback } = llmRoute;
   const LITELLM_URL = `${LITELLM_BASE}/v1/chat/completions`;
   const OPENROUTER_URL = `${OPENROUTER_BASE}/chat/completions`;
-  const MODEL = 'anthropic/claude-haiku-4.5';
+  const MODEL = 'google/gemini-3.8-flash';
 
   // Records each call. `outcomes` scripts the results in order: a number is a
   // response status, an Error is thrown.
@@ -414,7 +417,7 @@ describe('fetchWithFallback', () => {
     expect(response.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(LITELLM_URL);
-    expect(calls[0].body.model).toBe('anthropic/claude-haiku-4-5');
+    expect(calls[0].body.model).toBe('google/gemini-3.8-flash');
     expect(calls[0].body).not.toHaveProperty('provider');
   });
 
@@ -510,7 +513,7 @@ describe('fetchWithFallback', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(OPENROUTER_URL);
     expect(new Headers(calls[0].init.headers).get('Authorization')).toBe('Bearer sk-or-test');
-    expect(calls[0].body).toEqual(sampleBody());
+    expect(calls[0].body).toEqual({ ...sampleBody(), model: MODEL });
   });
 
   it('a string OpenRouter key has no fallback: a 503 is returned', async () => {
@@ -525,7 +528,7 @@ describe('fetchWithFallback', () => {
 describe('gateway header (D7)', () => {
   const { fetchWithFallback } = llmRoute;
   const GATE = 'gate-test-token';
-  const MODEL = 'anthropic/claude-haiku-4.5';
+  const MODEL = 'google/gemini-3.8-flash';
   const gatedRoute = () => llmRouteFromEnv(litellmEnv({ LITELLM_GATE_TOKEN: GATE }));
 
   function recordingFetch(...statuses) {
@@ -610,7 +613,7 @@ describe('gateway header (D7)', () => {
 
 describe('upstream billing errors', () => {
   const { fetchWithFallback, isUpstreamBillingError } = llmRoute;
-  const MODEL = 'anthropic/claude-haiku-4.5';
+  const MODEL = 'google/gemini-3.8-flash';
   const OPENROUTER_URL = `${OPENROUTER_BASE}/chat/completions`;
   const BILLING_TEXT = '{"error":{"message":"litellm.BadRequestError: AnthropicException - '
     + 'Your credit balance is too low to access the Anthropic API."}}';
@@ -721,7 +724,8 @@ describe('LITELLM_MODEL_MAP_JSON override', () => {
   it('adds a new source model when the target is known', () => {
     const route = overrideRoute(JSON.stringify({ 'x/new-model': 'anthropic/claude-sonnet-5' }));
     expect(buildRequest(route, 'x/new-model', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
-    expect(route.modelMap['minimax/minimax-m3']).toBe('anthropic/claude-sonnet-5');
+    expect(route.modelMap['google/gemini-3.8-flash']).toBe('google/gemini-3.8-flash');
+    expect(route.modelMap).not.toHaveProperty('minimax/minimax-m3');
   });
 
   it('prices the mapped model', () => {
@@ -746,7 +750,7 @@ describe('LITELLM_MODEL_MAP_JSON override', () => {
       'anthropic/claude-haiku-4.5': 'openai/gpt-9',
     }));
     expect(route.modelMap).toBe(LITELLM_MODEL_MAP);
-    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
+    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody())).toBeNull();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -783,7 +787,8 @@ describe('LITELLM_MODEL_MAP_JSON override', () => {
 
   it('falls back to LITELLM_MODEL_MAP for a litellm route without modelMap', () => {
     const route = resolveRoute({ kind: 'litellm', baseUrl: LITELLM_BASE, apiKey: 'k', fallback: null });
-    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody()).model).toBe('anthropic/claude-sonnet-5');
+    expect(buildRequest(route, 'google/gemini-3.8-flash', sampleBody()).model).toBe('google/gemini-3.8-flash');
+    expect(buildRequest(route, 'minimax/minimax-m3', sampleBody())).toBeNull();
     expect(buildRequest(route, 'x/unmapped', sampleBody())).toBeNull();
   });
 

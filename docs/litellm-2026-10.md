@@ -23,11 +23,12 @@ Frank virtual key, and page reads keep working when the Jina key is out of credi
 - D2. `LLM_PROVIDER` selects the route: `openrouter` (default) or `litellm`. With `litellm`,
   a network error, 401, 403, 404, 429, or 5xx falls back to OpenRouter once when an
   OpenRouter key exists. ASSUMED: keeps the site up while the gate is closed.
-- D3. Model map for LiteLLM (ASSUMED, by role and measured on the verify replay):
-  - `google/gemini-2.5-flash-lite` and `google/gemini-2.5-flash` to `google/gemini-3.8-flash`
-  - `minimax/minimax-m3` to `anthropic/claude-sonnet-5`
-  - `anthropic/claude-haiku-4.5` to `anthropic/claude-haiku-4-5`
+- D3. Model map for LiteLLM:
+  - `google/gemini-3.8-flash` to `google/gemini-3.8-flash`
   - An unmapped model goes to OpenRouter with a log line.
+  - Changed 2026-10-08: the `minimax/minimax-m3` and `anthropic/claude-haiku-4.5` entries were removed.
+    The Anthropic account behind LiteLLM has no credit, so those calls only failed and then fell back.
+    `LITELLM_MODEL_MAP_JSON` can still map a model to an Anthropic target.
 - D4. LiteLLM does not return a USD cost in the stream. Cost comes from a per-model price
   table (USD per token, from LiteLLM `/model/info`) times the usage token counts.
 - D5. OpenRouter-only request fields (`provider`, `models`, `reasoning` object) are not sent

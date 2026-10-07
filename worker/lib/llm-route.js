@@ -22,13 +22,14 @@ const BILLING_ERROR_STATUSES = Object.freeze([400, 402, 403]);
 const BILLING_ERROR_RE = /credit balance|billing|insufficient[_ ]quota|exceeded your current quota|budget/i;
 
 // D3. Production model to LiteLLM model. An unmapped model goes to OpenRouter.
+// 2026-10-08: only Gemini is mapped. The Anthropic account behind LiteLLM has
+// no credit, so mapped Anthropic calls only failed and then fell back.
 export const LITELLM_MODEL_MAP = Object.freeze({
   'google/gemini-3.8-flash': 'google/gemini-3.8-flash',
-  'minimax/minimax-m3': 'anthropic/claude-sonnet-5',
-  'anthropic/claude-haiku-4.5': 'anthropic/claude-haiku-4-5',
 });
 
-// D4. USD per token for each LiteLLM model (from LiteLLM /model/info).
+// D4. USD per token for each LiteLLM model (from LiteLLM /model/info). The
+// Anthropic entries stay so LITELLM_MODEL_MAP_JSON can still target them.
 export const LITELLM_PRICES = Object.freeze({
   'google/gemini-3.8-flash': Object.freeze({ in: 7.5e-7, out: 3.75e-6 }),
   'anthropic/claude-sonnet-5': Object.freeze({ in: 2e-6, out: 1e-5 }),

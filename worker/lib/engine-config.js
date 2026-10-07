@@ -34,7 +34,11 @@ export const ENGINE_CONFIG = {
   // against minimax-m3 23 correct, 68%, $0.089/product, 9.5 s. Served by
   // OpenRouter (not in the LiteLLM map, so LiteLLM routes fall back to it).
   stanceModel: 'xiaomi/mimo-v2.6-flash',
-  extractModel: 'anthropic/claude-haiku-4.5', // extractClaims: no-OpenAI pick; only non-OpenAI model matching the incumbent on the extract-gold bench.
+  // 2026-10-08 extract bench (benchmarks/extract-bench.mjs, 5 products, same
+  // cached page text, Sonnet 5.5 grader): mimo 46 good claims, 3 flagged (2
+  // checked as grader errors), $0.0006/product, 3.9 s; haiku-4.5 45 good, 1
+  // made up, $0.006/product.
+  extractModel: 'xiaomi/mimo-v2.6-flash',
   synthMaxTokens: 16000,
   // ── speed knobs (OpenRouter platform levers) ──────────────────────────────
   // The agent loop is tool-ROUTING, not deep reasoning — cap thinking tokens per
