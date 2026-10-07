@@ -26,6 +26,40 @@ function isRetryableStatus(status) {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+function isKeyRejectedStatus(status) {
+  return status === 401 || status === 402 || status === 403;
+}
+
+// When Jina rejects the key (401/402/403, e.g. the account is out of credit),
+// reads go keyless for this long. Keyless Jina still answers, only slower.
+export const JINA_KEY_COOLDOWN_MS = 600000;
+const KEY_COOLDOWN_MINUTES = JINA_KEY_COOLDOWN_MS / 60000;
+
+// Isolate-scoped: Date.now() when the key was last rejected, or null.
+let keyRejectedAt = null;
+
+export function resetJinaKeyState() {
+  keyRejectedAt = null;
+}
+
+function isKeyCoolingDown() {
+  return keyRejectedAt !== null && Date.now() - keyRejectedAt < JINA_KEY_COOLDOWN_MS;
+}
+
+function startKeyCooldown(status) {
+  if (!isKeyCoolingDown()) {
+    console.log(`[jina] key rejected (HTTP ${status}), using keyless reads for ${KEY_COOLDOWN_MINUTES} minutes`);
+  }
+  keyRejectedAt = Date.now();
+}
+
+function buildJinaHeaders(apiKey) {
+  // A Jina API key (free signup, generous limits) lifts the keyless rate cap that
+  // otherwise 429s most concurrent reads → far more pages actually return body text.
+  const base = { Accept: 'text/markdown', 'X-Return-Format': 'markdown' };
+  return apiKey ? { ...base, Authorization: `Bearer ${apiKey}` } : base;
+}
+
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -45,6 +79,10 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * graceful empty-string failure remains the final fallback; this function never
  * throws.
  *
+ * Key rejection: a 401/402/403 on a keyed request (e.g. the key is out of
+ * credit) retries the same Jina URL once without the key, and later calls skip
+ * the key for JINA_KEY_COOLDOWN_MS.
+ *
  * `opts.fetchImpl`/`opts.sleepImpl` are injectable for tests (default to the
  * global fetch and a real timer-based delay); they do not change the public
  * two-arg call sites used throughout the codebase.
@@ -55,15 +93,10 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
   const sleepImpl = opts.sleepImpl ?? defaultSleep;
   const started = Date.now();
 
-  // A Jina API key (free signup, generous limits) lifts the keyless rate cap that
-  // otherwise 429s most concurrent reads → far more pages actually return body text.
-  const headers = {
-    Accept: 'text/markdown',
-    'X-Return-Format': 'markdown',
-  };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  let sendKey = Boolean(apiKey) && !isKeyCoolingDown();
 
   for (let attempt = 0; attempt <= JINA_MAX_RETRIES; attempt++) {
+    const headers = buildJinaHeaders(sendKey ? apiKey : null);
     try {
       const response = await fetchImpl(`https://r.jina.ai/${url}`, {
         signal: AbortSignal.timeout(JINA_TIMEOUT_MS),
@@ -72,6 +105,14 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
 
       if (!response.ok) {
         console.log(`[jina] HTTP ${response.status} for ${url} (attempt ${attempt + 1})`);
+        if (sendKey && isKeyRejectedStatus(response.status)) {
+          // The key is rejected, not the page: retry the same URL once without it
+          // (no backoff, does not use up a retry attempt).
+          startKeyCooldown(response.status);
+          sendKey = false;
+          attempt--;
+          continue;
+        }
         const canRetry = isRetryableStatus(response.status)
           && attempt < JINA_MAX_RETRIES
           && Date.now() - started < JINA_RETRY_BUDGET_MS;
