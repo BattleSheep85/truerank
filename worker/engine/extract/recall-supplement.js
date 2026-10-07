@@ -7,6 +7,7 @@
 // appears in the gathered sources AND analyzeProduct finds credible evidence for it. The LLM can
 // widen recall but can NEVER fabricate a product into the report. Proposes, never asserts.
 import { callLLM } from '../llm.js';
+import { routeHasKey } from '../../lib/llm-route.js';
 import { parseFencedJson } from '../../lib/llm-json.js';
 
 const SCHEMA = {
@@ -15,7 +16,7 @@ const SCHEMA = {
 };
 
 export async function proposeMissingLeaders(query, topicalCategory, existingNames, sources, apiKey, model) {
-  if (!apiKey || !model || !Array.isArray(sources) || sources.length === 0) return [];
+  if (!routeHasKey(apiKey) || !model || !Array.isArray(sources) || sources.length === 0) return [];
   // Source TITLES give the model grounding context (what these pages actually discuss) without
   // shipping full bodies. The hard grounding gate is downstream (the name must appear in a source).
   const titles = sources.map((s) => String(s?.title || '').trim()).filter(Boolean).slice(0, 40).join('\n');

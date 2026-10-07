@@ -13,6 +13,7 @@ import { callLLM } from '../engine/llm.js';
 import { ENGINE_CONFIG } from '../lib/engine-config.js';
 import { getResearchById, generateId } from '../lib/db.js';
 import { nowEpoch } from '../lib/utils.js';
+import { llmRouteFromEnv } from '../lib/llm-route.js';
 import { incrementMonthlyCost } from './orchestrator.js';
 
 /**
@@ -58,7 +59,7 @@ export async function runVerificationPipeline(env, reportId, { product, productU
             product,
             productUrl,
             config,
-            apiKey: env.OPENROUTER_API_KEY,
+            apiKey: llmRouteFromEnv(env),
             env,
             onEvent: opts.onProgress || (() => {}),
             callLLM,

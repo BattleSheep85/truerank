@@ -6,6 +6,7 @@
 // name may only use words already in the original). Conservative on drops (keep when unsure)
 // so real products aren't lost. Selects + cleans, never generates.
 import { callLLM } from '../llm.js';
+import { routeHasKey } from '../../lib/llm-route.js';
 import { parseFencedJson } from '../../lib/llm-json.js';
 
 // Deliberate superset of the shared parseFencedJson: also strips HTML entities
@@ -23,7 +24,7 @@ const SCHEMA = {
 };
 
 export async function cleanProducts(report, query, topicalCategory, apiKey, model) {
-  if (!apiKey || !model || !report || !Array.isArray(report.products) || report.products.length === 0) return report;
+  if (!routeHasKey(apiKey) || !model || !report || !Array.isArray(report.products) || report.products.length === 0) return report;
   const list = report.products.map((p, i) => `${i}: ${p.name}`).join('\n');
   const messages = [{
     role: 'user',

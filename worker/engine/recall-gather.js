@@ -2,6 +2,7 @@
 import { proposeMissingLeaders } from './extract/recall-supplement.js';
 import { runSearch } from './tools.js';
 import { harvestCandidates } from './extract/candidates.js';
+import { routeHasKey } from '../lib/llm-route.js';
 
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -50,7 +51,7 @@ export async function runRecallGather(opts = {}) {
   const propose = deps.propose || proposeMissingLeaders;
   const search = deps.search || runSearch;
 
-  if (!openrouterKey || !recallModel || maxSearches < 1 || !Array.isArray(sources) || sources.length === 0) {
+  if (!routeHasKey(openrouterKey) || !recallModel || maxSearches < 1 || !Array.isArray(sources) || sources.length === 0) {
     return { proposed: 0, searched: 0, recovered: 0, sources: [] };
   }
 

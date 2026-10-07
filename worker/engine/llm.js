@@ -5,6 +5,8 @@
 // OpenRouterChoice / OpenRouterUsage / OpenRouterResponse interfaces. These are
 // erased structural types; the runtime objects come straight off the JSON body.
 
+import { resolveRoute, buildRequest, isFallbackStatus, costFromUsage } from '../lib/llm-route.js';
+
 // Budget for OpenRouter calls, scaled to reasoning effort. Extended thinking
 // adds a silent pre-generation phase (30-90s for 'medium', 60-180s for 'high'),
 // so a fixed 120s ceiling is too tight for exhaustive/unbound tiers.
@@ -17,8 +19,7 @@ export function llmBudgetMs(effort) {
   }
 }
 
-// Stream an OpenRouter completion and surface incremental content via onToken.
-// Uses a per-chunk watchdog (not just overall timeout) so a stuck stream aborts
+// Streaming calls use a per-chunk watchdog (not just overall timeout) so a stuck stream aborts
 // promptly — the historical hang that motivated `await response.text()` came
 // from no per-chunk deadline.
 //
@@ -51,8 +52,153 @@ export function sanitizeLLMMessages(messages) {
   return messages.map((m) => (m && typeof m.content === 'string' ? { ...m, content: stripLoneSurrogates(m.content) } : m));
 }
 
-export async function callLLMStreaming(apiKey, model, messages, onToken, opts = {}) {
+// Every call goes through a route (docs/litellm-2026-10.md D2 to D5). The
+// apiKey argument is a route object or a plain OpenRouter key string.
+const PROVIDER_LABELS = Object.freeze({ litellm: 'LiteLLM', openrouter: 'OpenRouter' });
+const ERROR_TEXT_MAX = 200;
+const DEFAULT_STREAM_MAX_TOKENS = 8192;
+const REDACTED = '[redacted]';
+
+// A LiteLLM failure that may retry once on the OpenRouter fallback.
+class LiteLLMFallbackError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = 'LiteLLMFallbackError';
+    this.fallbackReason = reason;
+  }
+}
+
+function providerLabel(route) {
+  return PROVIDER_LABELS[route.kind] ?? route.kind;
+}
+
+// Removes the route keys from text so no error or log line carries a key.
+function redactKeys(text, route) {
+  const keys = [route.apiKey, route.fallback?.apiKey].filter((k) => typeof k === 'string' && k.length > 0);
+  return keys.reduce((acc, key) => acc.split(key).join(REDACTED), String(text ?? ''));
+}
+
+// Runs attempt on the route. A LiteLLM fallback error retries once on the
+// OpenRouter fallback with the original model. Other errors pass through.
+async function withFallback(route, attempt) {
+  try {
+    return await attempt(route);
+  } catch (err) {
+    if (!(err instanceof LiteLLMFallbackError) || !route.fallback) throw err;
+    console.log(`[llm] litellm fallback: ${err.fallbackReason}`);
+    return attempt(route.fallback);
+  }
+}
+
+function requestFor(route, model, body) {
+  const req = buildRequest(route, model, body);
+  if (req) return req;
+  throw new LiteLLMFallbackError(`unmapped model ${model}`, `LiteLLM: no model mapping for ${model}`);
+}
+
+// POSTs the request. A LiteLLM network error (not our own abort) may fall back.
+async function postChat(route, req, signal, extraHeaders = {}) {
+  try {
+    return await fetch(req.url, {
+      method: 'POST',
+      signal,
+      headers: { ...req.headers, ...extraHeaders },
+      body: JSON.stringify(req.body),
+    });
+  } catch (err) {
+    if (route.kind !== 'litellm' || signal.aborted) throw err;
+    const detail = redactKeys(err?.message ?? 'fetch failed', route);
+    throw new LiteLLMFallbackError(`network error: ${detail}`, `LiteLLM network error: ${detail}`);
+  }
+}
+
+// Logs and throws for a non-ok response. The message names the provider.
+async function throwHttpError(route, response, logTag, model) {
+  const raw = await response.text().catch(() => '');
+  const errText = redactKeys(raw, route).slice(0, ERROR_TEXT_MAX);
+  console.log(`${logTag} model=${model} HTTP ${response.status}: ${errText}`);
+  const message = `${providerLabel(route)} ${response.status}: ${errText}`;
+  if (route.kind === 'litellm' && isFallbackStatus(response.status)) {
+    throw new LiteLLMFallbackError(`HTTP ${response.status}`, message);
+  }
+  throw new Error(message);
+}
+
+// LiteLLM sends no USD cost, so compute it from the price table (D4).
+// OpenRouter usage passes through unchanged.
+function usageWithCost(route, model, usage) {
+  if (route.kind !== 'litellm' || !usage) return usage;
+  return { ...usage, cost: costFromUsage(model, usage) };
+}
+
+function routeLogSuffix(route) {
+  return route.kind === 'litellm' ? ' via=litellm' : '';
+}
+
+function buildStreamBody(model, messages, opts) {
   const { reasoning, maxTokens, provider, responseFormat, models, temperature, seed } = opts;
+  const rz = normalizeReasoning(reasoning);
+  return {
+    ...(Array.isArray(models) && models.length ? { models } : { model }),
+    messages: sanitizeLLMMessages(messages),
+    stream: true,
+    max_tokens: maxTokens ?? DEFAULT_STREAM_MAX_TOKENS,
+    // Deterministic by default. Every call previously ran at the provider's
+    // default (~1.0) sampling temperature, which is why identical inputs
+    // produced different results. Overridable per-call.
+    temperature: temperature ?? 0,
+    ...(seed !== undefined ? { seed } : {}),
+    // The final SSE chunk carries the full usage object (prompt/completion
+    // tokens, plus cost in USD on OpenRouter) when this is set. Needed for
+    // research.cost_usd accounting.
+    stream_options: { include_usage: true },
+    ...(rz ? { reasoning: rz } : {}),
+    // Provider routing (e.g. {sort:'throughput'} for the synth stream) and
+    // optional strict structured outputs. Both off unless the caller sets them.
+    ...(provider ? { provider } : {}),
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+  };
+}
+
+// Reads SSE chunks, calls onToken per content delta, returns { content, usage }.
+async function readSseStream(body, onToken, armChunk) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let usage;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    armChunk();
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() ?? '';
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') return { content, usage };
+      try {
+        const obj = JSON.parse(payload);
+        const delta = obj.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string' && delta.length > 0) {
+          content += delta;
+          onToken(delta, content);
+        }
+        // include_usage: the final chunk (or occasionally a mid-stream
+        // chunk) carries the full usage object. Last one wins.
+        if (obj.usage) usage = obj.usage;
+      } catch { /* skip non-JSON heartbeats */ }
+    }
+  }
+  return { content, usage };
+}
+
+async function streamOnce(route, model, messages, onToken, opts) {
+  const { reasoning } = opts;
+  const req = requestFor(route, model, buildStreamBody(model, messages, opts));
   const { hardMs, chunkMs } = llmBudgetMs(reasoningEffortOf(reasoning));
   const controller = new AbortController();
   const hardTimer = setTimeout(() => controller.abort('hard'), hardMs);
@@ -62,136 +208,69 @@ export async function callLLMStreaming(apiKey, model, messages, onToken, opts = 
     chunkTimer = setTimeout(() => controller.abort('chunk'), chunkMs);
   };
 
-  console.log(`[llm-stream] calling model=${model} effort=${reasoningEffortOf(reasoning) ?? 'none'}`);
+  console.log(`[llm-stream] calling model=${req.model} effort=${reasoningEffortOf(reasoning) ?? 'none'}${routeLogSuffix(route)}`);
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://chrisputer.tech',
-        'X-Title': 'Frank',
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({
-        ...(Array.isArray(models) && models.length ? { models } : { model }),
-        messages: sanitizeLLMMessages(messages),
-        stream: true,
-        max_tokens: maxTokens ?? 8192,
-        // Deterministic by default — every call previously ran at the
-        // provider's default (~1.0) sampling temperature, which is why
-        // identical inputs produced different results. Overridable per-call.
-        temperature: temperature ?? 0,
-        ...(seed !== undefined ? { seed } : {}),
-        // OpenRouter emits a final SSE chunk carrying the full usage object
-        // (prompt/completion tokens + cost in USD) when this is set. Needed
-        // for research.cost_usd accounting.
-        stream_options: { include_usage: true },
-        ...(normalizeReasoning(reasoning) ? { reasoning: normalizeReasoning(reasoning) } : {}),
-        // Provider routing (e.g. {sort:'throughput'} for the synth stream) +
-        // optional strict structured outputs — both off unless the caller sets them.
-        ...(provider ? { provider } : {}),
-        ...(responseFormat ? { response_format: responseFormat } : {}),
-      }),
-    });
-
-    if (!response.ok || !response.body) {
-      const errText = await response.text().catch(() => '');
-      console.log(`[llm-stream] model=${model} HTTP ${response.status}: ${errText.slice(0, 200)}`);
-      throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 200)}`);
-    }
+    const response = await postChat(route, req, controller.signal, { Accept: 'text/event-stream' });
+    if (!response.ok || !response.body) await throwHttpError(route, response, '[llm-stream]', req.model);
     armChunk();
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let content = '';
-    let usage;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      armChunk();
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? '';
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return { content, usage };
-        try {
-          const obj = JSON.parse(payload);
-          const delta = obj.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string' && delta.length > 0) {
-            content += delta;
-            onToken(delta, content);
-          }
-          // include_usage: the final chunk (or occasionally a mid-stream
-          // chunk) carries the full usage object. Last one wins.
-          if (obj.usage) usage = obj.usage;
-        } catch { /* skip non-JSON heartbeats */ }
-      }
-    }
-    return { content, usage };
+    const { content, usage } = await readSseStream(response.body, onToken, armChunk);
+    return { content, usage: usageWithCost(route, req.model, usage) };
   } finally {
     clearTimeout(hardTimer);
     if (chunkTimer) clearTimeout(chunkTimer);
   }
 }
 
-export async function callLLM(apiKey, model, messages, opts = {}) {
-  const { tools, reasoning, maxTokens, provider, responseFormat, models, hardMsOverride, temperature, seed } = opts;
-  const body = { messages: sanitizeLLMMessages(messages) };
-  // model vs models[] fallback chain are mutually exclusive (OpenRouter 400s on both).
-  if (Array.isArray(models) && models.length) body.models = models; else body.model = model;
-  if (tools && tools.length > 0) {
-    body.tools = tools;
-    body.tool_choice = 'auto';
-  }
-  const rz = normalizeReasoning(reasoning);
-  if (rz) body.reasoning = rz;
-  if (maxTokens) body.max_tokens = maxTokens;
-  if (provider) body.provider = provider;
-  if (responseFormat) body.response_format = responseFormat;
-  // Deterministic by default — see callLLMStreaming for rationale.
-  body.temperature = temperature ?? 0;
-  if (seed !== undefined) body.seed = seed;
+// Stream a completion and surface incremental content via onToken.
+export async function callLLMStreaming(apiKey, model, messages, onToken, opts = {}) {
+  return withFallback(resolveRoute(apiKey), (route) => streamOnce(route, model, messages, onToken, opts));
+}
 
-  // Scale timeout to reasoning effort — medium/high thinking phases alone can run
+function buildCallBody(model, messages, opts) {
+  const { tools, reasoning, maxTokens, provider, responseFormat, models, temperature, seed } = opts;
+  const rz = normalizeReasoning(reasoning);
+  const hasTools = Array.isArray(tools) && tools.length > 0;
+  return {
+    messages: sanitizeLLMMessages(messages),
+    // model vs models[] fallback chain are mutually exclusive (OpenRouter 400s on both).
+    ...(Array.isArray(models) && models.length ? { models } : { model }),
+    ...(hasTools ? { tools, tool_choice: 'auto' } : {}),
+    ...(rz ? { reasoning: rz } : {}),
+    ...(maxTokens ? { max_tokens: maxTokens } : {}),
+    ...(provider ? { provider } : {}),
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+    // Deterministic by default. See buildStreamBody for rationale.
+    temperature: temperature ?? 0,
+    ...(seed !== undefined ? { seed } : {}),
+  };
+}
+
+async function callOnce(route, model, messages, opts) {
+  const { tools, reasoning, models, hardMsOverride } = opts;
+  const req = requestFor(route, model, buildCallBody(model, messages, opts));
+  // Scale timeout to reasoning effort. Medium/high thinking phases alone can run
   // 60-180s. A caller can pass hardMsOverride to cap a fast routing turn tighter.
   const { hardMs: budgetHardMs } = llmBudgetMs(reasoningEffortOf(reasoning));
-  const hardMs = hardMsOverride || budgetHardMs;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), hardMs);
+  const timer = setTimeout(() => controller.abort(), hardMsOverride || budgetHardMs);
 
-  console.log(`[llm] calling model=${body.models ? body.models.join('>') : model} effort=${reasoningEffortOf(reasoning) ?? 'none'} tools=${tools?.length ?? 0}`);
+  const chain = route.kind === 'openrouter' && Array.isArray(models) && models.length ? models.join('>') : req.model;
+  console.log(`[llm] calling model=${chain} effort=${reasoningEffortOf(reasoning) ?? 'none'} tools=${tools?.length ?? 0}${routeLogSuffix(route)}`);
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://chrisputer.tech',
-        'X-Title': 'Frank',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      console.log(`[llm] model=${model} HTTP ${response.status}: ${errText.slice(0, 200)}`);
-      throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 200)}`);
-    }
-
+    const response = await postChat(route, req, controller.signal);
+    if (!response.ok) await throwHttpError(route, response, '[llm]', req.model);
     // Read body as text first (avoids hanging on slow streaming responses)
-    const text = await response.text();
-    return JSON.parse(text);
+    const data = JSON.parse(await response.text());
+    return route.kind === 'litellm' && data?.usage
+      ? { ...data, usage: usageWithCost(route, req.model, data.usage) }
+      : data;
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function callLLM(apiKey, model, messages, opts = {}) {
+  return withFallback(resolveRoute(apiKey), (route) => callOnce(route, model, messages, opts));
 }
 
 // ─── Context management ──────────────────────────────────────────────────────

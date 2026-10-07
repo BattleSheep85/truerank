@@ -28,6 +28,7 @@ import { submitToIndexNow } from '../lib/indexnow.js';
 import { notifySubscribersForResearch } from '../lib/notify.js';
 import { screenQuery, rejectionMessage, classifierRejectToReason } from '../lib/safety.js';
 import { purgePageCache } from '../routes/pages.js';
+import { llmRouteFromEnv } from '../lib/llm-route.js';
 
 // Monthly spend ceiling default; overridden by env.MONTHLY_BUDGET_USD.
 const DEFAULT_MONTHLY_BUDGET_USD = 60;
@@ -59,7 +60,7 @@ export async function runResearchPipeline(env, reportId, query) {
         await progress(`Starting ${tier} research...`);
 
         const engine = await runEngine(
-            query, config, env.OPENROUTER_API_KEY, env, onEvent, facets, topicalCategory, clarifications,
+            query, config, llmRouteFromEnv(env), env, onEvent, facets, topicalCategory, clarifications,
         );
 
         // Dev-only: stash the raw extractor input (notes + full source text) so we

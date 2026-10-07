@@ -3,8 +3,12 @@
 // source (../types); their runtime shape is constructed directly here.
 
 import { parseFencedJson } from './llm-json.js';
+import { llmRouteFromEnv, fetchWithFallback } from './llm-route.js';
 
-const CLASSIFIER_MODEL = 'google/gemini-2.5-flash-lite';
+// Reasoning tokens count against max_tokens on this model, so the cap leaves room
+// for them; a low cap cuts the JSON off and the parse returns nothing.
+const CLASSIFIER_MODEL = 'google/gemini-3.8-flash';
+const CLASSIFIER_MAX_TOKENS = 1_500;
 const CLASSIFIER_TIMEOUT_MS = 8_000;
 
 // Strict structured-output schema — makes the classifier JSON schema-guaranteed
@@ -251,6 +255,22 @@ export function defaultQuestionsForQuery(query) {
   return ensureClarifyingQuestions(query, DEFAULT_FACETS, []);
 }
 
+// Calls the shared LLM route (docs/litellm-2026-10.md D2) with one timeout for
+// the call and its fallback. The X-Title header names this caller on OpenRouter.
+async function postClassifier(env, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLASSIFIER_TIMEOUT_MS);
+  try {
+    const { response } = await fetchWithFallback(llmRouteFromEnv(env), body.model, body, fetch, {
+      signal: controller.signal,
+      headers: { 'X-Title': 'Frank Classifier' },
+    });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function classifyQuery(env, query, canonical) {
   // Cache first — identical canonical queries skip the classifier.
   const cacheKey = `classifier:${CACHE_VERSION}:${canonical}`;
@@ -266,27 +286,15 @@ export async function classifyQuery(env, query, canonical) {
 
   let content = '';
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CLASSIFIER_TIMEOUT_MS);
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://chrisputer.tech',
-        'X-Title': 'Frank Classifier',
-      },
-      body: JSON.stringify({
-        model: CLASSIFIER_MODEL,
-        messages: [
-          { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
-          { role: 'user', content: query },
-        ],
-        response_format: { type: 'json_schema', json_schema: { name: 'classification', strict: true, schema: CLASSIFIER_SCHEMA } },
-        max_tokens: 500,
-      }),
-    }).finally(() => clearTimeout(timer));
+    const response = await postClassifier(env, {
+      model: CLASSIFIER_MODEL,
+      messages: [
+        { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
+        { role: 'user', content: query },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: 'classification', strict: true, schema: CLASSIFIER_SCHEMA } },
+      max_tokens: CLASSIFIER_MAX_TOKENS,
+    });
 
     if (!response.ok) {
       console.warn('[classifier] non-ok response:', response.status);

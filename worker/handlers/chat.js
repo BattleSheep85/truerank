@@ -9,7 +9,8 @@
  *  - report refine (slug + mode=refine): chat to reshape constraints and rerun
  *    research via suggested_query + refinements map.
  *
- * Cheap by design: google/gemini-2.5-flash, ≤700 output tokens, 20 msgs/hr/IP,
+ * Cheap by design: google/gemini-3.8-flash, ≤1500 output tokens (reasoning tokens
+ * count against max_tokens, so a low cap empties the reply), 20 msgs/hr/IP,
  * and every call's real cost feeds the same monthly budget governor as
  * research runs (503 when the month is spent).
  */
@@ -19,9 +20,11 @@ import { checkBurstGate } from '../lib/burst-gate.js';
 import { getResearchBySlug, getProductsByResearchId } from '../lib/db.js';
 import { parseJsonSafe, displayQuery } from '../lib/utils.js';
 import { budgetExhausted, incrementMonthlyCost } from '../pipeline/orchestrator.js';
+import { llmRouteFromEnv, fetchWithFallback, costFromUsage, LITELLM_MODEL_MAP } from '../lib/llm-route.js';
 
-const CHAT_MODEL = 'google/gemini-2.5-flash';
+const CHAT_MODEL = 'google/gemini-3.8-flash';
 const CHAT_TIMEOUT_MS = 25_000;
+const CHAT_MAX_TOKENS = 1_500;
 const MAX_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 2_000;
 const MAX_TOTAL_CHARS = 12_000;
@@ -136,6 +139,24 @@ function sanitizeMessages(raw) {
     return out;
 }
 
+// Calls the shared LLM route (docs/litellm-2026-10.md D2) with one timeout for
+// the call and its fallback. `usage.include` is OpenRouter-only; buildRequest
+// strips it for LiteLLM. The X-Title header names this caller on OpenRouter.
+async function postChat(env, body) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+    try {
+        const { response, routeKind } = await fetchWithFallback(
+            llmRouteFromEnv(env), body.model, { ...body, usage: { include: true } }, fetch,
+            { signal: controller.signal, headers: { 'X-Title': 'Frank Chat' } },
+        );
+        const model = routeKind === 'litellm' ? LITELLM_MODEL_MAP[body.model] : body.model;
+        return { response, model };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 export async function handleChat(request, env) {
     let body;
     try { body = await request.json(); } catch {
@@ -188,25 +209,12 @@ export async function handleChat(request, env) {
     let content = '';
     let cost = 0;
     try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-                'HTTP-Referer': 'https://chrisputer.tech',
-                'X-Title': 'Frank Chat',
-            },
-            body: JSON.stringify({
-                model: CHAT_MODEL,
-                messages: [{ role: 'system', content: systemPrompt }, ...messages],
-                response_format: { type: 'json_object' },
-                max_tokens: 700,
-                usage: { include: true },
-            }),
-        }).finally(() => clearTimeout(timer));
+        const { response, model } = await postChat(env, {
+            model: CHAT_MODEL,
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            response_format: { type: 'json_object' },
+            max_tokens: CHAT_MAX_TOKENS,
+        });
 
         if (!response.ok) {
             console.error('[chat] upstream non-ok:', response.status);
@@ -214,7 +222,7 @@ export async function handleChat(request, env) {
         }
         const data = await response.json();
         content = data.choices?.[0]?.message?.content ?? '';
-        cost = Number(data.usage?.cost) || 0;
+        cost = costFromUsage(model, data.usage);
     } catch (err) {
         console.error('[chat] request failed:', err instanceof Error ? err.message : String(err));
         return jsonResponse({ error: 'The assistant timed out. Try again.' }, 504);

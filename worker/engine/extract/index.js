@@ -10,6 +10,7 @@ import { selectCons } from './con-selector.js';
 import { cleanProducts } from './name-cleaner.js';
 import { proposeMissingLeaders } from './recall-supplement.js';
 import { norm } from './text.js';
+import { routeHasKey } from '../../lib/llm-route.js';
 
 // HYBRID con enrichment (opt-in): for products the deterministic pass left thin on
 // cons, ask the GATED LLM con-selector to pick criticism from real source spans. The
@@ -17,7 +18,7 @@ import { norm } from './text.js';
 // this adds recall WITHOUT adding a fabrication surface. Mutates report in place; safe
 // no-op without a model/key. Runs only on thin products, concurrency-capped, cheap.
 export async function enrichConsLLM(report, sources, apiKey, model, { minCons = 2, maxCons = 3, concurrency = 6, topN = 15 } = {}) {
-  if (!apiKey || !model || !report?.products?.length) return report;
+  if (!routeHasKey(apiKey) || !model || !report?.products?.length) return report;
   const allNames = report.products.map((p) => p.name);
   // Only enrich the TOP-ranked thin products — enriching a 24-item list would fire too
   // many LLM calls and time out the queue consumer. The tail keeps its deterministic cons.

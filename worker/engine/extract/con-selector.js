@@ -7,6 +7,7 @@
 // LLM is far better at recognizing a drawback phrased without a sentiment keyword
 // ("the app is required to change EQ"), but it is allowed to recognize, not invent.
 import { callLLM } from '../llm.js';
+import { routeHasKey } from '../../lib/llm-route.js';
 import { sentencePolarity } from './engine.js';
 import { norm } from './text.js';
 
@@ -29,7 +30,7 @@ const SCHEMA = { type: 'object', additionalProperties: false, required: ['cons']
 // Returns grounded con strings (each verified as a substring of `spans`). [] on any
 // failure — the engine keeps whatever deterministic cons it already had.
 export async function selectCons(productName, spans, apiKey, model, maxCons = 3) {
-  if (!apiKey || !model || !Array.isArray(spans) || spans.length === 0) return [];
+  if (!routeHasKey(apiKey) || !model || !Array.isArray(spans) || spans.length === 0) return [];
   const numbered = spans.map((s, i) => `${i + 1}. ${s}`).join('\n');
   const messages = [
     { role: 'system', content: SELECT_SYSTEM },
