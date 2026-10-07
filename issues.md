@@ -1,6 +1,34 @@
 # Issues
 
-Last updated: 2026-08-26
+Last updated: 2026-10-06
+
+## 2026-10-06: refocus run (spec docs/refocus-2026-10/spec.md, plan docs/refocus-2026-10/plan.md)
+
+### Ops
+- [ ] HIGH (OPS): Apply schema/017_retire_seo_rows.sql to dev and production (plan.md rollout steps 3 to 5) before main moves past commit 6658f59. Commits from 071e72b onward read research.retired_at and break listings, /reviews, and the sitemap without it.
+- [ ] HIGH (OPS): Jina Reader answers HTTP 402 (payment required) and Serper is exhausted for the local benchmark keys. benchmarks/verify-product.mjs could not extract claims for any of 5 products on 2026-10-06. Check whether production keys hit the same limits.
+
+### Product
+- [ ] HIGH (Product, verify): claim checker still leaves most claims unsubstantiated. Replay on pinned Space A40 evidence went from 8/9 to 7/9 unsubstantiated after the stance truncation fix (bd01633). The plan's bar is 60 percent or less. Root cause left: gather and tagging (spec D7), off-topic sources in each claim's top 15, substring term hits. worker/engine/verify.js.
+
+### Data Integrity
+- [ ] MEDIUM (Data Integrity): retired reports are still served at /research/<slug>/og.svg, /api/report/<id>, /api/chat, and the user history list.
+- [ ] LOW (Data Integrity): migration 017 can still retire an anonymous person's report that has no clarifications, no subscriber, and no search-history link, when a keyword with the same text clustered onto it. The undo statement is in the file header.
+
+### SEO
+- [ ] MEDIUM (SEO): retiring rows does not change getLatestResearchLastmod, so sitemap, feed, and browse keep answering 304 with retired URLs until a new public report completes.
+
+### UX
+- [ ] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check.
+- [ ] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request.
+- [ ] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)".
+
+### API
+- [ ] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge.
+- [ ] LOW (API): name keys ignore symbols, so "Galaxy S24+" and "Galaxy S24" share a key. Non-Amazon short links (bit.ly) get URL keys although the owner can retarget them.
+
+### Reliability
+- [ ] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line.
 
 ## 2026-08-26: whole-project review board audit
 
