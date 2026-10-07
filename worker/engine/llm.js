@@ -5,7 +5,9 @@
 // OpenRouterChoice / OpenRouterUsage / OpenRouterResponse interfaces. These are
 // erased structural types; the runtime objects come straight off the JSON body.
 
-import { resolveRoute, buildRequest, isFallbackStatus, costFromUsage } from '../lib/llm-route.js';
+import {
+  resolveRoute, buildRequest, isFallbackStatus, isUpstreamBillingError, costFromUsage,
+} from '../lib/llm-route.js';
 
 // Budget for OpenRouter calls, scaled to reasoning effort. Extended thinking
 // adds a silent pre-generation phase (30-90s for 'medium', 60-180s for 'high'),
@@ -103,9 +105,11 @@ function providerLabel(route) {
   return PROVIDER_LABELS[route.kind] ?? route.kind;
 }
 
-// Removes the route keys from text so no error or log line carries a key.
+// Removes the route keys and the gateway token (D7) from text so no error or
+// log line carries a secret.
 function redactKeys(text, route) {
-  const keys = [route.apiKey, route.fallback?.apiKey].filter((k) => typeof k === 'string' && k.length > 0);
+  const keys = [route.apiKey, route.gateToken, route.fallback?.apiKey]
+    .filter((k) => typeof k === 'string' && k.length > 0);
   return keys.reduce((acc, key) => acc.split(key).join(REDACTED), String(text ?? ''));
 }
 
@@ -149,9 +153,13 @@ async function throwHttpError(route, response, logTag, model) {
   const errText = redactKeys(raw, route).slice(0, ERROR_TEXT_MAX);
   console.log(`${logTag} model=${model} HTTP ${response.status}: ${errText}`);
   const message = `${providerLabel(route)} ${response.status}: ${errText}`;
+  // The temperature retry comes first: it stays on the same route.
   if (isUnsupportedTemperature(response.status, raw)) throw new UnsupportedTemperatureError(message, model);
   if (route.kind === 'litellm' && isFallbackStatus(response.status)) {
     throw new LiteLLMFallbackError(`HTTP ${response.status}`, message);
+  }
+  if (route.kind === 'litellm' && isUpstreamBillingError(response.status, raw)) {
+    throw new LiteLLMFallbackError(`HTTP ${response.status} upstream billing`, message);
   }
   throw new Error(message);
 }

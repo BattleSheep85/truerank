@@ -3,10 +3,12 @@
 //
 // A route is a frozen object: { kind, baseUrl, apiKey, fallback }.
 // kind is 'litellm' or 'openrouter'. fallback is an OpenRouter route or null.
+// A litellm route also has gateToken (D7): a string or null.
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_CHAT_PATH = '/chat/completions';
 const LITELLM_CHAT_PATH = '/v1/chat/completions';
+const LITELLM_GATE_HEADER = 'X-Edge-Gate';
 const OPENROUTER_REFERER = 'https://chrisputer.tech';
 const OPENROUTER_TITLE = 'Frank';
 const ROUTE_KINDS = Object.freeze(['litellm', 'openrouter']);
@@ -15,6 +17,8 @@ const LITELLM_REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high']);
 const SERVER_ERROR_MIN = 500;
 const SERVER_ERROR_MAX = 599;
 const FALLBACK_CLIENT_STATUSES = Object.freeze([401, 403, 404, 429]);
+const BILLING_ERROR_STATUSES = Object.freeze([400, 402, 403]);
+const BILLING_ERROR_RE = /credit balance|billing|insufficient[_ ]quota|exceeded your current quota|budget/i;
 
 // D3. Production model to LiteLLM model. An unmapped model goes to OpenRouter.
 export const LITELLM_MODEL_MAP = Object.freeze({
@@ -50,6 +54,13 @@ function normalizeBaseUrl(raw) {
   return raw.replace(/\/+$/, '');
 }
 
+// D7. Returns the trimmed gateway token, or null when it is missing or blank.
+function gateTokenFromEnv(raw) {
+  if (typeof raw !== 'string') return null;
+  const token = raw.trim();
+  return token.length > 0 ? token : null;
+}
+
 // D2. LLM_PROVIDER=litellm needs a valid base URL and a key. Otherwise OpenRouter.
 export function llmRouteFromEnv(env) {
   const source = env ?? {};
@@ -61,7 +72,8 @@ export function llmRouteFromEnv(env) {
     return openRouterRoute(openrouterKey);
   }
   const fallback = isNonEmptyString(openrouterKey) ? openRouterRoute(openrouterKey) : null;
-  return Object.freeze({ kind: 'litellm', baseUrl, apiKey: litellmKey, fallback });
+  const gateToken = gateTokenFromEnv(source.LITELLM_GATE_TOKEN);
+  return Object.freeze({ kind: 'litellm', baseUrl, apiKey: litellmKey, gateToken, fallback });
 }
 
 // A plain string (or nothing) is an OpenRouter key, as before this module existed.
@@ -86,9 +98,11 @@ function litellmBody(body, model) {
 function buildLitellmRequest(route, model, body) {
   if (!Object.hasOwn(LITELLM_MODEL_MAP, model)) return null;
   const mapped = LITELLM_MODEL_MAP[model];
+  const gateHeader = isNonEmptyString(route.gateToken) ? { [LITELLM_GATE_HEADER]: route.gateToken } : {};
   const headers = Object.freeze({
     'Content-Type': 'application/json',
     Authorization: `Bearer ${route.apiKey}`,
+    ...gateHeader,
   });
   const url = `${route.baseUrl}${LITELLM_CHAT_PATH}`;
   return Object.freeze({ url, headers, model: mapped, body: litellmBody(body, mapped) });
@@ -119,6 +133,15 @@ export function isFallbackStatus(status) {
     || (status >= SERVER_ERROR_MIN && status <= SERVER_ERROR_MAX);
 }
 
+// D2. An upstream billing failure (for example "Your credit balance is too low
+// to access the Anthropic API") that LiteLLM passes through as a 400, 402, or
+// 403. It retries once on OpenRouter like a 5xx.
+export function isUpstreamBillingError(status, bodyText) {
+  return BILLING_ERROR_STATUSES.includes(status)
+    && typeof bodyText === 'string'
+    && BILLING_ERROR_RE.test(bodyText);
+}
+
 function tokenCount(value) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
@@ -147,6 +170,19 @@ function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Reads a non-ok response that is not a fallback status. Returns whether it is
+// an upstream billing error, and a Response with the same status, headers, and
+// body so the caller can still read it.
+async function inspectNonOk(response) {
+  const text = await response.text().catch(() => '');
+  const copy = new Response(text, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  return { billing: isUpstreamBillingError(response.status, text), response: copy };
+}
+
 function sendRequest(req, fetchImpl, init) {
   return fetchImpl(req.url, {
     ...init,
@@ -156,8 +192,20 @@ function sendRequest(req, fetchImpl, init) {
   });
 }
 
-// D2. Sends one request on the route. An unmapped model, a fallback status, or a
-// network error (not an abort) retries once on route.fallback when it exists.
+// Returns the response to give the caller, or null when the call must fall back.
+async function primaryResponseOrNull(response, fallback) {
+  if (!fallback || response.ok) return response;
+  if (isFallbackStatus(response.status)) {
+    response.body?.cancel?.();
+    return null;
+  }
+  const inspected = await inspectNonOk(response);
+  return inspected.billing ? null : inspected.response;
+}
+
+// D2. Sends one request on the route. An unmapped model, a fallback status, an
+// upstream billing error, or a network error (not an abort) retries once on
+// route.fallback when it exists.
 // model overrides body.model. init passes through (signal, extra headers).
 // Returns { response, routeKind }.
 // Logs never include a key.
@@ -169,10 +217,10 @@ export async function fetchWithFallback(route, model, rawBody, fetchImpl = fetch
   if (!req && !fallback) throw new Error(`no LLM route for model ${model}`);
   if (req) {
     try {
-      const response = await sendRequest(req, fetchImpl, init);
-      if (!fallback || !isFallbackStatus(response.status)) return { response, routeKind: primary.kind };
-      response.body?.cancel?.();
-      console.warn(`[llm-route] ${primary.kind} answered ${response.status}, falling back to ${fallback.kind}`);
+      const sent = await sendRequest(req, fetchImpl, init);
+      const response = await primaryResponseOrNull(sent, fallback);
+      if (response) return { response, routeKind: primary.kind };
+      console.warn(`[llm-route] ${primary.kind} answered ${sent.status}, falling back to ${fallback.kind}`);
     } catch (err) {
       if (!fallback || isAbortError(err)) throw err;
       console.warn(`[llm-route] ${primary.kind} request failed, falling back to ${fallback.kind}: ${errorMessage(err)}`);

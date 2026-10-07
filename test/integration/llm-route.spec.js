@@ -521,3 +521,175 @@ describe('fetchWithFallback', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('gateway header (D7)', () => {
+  const { fetchWithFallback } = llmRoute;
+  const GATE = 'gate-test-token';
+  const MODEL = 'anthropic/claude-haiku-4.5';
+  const gatedRoute = () => llmRouteFromEnv(litellmEnv({ LITELLM_GATE_TOKEN: GATE }));
+
+  function recordingFetch(...statuses) {
+    const calls = [];
+    const fetchImpl = async (url, init = {}) => {
+      calls.push({ url, headers: new Headers(init.headers) });
+      return new Response('{}', { status: statuses[calls.length - 1] ?? 200 });
+    };
+    return { fetchImpl, calls };
+  }
+
+  it('the litellm route carries gateToken from LITELLM_GATE_TOKEN', () => {
+    expect(gatedRoute().gateToken).toBe(GATE);
+  });
+
+  it('trims the token', () => {
+    const route = llmRouteFromEnv(litellmEnv({ LITELLM_GATE_TOKEN: `  ${GATE}\n` }));
+    expect(route.gateToken).toBe(GATE);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+    ['not a string', 42],
+  ])('gateToken is null when the token is %s', (_label, value) => {
+    expect(llmRouteFromEnv(litellmEnv({ LITELLM_GATE_TOKEN: value })).gateToken).toBeNull();
+  });
+
+  it('the litellm request has the X-Edge-Gate header', () => {
+    const req = buildRequest(gatedRoute(), MODEL, sampleBody());
+    expect(req.headers['X-Edge-Gate']).toBe(GATE);
+    expect(req.headers.Authorization).toBe('Bearer sk-litellm-test');
+  });
+
+  it.each([undefined, '', '   '])('no header when the token is %j', (value) => {
+    const route = llmRouteFromEnv(litellmEnv({ LITELLM_GATE_TOKEN: value }));
+    const req = buildRequest(route, MODEL, sampleBody());
+    expect(req.headers).not.toHaveProperty('X-Edge-Gate');
+  });
+
+  it('the openrouter route has no gateToken and its request has no header', () => {
+    const route = llmRouteFromEnv({ OPENROUTER_API_KEY: 'sk-or-test', LITELLM_GATE_TOKEN: GATE });
+    expect(route.gateToken ?? null).toBeNull();
+    const req = buildRequest(route, MODEL, sampleBody());
+    expect(req.headers).not.toHaveProperty('X-Edge-Gate');
+  });
+
+  it('the fallback route has no gateToken and its request has no header', () => {
+    const { fallback } = gatedRoute();
+    expect(fallback.gateToken ?? null).toBeNull();
+    const req = buildRequest(fallback, MODEL, sampleBody());
+    expect(req.headers).not.toHaveProperty('X-Edge-Gate');
+    expect(JSON.stringify(req)).not.toContain(GATE);
+  });
+
+  it('fetchWithFallback sends the header to LiteLLM and not to the OpenRouter fallback', async () => {
+    const { fetchImpl, calls } = recordingFetch(503, 200);
+    const { routeKind } = await fetchWithFallback(gatedRoute(), MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('openrouter');
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers.get('X-Edge-Gate')).toBe(GATE);
+    expect(calls[1].headers.has('X-Edge-Gate')).toBe(false);
+  });
+
+  it('an unmapped model goes to OpenRouter without the header', async () => {
+    const { fetchImpl, calls } = recordingFetch(200);
+    await fetchWithFallback(gatedRoute(), 'some/unknown-model', sampleBody(), fetchImpl);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].headers.has('X-Edge-Gate')).toBe(false);
+  });
+
+  it('route, request, and headers stay frozen with a token', () => {
+    const route = gatedRoute();
+    const req = buildRequest(route, MODEL, sampleBody());
+    expect(Object.isFrozen(route)).toBe(true);
+    expect(Object.isFrozen(route.fallback)).toBe(true);
+    expect(Object.isFrozen(req)).toBe(true);
+    expect(Object.isFrozen(req.headers)).toBe(true);
+  });
+});
+
+describe('upstream billing errors', () => {
+  const { fetchWithFallback, isUpstreamBillingError } = llmRoute;
+  const MODEL = 'anthropic/claude-haiku-4.5';
+  const OPENROUTER_URL = `${OPENROUTER_BASE}/chat/completions`;
+  const BILLING_TEXT = '{"error":{"message":"litellm.BadRequestError: AnthropicException - '
+    + 'Your credit balance is too low to access the Anthropic API."}}';
+
+  // outcomes: [status, bodyText] pairs, in call order.
+  function textFetch(...outcomes) {
+    const calls = [];
+    const fetchImpl = async (url, init = {}) => {
+      calls.push({ url, headers: new Headers(init.headers) });
+      const [status, text] = outcomes[calls.length - 1] ?? [200, '{}'];
+      return new Response(text, { status, headers: { 'Content-Type': 'application/json' } });
+    };
+    return { fetchImpl, calls };
+  }
+
+  it.each([
+    [400, 'Your credit balance is too low to access the Anthropic API', true],
+    [402, 'Payment required: billing issue', true],
+    [403, 'insufficient_quota', true],
+    [400, 'You exceeded your current quota, please check your plan', true],
+    [400, 'Budget has been exceeded! Current cost: 61.2', true],
+    [400, 'INSUFFICIENT QUOTA', true],
+    [400, 'invalid request: messages must not be empty', false],
+    [400, '', false],
+    [401, 'credit balance is too low', false],
+    [429, 'insufficient_quota', false],
+    [500, 'billing service down', false],
+    [200, 'credit balance', false],
+  ])('isUpstreamBillingError(%i, %j) is %s', (status, text, expected) => {
+    expect(isUpstreamBillingError(status, text)).toBe(expected);
+  });
+
+  it('isUpstreamBillingError is false for a non-string body', () => {
+    expect(isUpstreamBillingError(400, undefined)).toBe(false);
+    expect(isUpstreamBillingError(400, null)).toBe(false);
+  });
+
+  it('a billing 400 from LiteLLM falls back to OpenRouter once', async () => {
+    const { fetchImpl, calls } = textFetch([400, BILLING_TEXT], [200, '{"ok":true}']);
+    const { response, routeKind } = await fetchWithFallback(litellmRoute(), MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('openrouter');
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toBe(OPENROUTER_URL);
+  });
+
+  it('a billing 402 from LiteLLM falls back to OpenRouter once', async () => {
+    const { fetchImpl, calls } = textFetch([402, 'billing: payment required'], [200, '{}']);
+    const { routeKind } = await fetchWithFallback(litellmRoute(), MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('openrouter');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a plain 400 does not fall back and the caller can still read the body', async () => {
+    const text = '{"error":{"message":"invalid request: messages must not be empty"}}';
+    const { fetchImpl, calls } = textFetch([400, text], [200, '{}']);
+    const { response, routeKind } = await fetchWithFallback(litellmRoute(), MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('litellm');
+    expect(calls).toHaveLength(1);
+    expect(response.status).toBe(400);
+    expect(response.ok).toBe(false);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(await response.text()).toBe(text);
+  });
+
+  it('a billing 400 without a fallback is returned with a readable body', async () => {
+    const route = llmRouteFromEnv(litellmEnv({ OPENROUTER_API_KEY: undefined }));
+    const { fetchImpl, calls } = textFetch([400, BILLING_TEXT]);
+    const { response, routeKind } = await fetchWithFallback(route, MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('litellm');
+    expect(calls).toHaveLength(1);
+    expect(await response.text()).toBe(BILLING_TEXT);
+  });
+
+  it('a billing 400 from OpenRouter (no fallback) is returned as-is', async () => {
+    const { fetchImpl, calls } = textFetch([400, BILLING_TEXT]);
+    const { response, routeKind } = await fetchWithFallback('sk-or-test', MODEL, sampleBody(), fetchImpl);
+    expect(routeKind).toBe('openrouter');
+    expect(calls).toHaveLength(1);
+    expect(await response.text()).toBe(BILLING_TEXT);
+  });
+});

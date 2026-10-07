@@ -34,3 +34,8 @@ Frank virtual key, and page reads keep working when the Jina key is out of credi
   to LiteLLM. Reasoning effort is sent as `reasoning_effort`.
 - D6. Jina: a 401, 402, or 403 with a key retries once without the key. The isolate then
   skips the key for 10 minutes.
+- D7. The home gateway admits a request only with the `X-Edge-Gate` header. The value is
+  the BWS key `LITELLM_EDGE_GATE`. Set it as the wrangler secret `LITELLM_GATE_TOKEN`.
+  The route trims the value. A missing or blank value sends no header. Only LiteLLM
+  requests carry the header. OpenRouter requests and the OpenRouter fallback never get it.
+  Error messages and logs do not include it.
