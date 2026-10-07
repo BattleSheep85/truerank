@@ -68,6 +68,37 @@ class LiteLLMFallbackError extends Error {
   }
 }
 
+// HTTP 400 because the model takes only its default temperature. LiteLLM
+// answers claude-sonnet-5 (the LiteLLM model for minimax-m3, so every verify
+// stance call) with "UnsupportedParamsError: ... does not support
+// temperature=0. Only temperature=1 is supported."
+class UnsupportedTemperatureError extends Error {
+  constructor(message, model) {
+    super(message);
+    this.name = 'UnsupportedTemperatureError';
+    this.model = model;
+  }
+}
+const BAD_REQUEST = 400;
+const TEMPERATURE_RE = /temperature/i;
+const UNSUPPORTED_PARAM_RE = /unsupported|does not support|not supported|only temperature/i;
+
+function isUnsupportedTemperature(status, text) {
+  return status === BAD_REQUEST && TEMPERATURE_RE.test(text) && UNSUPPORTED_PARAM_RE.test(text);
+}
+
+// Sends the call; an UnsupportedTemperatureError sends it once more without
+// temperature (the model default). Other errors pass through.
+async function withDefaultTemperatureRetry(opts, attempt) {
+  try {
+    return await attempt(opts);
+  } catch (err) {
+    if (!(err instanceof UnsupportedTemperatureError) || opts.omitTemperature) throw err;
+    console.log(`[llm] model=${err.model} rejects temperature ${opts.temperature ?? 0}, sending again with the model default`);
+    return attempt({ ...opts, omitTemperature: true });
+  }
+}
+
 function providerLabel(route) {
   return PROVIDER_LABELS[route.kind] ?? route.kind;
 }
@@ -118,6 +149,7 @@ async function throwHttpError(route, response, logTag, model) {
   const errText = redactKeys(raw, route).slice(0, ERROR_TEXT_MAX);
   console.log(`${logTag} model=${model} HTTP ${response.status}: ${errText}`);
   const message = `${providerLabel(route)} ${response.status}: ${errText}`;
+  if (isUnsupportedTemperature(response.status, raw)) throw new UnsupportedTemperatureError(message, model);
   if (route.kind === 'litellm' && isFallbackStatus(response.status)) {
     throw new LiteLLMFallbackError(`HTTP ${response.status}`, message);
   }
@@ -135,8 +167,14 @@ function routeLogSuffix(route) {
   return route.kind === 'litellm' ? ' via=litellm' : '';
 }
 
+// Deterministic by default (temperature 0). omitTemperature leaves the field
+// out for a model that takes only its default.
+function temperatureField(opts) {
+  return opts.omitTemperature ? {} : { temperature: opts.temperature ?? 0 };
+}
+
 function buildStreamBody(model, messages, opts) {
-  const { reasoning, maxTokens, provider, responseFormat, models, temperature, seed } = opts;
+  const { reasoning, maxTokens, provider, responseFormat, models, seed } = opts;
   const rz = normalizeReasoning(reasoning);
   return {
     ...(Array.isArray(models) && models.length ? { models } : { model }),
@@ -146,7 +184,7 @@ function buildStreamBody(model, messages, opts) {
     // Deterministic by default. Every call previously ran at the provider's
     // default (~1.0) sampling temperature, which is why identical inputs
     // produced different results. Overridable per-call.
-    temperature: temperature ?? 0,
+    ...temperatureField(opts),
     ...(seed !== undefined ? { seed } : {}),
     // The final SSE chunk carries the full usage object (prompt/completion
     // tokens, plus cost in USD on OpenRouter) when this is set. Needed for
@@ -223,11 +261,12 @@ async function streamOnce(route, model, messages, onToken, opts) {
 
 // Stream a completion and surface incremental content via onToken.
 export async function callLLMStreaming(apiKey, model, messages, onToken, opts = {}) {
-  return withFallback(resolveRoute(apiKey), (route) => streamOnce(route, model, messages, onToken, opts));
+  return withFallback(resolveRoute(apiKey), (route) =>
+    withDefaultTemperatureRetry(opts, (o) => streamOnce(route, model, messages, onToken, o)));
 }
 
 function buildCallBody(model, messages, opts) {
-  const { tools, reasoning, maxTokens, provider, responseFormat, models, temperature, seed } = opts;
+  const { tools, reasoning, maxTokens, provider, responseFormat, models, seed } = opts;
   const rz = normalizeReasoning(reasoning);
   const hasTools = Array.isArray(tools) && tools.length > 0;
   return {
@@ -240,7 +279,7 @@ function buildCallBody(model, messages, opts) {
     ...(provider ? { provider } : {}),
     ...(responseFormat ? { response_format: responseFormat } : {}),
     // Deterministic by default. See buildStreamBody for rationale.
-    temperature: temperature ?? 0,
+    ...temperatureField(opts),
     ...(seed !== undefined ? { seed } : {}),
   };
 }
@@ -270,7 +309,8 @@ async function callOnce(route, model, messages, opts) {
 }
 
 export async function callLLM(apiKey, model, messages, opts = {}) {
-  return withFallback(resolveRoute(apiKey), (route) => callOnce(route, model, messages, opts));
+  return withFallback(resolveRoute(apiKey), (route) =>
+    withDefaultTemperatureRetry(opts, (o) => callOnce(route, model, messages, o)));
 }
 
 // ─── Context management ──────────────────────────────────────────────────────

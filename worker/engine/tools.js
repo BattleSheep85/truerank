@@ -425,7 +425,11 @@ export async function runSearch(query, provider, env, recencySensitive) {
   const tc = { function: { name: 'web_search', arguments: JSON.stringify({ query, provider: provider || 'web' }) } };
   try {
     await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive });
-  } catch { /* a single bad provider call never aborts the burst */ }
+  } catch (err) {
+    // A single bad provider call never aborts the burst, but it is logged:
+    // a silent catch here hid a broken web search for weeks.
+    console.warn(`[runSearch] ${provider || 'web'} "${query}" failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
   return state.sources;
 }
 
@@ -436,7 +440,10 @@ export async function readPageInto(source, env) {
   const tc = { function: { name: 'read_page', arguments: JSON.stringify({ url: source.url }) } };
   try {
     await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive: true });
-  } catch { /* read failures leave the snippet content untouched */ }
+  } catch (err) {
+    // A read failure leaves the snippet content untouched.
+    console.warn(`[readPageInto] ${source.url} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
   return source;
 }
 
@@ -508,6 +515,9 @@ async function executeSearch(
   // recency-sensitive (tech, apps, current media). Evergreen subjects
   // (restaurants, hiking, classical works) drop the filter so we don't lose
   // still-valid older coverage. News always filters by year regardless.
+  // Every web, searxng, and tavily call reads `tr`. Without this line each of
+  // those searches threw a ReferenceError and returned no results.
+  const tr = recencySensitive ? 'y' : undefined;
   // serperSearch returns null when the provider is unavailable (no key, or
   // auth/quota rejection). The fallback chain is SearXNG (self-hosted, free, no quota,
   // reachable on the blackbox engine host) -> Brave (CF-reachable) -> Tavily (LLM-tuned,

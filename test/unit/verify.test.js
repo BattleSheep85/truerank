@@ -7,6 +7,9 @@
 // missing from the module. A static named import of a missing export would
 // stop scripts/run-tests.mjs from loading at all.
 import * as verifyModule from '../../worker/engine/verify.js';
+import * as resolveModule from '../../worker/engine/verify-resolve.js';
+import * as toolsModule from '../../worker/engine/tools.js';
+import * as llmModule from '../../worker/engine/llm.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
 
 const {
@@ -301,6 +304,11 @@ export async function runVerifyTests() {
   // verdicts, one row per url, URL-free passages, and the shared judgeClaim.
   await runStanceCutoffTests(verifyModule, { eq, ok, report });
 
+  // ── 2026-10-07 verify defects (resolve, extract, evidence, stance) ────────
+  // One block per defect found in real runs through LiteLLM. Each block is
+  // named for the defect it guards.
+  await runVerifyDefectTests({ eq, ok, report });
+
   return report;
 }
 
@@ -402,5 +410,353 @@ export async function runStanceCutoffTests(mod, { eq, ok, report }) {
       result?.verdict,
       verdictForClaim(claim, result?.evidence, { policy: 'verification' }),
     );
+  });
+}
+
+// ── 2026-10-07 verify defects ───────────────────────────────────────────────
+// Real runs through LiteLLM (2026-10-07) found these defects in pipeline order:
+// search, resolve, extract, stance call, evidence, judge. Each block is named
+// for its defect. The I/O steps run with injected search and read functions
+// or a fake fetch, so no block uses the network.
+
+// Calls a module export by name. A missing export throws a clear error, which
+// the block records as one failure.
+function exportOf(mod, file, name) {
+  const fn = mod[name];
+  if (typeof fn !== 'function') throw new Error(`${file} does not export ${name}()`);
+  return fn;
+}
+const resolveFn = (name) => exportOf(resolveModule, 'worker/engine/verify-resolve.js', name);
+const verifyFn = (name) => exportOf(verifyModule, 'worker/engine/verify.js', name);
+
+// Runs fn with globalThis.fetch replaced by fake, then restores fetch.
+async function withFakeFetch(fake, fn) {
+  const real = globalThis.fetch;
+  globalThis.fetch = fake;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+// A product page with claims: many distinct spec values and prose lines.
+const SPEC_PAGE = [
+  'Soundcore Liberty 4 NC True Wireless Earbuds with Adaptive Noise Cancelling',
+  'Battery life: up to 10 hours per charge with noise cancelling on, and up to 50 hours with the charging case.',
+  'Fast charging: a 5 minute charge gives 4 hours of playtime when you are in a hurry.',
+  'Drivers: 11 mm custom drivers with LDAC and Hi-Res Audio Wireless for detailed sound.',
+  'Noise cancelling reduces ambient noise by up to 98.5% with six microphones and AI call noise reduction.',
+  'Bluetooth 5.3 with multipoint connection to two devices at the same time.',
+  'IPX4 water resistance, and each earbud weighs 5.5 g for a comfortable all-day fit.',
+].join('\n');
+
+const BATTERY_CLAIM = Object.freeze({ id: 'c1', text: 'Up to 30-hour battery life', type: 'spec' });
+
+export async function runVerifyDefectTests({ eq, ok, report }) {
+  const guarded = async (name, fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      report.failed++;
+      report.failures.push(`${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // Defect 1: executeSearch read an undefined `tr` (its definition was removed
+  // on 2026-08-26), so every web search threw a ReferenceError that runSearch
+  // swallowed. The gather got only video results and resolution found no page.
+  const d1 = 'web search threw on an undefined tr and returned no results';
+  await guarded(d1, async () => {
+    const organic = [{ link: 'https://www.jbl.com/FLIP-7.html', title: 'JBL Flip 7', snippet: 'Portable waterproof speaker' }];
+    const env = { SERPER_API_KEY: 'test-key' };
+    const urls = await withFakeFetch(async () => jsonResponse({ organic }), async () => ({
+      recent: (await toolsModule.runSearch('JBL Flip 7', 'web', env, true)).map((s) => s.url),
+      evergreen: (await toolsModule.runSearch('JBL Flip 7 specs', 'web', env, false)).map((s) => s.url),
+    }));
+    eq(`${d1}: a recency-filtered web search returns the results`, urls.recent, ['https://www.jbl.com/FLIP-7.html']);
+    eq(`${d1}: an unfiltered web search returns the results`, urls.evergreen, ['https://www.jbl.com/FLIP-7.html']);
+  });
+
+  // Defect 2: resolution kept only gathered sources on credibility.js's short
+  // maker list, so the maker's own site (soundcore.com, jbl.com) was never a
+  // claim page and counted as independent evidence. Resolution now searches
+  // for the product's own pages and keeps maker and retailer pages that name it.
+  const d2 = "the maker's own site was never a claim page";
+  await guarded(d2, async () => {
+    const product = 'Anker Soundcore Liberty 4 NC';
+    const ownPageKind = resolveFn('ownPageKind');
+    eq(`${d2}: a maker subdomain is the maker's page`, ownPageKind('https://us.soundcore.com/products/liberty-4-nc-a3947z11', product), 'maker');
+    eq(`${d2}: a retailer on a country domain is a retailer page`, ownPageKind('https://www.amazon.co.uk/dp/B0C6KKQ7ND', product), 'retailer');
+    eq(`${d2}: a review site is neither`, ownPageKind('https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', product), null);
+
+    const found = [
+      { url: 'https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', title: 'Anker Soundcore Liberty 4 NC Review' },
+      { url: 'https://www.amazon.com/s?k=soundcore+liberty+4+nc', title: 'Amazon.com: soundcore liberty 4 nc' },
+      { url: 'https://us.soundcore.com/products/liberty-4-pro-a3954z11', title: 'Soundcore Liberty 4 Pro' },
+      { url: 'https://www.amazon.com/dp/B0C6KKQ7ND', title: 'Soundcore Liberty 4 NC Wireless Earbuds' },
+      { url: 'https://us.soundcore.com/products/liberty-4-nc-a3947z11', title: 'Soundcore Liberty 4 NC' },
+      { url: 'https://us.soundcore.com/products/liberty-4-nc-a3947z11?variant=2', title: 'Soundcore Liberty 4 NC' },
+    ];
+    const ownPages = ['https://us.soundcore.com/products/liberty-4-nc-a3947z11', 'https://www.amazon.com/dp/B0C6KKQ7ND'];
+    eq(
+      `${d2}: candidates are the maker page, then the retailer page (no review, listing, other model, or second copy)`,
+      resolveFn('rankClaimCandidates')(found, product).map((c) => c.url),
+      ownPages,
+    );
+
+    const searched = [];
+    const resolved = await verifyFn('resolveClaimSources')({
+      product,
+      env: {},
+      search: async (query) => {
+        searched.push(query);
+        return found;
+      },
+      read: async (source) => Object.assign(source, { content: SPEC_PAGE }),
+      focusedRead: async () => '',
+    });
+    ok(`${d2}: resolution searches for the product's own pages`, searched.includes(product));
+    eq(`${d2}: resolution reads the maker page and the retailer page`, resolved.claimSources.map((c) => c.url), ownPages);
+  });
+
+  // Defect 3: a keyless read of a product page can return a bot wall, or only
+  // the site's menus (electronics.sony.com: the menus fill the reader's
+  // 15,000-char cap). Extraction got that text and found 0 claims.
+  const d3 = 'a bot wall or a menu-only read was used as the claim page';
+  await guarded(d3, async () => {
+    const claimPageProblem = resolveFn('claimPageProblem');
+    const menus = Array.from({ length: 900 }, (_, i) => `[Menu item ${i}](https://www.sony.com/m/${i})`).join('\n');
+    const wall = `Pardon Our Interruption\n${'As you were browsing something about your browser made us think you were a bot. '.repeat(8)}`;
+    eq(`${d3}: menu-only text has no claim content`, claimPageProblem(menus), 'no-claim-content');
+    eq(`${d3}: a bot wall is a block page`, claimPageProblem(wall), 'block-page');
+    eq(`${d3}: a spec page is usable`, claimPageProblem(SPEC_PAGE), null);
+
+    const candidates = [
+      { url: 'https://electronics.sony.com/audio/headphones/headband/p/wh1000xm6-b', title: 'WH-1000XM6', content: '' },
+      { url: 'https://www.walmart.com/ip/sony-wh-1000xm6/123', title: 'Sony WH-1000XM6', content: '' },
+    ];
+    const result = await resolveFn('readClaimPages')(candidates, {}, {
+      wanted: 2,
+      maxReads: 4,
+      read: async (source) => Object.assign(source, { content: source.url.includes('sony.com') ? menus : wall }),
+      focusedRead: async (url) => (url.includes('sony.com') ? SPEC_PAGE : ''),
+    });
+    eq(`${d3}: the focused read replaces a menu-only read`, result.pages.map((p) => p.content === SPEC_PAGE), [true]);
+    eq(`${d3}: a page that stays a bot wall is rejected with its reason`, result.rejected.map((r) => r.reason), ['block-page']);
+    eq(`${d3}: the candidates do not change`, candidates.map((c) => c.content), ['', '']);
+  });
+
+  // Defect 4: the extraction input gave the first page the whole 20,000-char
+  // budget, raw markdown included (image and link targets), so a second page
+  // never reached the model. A thin first pass now reads more candidates.
+  const d4 = 'the first claim page took the whole extraction budget';
+  await guarded(d4, async () => {
+    eq(`${d4}: fairShares keeps a short text whole and splits the rest`, verifyFn('fairShares')([100, 50_000, 50_000], 20_000), [100, 9950, 9950]);
+    const long = `![hero](https://cdn.example/hero.png)\n${'Battery life up to 50 hours with the case and 10 hours per charge. '.repeat(600)}`;
+    const block = verifyFn('buildClaimTextBlock')([
+      { url: 'https://www.soundcore.com/products/a', title: 'Maker page', content: long },
+      { url: 'https://www.amazon.com/dp/B0', title: 'Retailer page', content: 'Weight 5.5 g per earbud. Bluetooth 5.3.' },
+    ]);
+    ok(`${d4}: the second page reaches the extraction input`, block.includes('Weight 5.5 g per earbud'));
+    ok(`${d4}: image targets are not sent`, !block.includes('cdn.example'));
+    ok(`${d4}: the input stays inside the budget`, block.length <= 20_500);
+
+    const first = { url: 'https://www.soundcore.com/products/a', title: 'A', content: SPEC_PAGE };
+    const second = { url: 'https://www.amazon.com/dp/B0', title: 'B', content: '' };
+    const replies = [
+      { claims: [{ text: 'Up to 10 hours per charge', type: 'spec' }] },
+      { claims: ['10 hours per charge', '50 hours with the case', 'IPX4 water resistance', 'Bluetooth 5.3'].map((text) => ({ text, type: 'spec' })) },
+    ];
+    const extracted = await verifyFn('extractProductClaims')({
+      product: 'Anker Soundcore Liberty 4 NC',
+      resolved: { claimSources: [first], candidates: [first, second], nextIndex: 1, readsLeft: 2 },
+      env: {},
+      apiKey: 'k',
+      model: 'm',
+      callLLM: async () => fakeReply(JSON.stringify(replies.shift())),
+      read: async (source) => Object.assign(source, { content: SPEC_PAGE }),
+      focusedRead: async () => '',
+    });
+    eq(`${d4}: a thin first pass reads one more page and keeps the larger claim set`, extracted.claims.length, 4);
+    eq(`${d4}: the retry pass extracts from both pages`, extracted.claimSources.map((c) => c.url), [first.url, second.url]);
+  });
+
+  // Defect 5: LiteLLM serves the stance model as claude-sonnet-5, which takes
+  // only its default temperature. Every stance call got HTTP 400, so no claim
+  // got a stance. The call now goes once more without temperature.
+  const d5 = 'stance calls failed because the model rejects temperature 0';
+  await guarded(d5, async () => {
+    const bodies = [];
+    const rejectTemperature = async (_url, init) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if ('temperature' in body) {
+        const message = 'litellm.UnsupportedParamsError: claude-sonnet-5 does not support temperature=0. Only temperature=1 is supported.';
+        return jsonResponse({ error: { message } }, 400);
+      }
+      return jsonResponse({ choices: [{ message: { content: '{"verdicts":[]}' }, finish_reason: 'stop' }], usage: {} });
+    };
+    const messages = [{ role: 'user', content: 'hi' }];
+    const resp = await withFakeFetch(rejectTemperature, () => llmModule.callLLM('test-key', 'minimax/minimax-m3', messages, {}));
+    eq(`${d5}: the call returns the model reply`, resp?.choices?.[0]?.message?.content, '{"verdicts":[]}');
+    eq(`${d5}: the first request sends temperature 0`, bodies[0]?.temperature, 0);
+    eq(`${d5}: the second request leaves temperature out`, bodies.length === 2 && !('temperature' in bodies[1]), true);
+
+    let calls = 0;
+    const otherBadRequest = async () => {
+      calls += 1;
+      return jsonResponse({ error: { message: 'max_tokens is too large' } }, 400);
+    };
+    const threw = await withFakeFetch(otherBadRequest, () => llmModule.callLLM('test-key', 'minimax/minimax-m3', messages, {}))
+      .then(() => false, () => true);
+    eq(`${d5}: another HTTP 400 is not sent again`, { threw, calls }, { threw: true, calls: 1 });
+  });
+
+  // Defect 6: stance evidence was ranked by claim-term hits over the whole page
+  // (a long page hits most terms by chance), with the product name's words as
+  // claim terms. Spec echoes and roundups filled the top 15, and the passage
+  // with the measurement was not sent. The pool also held the maker's and the
+  // retailers' pages and reviews of other models.
+  const d6 = 'measured test passages did not reach the stance evidence';
+  await guarded(d6, async () => {
+    const product = 'Sony WH-1000XM6 headphones';
+    eq(
+      `${d6}: the product name and filler verbs are not claim terms`,
+      verifyFn('claimTermsFor')('Sony WH-1000XM6 offers up to 30-hour battery life', product),
+      ['30', 'hour', 'battery', 'life'],
+    );
+
+    const filler = 'The headphones come in black, silver, and midnight blue, with a hard carrying case. '.repeat(30);
+    const page = `Specs: battery life 30 hours.\n${filler}\nBattery life: in our battery test the WH-1000XM6 lasted 37 hours.\n${filler}`;
+    const window = verifyFn('claimEvidencePassage')(page, ['30', 'hour', 'battery', 'life']);
+    ok(`${d6}: the passage with the measurement is chosen over the spec row`, window.passage.includes('lasted 37 hours') && window.testLanguage);
+
+    const weight = { credibility: 65, independence: 60, tags: [] };
+    const echo = { ...weight, url: 'https://deals.example/sony-wh-1000xm6-deal', title: 'Sony WH-1000XM6 deal', content: 'Sony rates the WH-1000XM6 for 30 hours of battery life.' };
+    const lab = { ...weight, url: 'https://lab.example/sony-wh-1000xm6-review', title: 'Sony WH-1000XM6 review', content: 'Battery life: in our battery test the WH-1000XM6 lasted 37 hours.' };
+    const roundup = {
+      ...weight,
+      credibility: 90,
+      url: 'https://news.example/best-noise-cancelling-headphones',
+      title: 'Best noise cancelling headphones',
+      content: `Sony WH-1000XM6: our top pick.\n${'x '.repeat(1000)}\nBattery life: in our battery test the Bose QuietComfort Ultra lasted 24 hours.`,
+    };
+    const ranked = verifyFn('rankClaimEvidence')([roundup, echo, lab], BATTERY_CLAIM, product, 15).map((s) => s.url);
+    eq(`${d6}: the measured test ranks first`, ranked[0], lab.url);
+    ok(`${d6}: a roundup passage about another product ranks below the test of this product`, ranked.indexOf(roundup.url) > ranked.indexOf(lab.url));
+
+    const pasted = 'https://pasted.example/wh-1000xm6';
+    const fullPage = `In our battery test the WH-1000XM6 lasted 37 hours. ${'More test notes. '.repeat(100)}`;
+    const pool = verifyFn('evidencePool')([
+      { url: 'https://electronics.sony.com/p/wh1000xm6-b', title: 'WH-1000XM6', content: 'Sony WH-1000XM6' },
+      { url: 'https://www.bestbuy.com/site/sony-wh1000xm6/123.p', title: 'Sony WH-1000XM6', content: 'Sony WH-1000XM6' },
+      { url: 'https://www.soundguys.com/sony-wf-1000xm6-review-152013/', title: 'Sony WF-1000XM6 review', content: 'The WF-1000XM6 earbuds' },
+      { url: 'https://lab.example/sony-wh-1000xm6-review', title: 'Sony WH-1000XM6 review', content: 'a search snippet' },
+      { url: 'https://lab.example/sony-wh-1000xm6-review/', title: 'Sony WH-1000XM6 review', content: fullPage },
+      { url: pasted, title: 'Sony WH-1000XM6', content: 'Sony WH-1000XM6' },
+    ], product, pasted);
+    eq(
+      `${d6}: the pool keeps one copy of each independent page about this model, the full page over its snippet`,
+      pool.map((s) => [s.url, s.content]),
+      [['https://lab.example/sony-wh-1000xm6-review/', fullPage]],
+    );
+  });
+
+  // Defect 8: the evidence was the gather's results only: generic searches,
+  // and about 1 in 15 sources read (the keyless reader answers most of the
+  // gather's read burst with HTTP 429). The pool held 150-char snippets, so a
+  // claim's test result never reached the judge. Each claim now gets its own
+  // search, and the best snippet-only test pages get a full read.
+  const d8 = 'the stance evidence was search snippets without test results';
+  await guarded(d8, async () => {
+    const product = 'Anker Soundcore Liberty 4 NC';
+    eq(
+      `${d8}: a claim search names the product and the claim topic, without bare numbers`,
+      resolveFn('claimSearchQuery')(product, ['10', 'hours', 'playtime']),
+      'Anker Soundcore Liberty 4 NC hours playtime review test',
+    );
+
+    const merged = resolveFn('uniqueEvidence')([
+      { url: 'https://lab.example/liberty-4-nc', content: 'They last 8.6 hours.' },
+      { url: 'https://lab.example/liberty-4-nc/', content: 'Noise isolation is good.' },
+    ]);
+    eq(`${d8}: two snippets of one page join`, merged.map((s) => s.content), ['They last 8.6 hours.\nNoise isolation is good.']);
+
+    const results = {
+      'battery': [
+        { url: 'https://www.youtube.com/watch?v=abc', title: 'Soundcore Liberty 4 NC review', content: 'video' },
+        { url: 'https://www.amazon.com/dp/B0C6KKQ7ND', title: 'Soundcore Liberty 4 NC', content: 'listing' },
+        { url: 'https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', title: 'Anker Soundcore Liberty 4 NC Review', content: 'They last 8.6 hours.' },
+      ],
+      'ipx4': [
+        { url: 'https://www.soundguys.com/liberty-4-nc-vs-liberty-4-pro', title: 'Soundcore Liberty 4 NC vs Liberty 4 Pro', content: 'IPX4 on both.' },
+        { url: 'https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', title: 'Anker Soundcore Liberty 4 NC Review', content: 'Not rated for water.' },
+        { url: 'https://www.techradar.com/audio/earbuds/soundcore-liberty-4-nc-review', title: 'Soundcore Liberty 4 NC review', content: 'Fine in rain.' },
+      ],
+    };
+    const claims = [
+      { id: 'c1', text: 'Up to 10 hours of battery life', type: 'spec' },
+      { id: 'c2', text: 'IPX4 water resistance', type: 'spec' },
+    ];
+    const queries = [];
+    const reads = [];
+    const tests = await verifyFn('findClaimTests')({
+      claims,
+      product,
+      env: {},
+      search: async (query) => {
+        queries.push(query);
+        return query.includes('battery') ? results.battery : results.ipx4;
+      },
+      read: async (source) => {
+        reads.push(source.url);
+        return Object.assign(source, { content: `In our testing the Liberty 4 NC lasted 8.6 hours. ${'Test notes. '.repeat(200)}` });
+      },
+    });
+    eq(`${d8}: one search per claim`, queries.length, 2);
+    eq(
+      `${d8}: review pages that name the product are read first, then other pages that name it; no video or retailer page`,
+      reads,
+      [
+        'https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc',
+        'https://www.techradar.com/audio/earbuds/soundcore-liberty-4-nc-review',
+        'https://www.soundguys.com/liberty-4-nc-vs-liberty-4-pro',
+      ],
+    );
+    eq(`${d8}: every read gave page text`, tests.filled, 3);
+    const pool = verifyFn('evidencePool')(tests.sources, product, null);
+    const rtings = pool.find((s) => s.url.includes('rtings.com'));
+    ok(`${d8}: the pool keeps the full read of a page`, String(rtings?.content ?? '').startsWith('In our testing the Liberty 4 NC lasted 8.6 hours.'));
+    eq(`${d8}: the search results do not change`, results.battery[2].content, 'They last 8.6 hours.');
+  });
+
+  // Defect 7: the judge counted a deal post's different spec value as a
+  // contradiction and a review of another model (the WF-1000XM6 earbuds) as
+  // support. It was never told which product the claim is about.
+  const d7 = 'the stance judge decided claims from deal posts and other models';
+  await guarded(d7, async () => {
+    const system = String(verifyModule.STANCE_SYSTEM ?? '');
+    ok(`${d7}: a contradiction needs the source's own testing`, /contradict ONLY if the source's own testing/.test(system));
+    ok(`${d7}: a source about a different product is neutral`, /about a different product/.test(system));
+    let sent = null;
+    await verifyFn('classifyStance')({
+      claim: BATTERY_CLAIM,
+      evidence: [{ url: 'https://lab.example/r', title: 'Sony WH-1000XM6 review', content: 'lasted 37 hours', passage: 'In our battery life test it lasted 37 hours.' }],
+      apiKey: 'k',
+      model: 'm',
+      product: 'Sony WH-1000XM6 headphones',
+      callLLM: async (_key, _model, messages) => {
+        sent = messages;
+        return fakeReply('{"verdicts":[]}');
+      },
+    });
+    const user = String(sent?.[1]?.content ?? '');
+    ok(`${d7}: the judge is told the product`, user.startsWith('Product: "Sony WH-1000XM6 headphones"'));
+    ok(`${d7}: the judge sees the page title and the claim passage`, user.includes('(Sony WH-1000XM6 review)\nIn our battery life test it lasted 37 hours.'));
   });
 }

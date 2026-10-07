@@ -23,19 +23,36 @@
 //     Appends one JSON line per stance call to <path>: claim id, finish
 //     reason, token usage, and the raw model reply. Use it to see why a claim
 //     got no stance rows.
+//
+//   DIAG_DIR=<dir> node benchmarks/verify-product.mjs
+//     Writes <dir>/<slug>.diag.json: every gathered source (url, provider,
+//     length, tags, first 400 chars), the claim sources with their text, and
+//     the raw extraction reply. Prints a provider count after the gather.
+//
+//   RESULTS_DIR=<dir> node benchmarks/verify-product.mjs
+//     Writes the results JSON to <dir> instead of benchmarks/results/.
+//
+//   LEGACY_SELECTION=1 node benchmarks/verify-product.mjs
+//     Judges with the older evidence selection (topEvidenceForClaim, whole
+//     REPLAY pool) instead of the production one (evidencePool +
+//     rankClaimEvidence). With REPLAY it gives the A/B on pinned evidence.
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { gatherParallel } from '../worker/engine/parallel-engine.js';
-import { readPageInto } from '../worker/engine/tools.js';
 import { callLLM } from '../worker/engine/llm.js';
-import { scoreSource, isManufacturerDomain } from '../worker/lib/credibility.js';
 import { verdictForClaim, overallVerdict } from '../worker/lib/verdict.js';
 import { ENGINE_CONFIG } from '../worker/lib/engine-config.js';
+import { llmRouteFromEnv } from '../worker/lib/llm-route.js';
 import {
   VERDICT_OPTS,
   judgeClaim,
-  extractClaims as extractClaimsShared,
+  resolveClaimSources,
+  extractProductClaims,
+  evidencePool,
+  scoreEvidence,
+  findClaimTests,
 } from '../worker/engine/verify.js';
+import { claimCandidateReason } from '../worker/engine/verify-resolve.js';
 
 // ── ENV ──────────────────────────────────────────────────────────────────────
 function loadDevVars() {
@@ -52,14 +69,36 @@ const devVars = loadDevVars();
 const OPENROUTER_API_KEY = devVars.OPENROUTER_API_KEY;
 const SERPER_API_KEY = devVars.SERPER_API_KEY;
 const JINA_API_KEY = devVars.JINA_API_KEY;
+// Search and read keys, as the worker env carries them. Brave and Tavily are
+// the web fallbacks when Serper fails. Never logged.
+const TOOL_ENV = Object.freeze({
+  SERPER_API_KEY,
+  JINA_API_KEY,
+  BRAVE_API_KEY: devVars.BRAVE_API_KEY,
+  TAVILY_API_KEY: devVars.TAVILY_API_KEY,
+});
 
 // REPLAY mode never gathers, so it only needs the OpenRouter key (for the
 // stance LLM call) — SERPER_API_KEY is irrelevant when there's no search.
 const REPLAY_PATH = process.env.REPLAY || null;
-if (!OPENROUTER_API_KEY || (!REPLAY_PATH && !SERPER_API_KEY)) {
-  console.error('need OPENROUTER_API_KEY (and SERPER_API_KEY unless REPLAY is set) in .dev.vars');
+// LITELLM_BASE_URL + LITELLM_API_KEY in the environment route LLM calls through
+// LiteLLM. NO_FALLBACK=1 drops the OpenRouter fallback.
+const USE_LITELLM = Boolean(process.env.LITELLM_BASE_URL && process.env.LITELLM_API_KEY);
+const LLM_KEY = USE_LITELLM
+  ? llmRouteFromEnv({
+      LLM_PROVIDER: 'litellm',
+      LITELLM_BASE_URL: process.env.LITELLM_BASE_URL,
+      LITELLM_API_KEY: process.env.LITELLM_API_KEY,
+      OPENROUTER_API_KEY: process.env.NO_FALLBACK === '1' ? '' : OPENROUTER_API_KEY,
+    })
+  : OPENROUTER_API_KEY;
+if ((!USE_LITELLM && !OPENROUTER_API_KEY) || (!REPLAY_PATH && !SERPER_API_KEY)) {
+  console.error('need OPENROUTER_API_KEY or LITELLM_BASE_URL+LITELLM_API_KEY (and SERPER_API_KEY unless REPLAY is set)');
   process.exit(1);
 }
+console.log(USE_LITELLM
+  ? `[llm] route=litellm fallback=${LLM_KEY.fallback ? 'on' : 'off'}`
+  : '[llm] route=openrouter');
 
 function loadReplayInput(path) {
   const text = readFileSync(path, 'utf8');
@@ -77,12 +116,73 @@ const replayInput = REPLAY_PATH ? loadReplayInput(REPLAY_PATH) : null;
 const PRODUCT = process.env.PRODUCT || process.argv[2] || replayInput?.product || 'Anker Soundcore Space A40';
 const PRODUCT_URL = process.env.PRODUCT_URL || replayInput?.productUrl || null;
 
-// Same model choice as runVerification in worker/engine/verify.js.
-const cfg = ENGINE_CONFIG;
+// Same config as production verification: VERIFICATION_CONFIG in
+// worker/pipeline/verify-orchestrator.js (not exported, so mirrored here).
+const cfg = Object.freeze({
+  ...ENGINE_CONFIG,
+  maxFetches: 40,
+  maxSearches: 60,
+  maxToolCalls: 90,
+  measurementSeedQueries: true,
+});
 const extractModel = cfg.extractModel || cfg.synthModel;
 const stanceModel = cfg.stanceModel || cfg.synthModel;
 
 let totalCostUsd = 0;
+
+const SLUG = PRODUCT.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+// ── DIAGNOSTICS (DIAG_DIR) ────────────────────────────────────────────────────
+const DIAG_DIR = process.env.DIAG_DIR || null;
+const DIAG_HEAD_CHARS = 400;
+const diag = { product: PRODUCT, providerCounts: {}, sources: [], claimSources: [], extraction: [] };
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function summarizeSource(s, headChars = DIAG_HEAD_CHARS) {
+  const content = s.content || '';
+  return {
+    url: s.url,
+    host: hostOf(s.url),
+    provider: s.source ?? null,
+    title: s.title ?? '',
+    chars: content.length,
+    tags: s.credibility?.tags ?? [],
+    head: content.slice(0, headChars),
+  };
+}
+
+function countBy(items, keyOf) {
+  return items.reduce((acc, item) => {
+    const key = keyOf(item) ?? 'none';
+    return { ...acc, [key]: (acc[key] ?? 0) + 1 };
+  }, {});
+}
+
+function writeDiag() {
+  if (!DIAG_DIR) return;
+  mkdirSync(DIAG_DIR, { recursive: true });
+  writeFileSync(`${DIAG_DIR}/${SLUG}.diag.json`, JSON.stringify(diag, null, 2));
+  process.stderr.write(`[diag] wrote ${DIAG_DIR}/${SLUG}.diag.json\n`);
+}
+
+// callLLM, plus a diag record of the raw extraction reply.
+async function extractCallLLM(...args) {
+  const resp = await callLLM(...args);
+  const choice = resp?.choices?.[0] ?? {};
+  diag.extraction.push({
+    finishReason: choice.finish_reason ?? null,
+    usage: resp?.usage ?? null,
+    content: choice.message?.content ?? null,
+  });
+  return resp;
+}
 
 // ── 1. GATHER ─────────────────────────────────────────────────────────────────
 async function gather() {
@@ -90,85 +190,69 @@ async function gather() {
   const r = await gatherParallel(
     PRODUCT,
     cfg,
-    OPENROUTER_API_KEY,
-    { SERPER_API_KEY, JINA_API_KEY },
+    LLM_KEY,
+    TOOL_ENV,
     () => {},
     { is_buyable: true, sold_on_amazon: true, recency_sensitive: true },
     PRODUCT,
     {},
   );
   totalCostUsd += r.totalCostUsd || 0;
-  process.stderr.write(`[gather] ${r.sources?.length || 0} sources, ${r.notes?.length || 0} notes\n`);
-  return r.sources || [];
+  const sources = r.sources || [];
+  process.stderr.write(`[gather] ${sources.length} sources, ${r.notes?.length || 0} notes\n`);
+  diag.providerCounts = countBy(sources, (s) => s.source);
+  diag.sources = sources.map((s) => summarizeSource(s));
+  process.stderr.write(`[gather] sources by provider: ${JSON.stringify(diag.providerCounts)}\n`);
+  return sources;
 }
 
-// ── 2. RESOLVE — split claim (manufacturer/retailer) vs evidence sources ──────
-async function resolve(sources) {
-  process.stderr.write('[resolve] splitting claim sources vs evidence sources...\n');
-  const claimFromGather = sources.filter((s) => isManufacturerDomain(s.url));
-  const evidence = sources.filter((s) => !isManufacturerDomain(s.url));
+// ── 2+3. RESOLVE + EXTRACT CLAIMS ────────────────────────────────────────────
+// resolveClaimSources() and extractProductClaims() are the production steps of
+// runVerification in worker/engine/verify.js. This wrapper only logs.
+function logResolve(resolved) {
+  process.stderr.write(`[resolve] queries: ${JSON.stringify(resolved.queries)}\n`);
+  const ownSite = resolved.found
+    .map((f) => ({ url: f.url, reason: claimCandidateReason(f, PRODUCT) }))
+    .filter((f) => f.reason !== 'not-own-site');
+  for (const f of ownSite) process.stderr.write(`[resolve] found ${f.reason}: ${f.url}\n`);
+  process.stderr.write(`[resolve] ${resolved.found.length} search results, ${resolved.candidates.length} candidates\n`);
+  for (const c of resolved.candidates) process.stderr.write(`[resolve] candidate ${c.url}\n`);
+  for (const r of resolved.rejected) process.stderr.write(`[resolve] rejected ${r.reason} chars=${r.chars} ${r.url}\n`);
+  diag.resolve = {
+    queries: resolved.queries,
+    found: resolved.found.map((f) => ({ url: f.url, title: f.title, reason: claimCandidateReason(f, PRODUCT) })),
+    candidates: resolved.candidates.map((c) => c.url),
+    rejected: resolved.rejected,
+  };
+}
 
-  let claimSources = [...claimFromGather];
-
-  if (PRODUCT_URL) {
-    const already = claimSources.find((s) => s.url === PRODUCT_URL);
-    if (already && (already.content?.length ?? 0) > 300) {
-      process.stderr.write(`[resolve] PRODUCT_URL already gathered with content: ${PRODUCT_URL}\n`);
-    } else {
-      process.stderr.write(`[resolve] reading PRODUCT_URL: ${PRODUCT_URL}\n`);
-      const manual = already || { url: PRODUCT_URL, title: PRODUCT_URL, content: '', source: 'manual' };
-      await readPageInto(manual, { SERPER_API_KEY, JINA_API_KEY: devVars.JINA_API_KEY });
-      if (!already) claimSources.push(manual);
-    }
-  }
-
-  if (claimSources.length === 0 && !PRODUCT_URL) {
+async function resolveAndExtract() {
+  process.stderr.write('[resolve] finding the product\'s own pages...\n');
+  const resolved = await resolveClaimSources({ product: PRODUCT, productUrl: PRODUCT_URL, env: TOOL_ENV });
+  logResolve(resolved);
+  if (resolved.claimSources.length === 0 && !PRODUCT_URL) {
+    writeDiag();
     console.log(`Could not resolve "${PRODUCT}"'s own product page. Re-run with PRODUCT_URL=<amazon/bestbuy/walmart/manufacturer url> to specify it.`);
     process.exit(0);
   }
 
-  process.stderr.write(`[resolve] ${claimSources.length} claim source(s), ${evidence.length} evidence source(s)\n`);
-  return { claimSources, evidence };
-}
-
-// ── 3. EXTRACT CLAIMS ──────────────────────────────────────────────────────────
-// CLAIM_EXTRACTION_SYSTEM + the extraction call are shared with
-// worker/engine/verify.js (single source of truth) — this is a thin
-// cost-tracking + logging wrapper over extractClaimsShared().
-async function extractClaims(claimSources) {
   process.stderr.write('[extract-claims] calling LLM...\n');
-  const block = claimSources
-    .map((s, i) => `### SOURCE ${i + 1} ${s.title || ''}\n${s.url}\n${(s.content || '').slice(0, 20000)}`)
-    .join('\n\n')
-    .slice(0, 20000);
-
-  const { claims, costUsd } = await extractClaimsShared({
+  const { claims, claimSources, costUsd } = await extractProductClaims({
     product: PRODUCT,
-    claimText: block,
-    apiKey: OPENROUTER_API_KEY,
+    resolved,
+    env: TOOL_ENV,
+    apiKey: LLM_KEY,
     model: extractModel,
-    callLLM,
+    callLLM: extractCallLLM,
   });
   totalCostUsd += costUsd;
+  diag.claimSources = claimSources.map((c) => summarizeSource(c, 3000));
+  for (const c of claimSources) process.stderr.write(`[resolve] claim source ${c.url} chars=${(c.content || '').length}\n`);
+  process.stderr.write(`[resolve] ${claimSources.length} claim source(s)\n`);
   process.stderr.write(`[extract-claims] ${claims.length} claims\n`);
   return claims;
 }
 
-// ── 4. SCORE EVIDENCE ──────────────────────────────────────────────────────────
-function scoreEvidence(evidenceSources) {
-  process.stderr.write('[score-evidence] scoring sources...\n');
-  return evidenceSources.map((s) => {
-    const cred = scoreSource({ url: s.url, title: s.title, content: s.content, sourceType: s.source });
-    return {
-      url: s.url,
-      title: s.title,
-      content: s.content || '',
-      credibility: cred.score,
-      independence: cred.independence,
-      tags: cred.tags,
-    };
-  });
-}
 
 // ── 5. STANCE + VERDICT per claim ──────────────────────────────────────────────
 // judgeClaim() in worker/engine/verify.js is the per-claim step of
@@ -195,13 +279,16 @@ function stanceCallLLM(claimId) {
   };
 }
 
+const LEGACY_SELECTION = process.env.LEGACY_SELECTION === '1';
+
 async function judgeOne(claim, scoredEvidence) {
   const { verdict, evidence, costUsd } = await judgeClaim({
     claim,
     scoredEvidence,
-    apiKey: OPENROUTER_API_KEY,
+    apiKey: LLM_KEY,
     model: stanceModel,
     callLLM: stanceCallLLM(claim.id),
+    product: LEGACY_SELECTION ? undefined : PRODUCT,
   });
   totalCostUsd += costUsd;
   return { verdict, evidence };
@@ -249,18 +336,30 @@ function printLedger({ overall, claimVerdicts, evidenceCount, spent }) {
 async function loadClaimsAndEvidence() {
   if (replayInput) {
     process.stderr.write(`[replay] loaded ${replayInput.claims.length} claims, ${replayInput.evidence.length} evidence from ${REPLAY_PATH}\n`);
-    return { claims: replayInput.claims, scoredEvidence: replayInput.evidence };
+    // The production pool filter (evidencePool) also applies to pinned evidence.
+    const scoredEvidence = LEGACY_SELECTION ? replayInput.evidence : evidencePool(replayInput.evidence, PRODUCT, PRODUCT_URL);
+    process.stderr.write(`[replay] ${scoredEvidence.length} evidence after the pool filter (legacy=${LEGACY_SELECTION})\n`);
+    return { claims: replayInput.claims, scoredEvidence };
   }
 
-  const sources = await gather();
-  const { claimSources, evidence } = await resolve(sources);
-  const claims = await extractClaims(claimSources);
-
+  // Same order as runVerification: resolve and extract, then gather.
+  const claims = await resolveAndExtract();
   if (claims.length === 0) {
+    writeDiag();
     console.error('[extract-claims] no claims extracted — cannot proceed');
     process.exit(1);
   }
+  // Claim test searches and test page reads, as runVerification runs them.
+  const tests = await findClaimTests({ claims, product: PRODUCT, env: TOOL_ENV });
+  for (const q of tests.queries) process.stderr.write(`[tests] query: ${q}\n`);
+  process.stderr.write(`[tests] ${tests.sources.length} results, ${tests.reads} test page reads, ${tests.filled} filled\n`);
+  diag.tests = { queries: tests.queries, reads: tests.reads, filled: tests.filled };
+  const sources = await gather();
+  const evidence = evidencePool([...tests.sources, ...sources], PRODUCT, PRODUCT_URL);
+  const full = evidence.filter((s) => (s.content || '').length >= 1500).length;
+  process.stderr.write(`[evidence] ${evidence.length} independent source(s) of ${tests.sources.length + sources.length}, ${full} with page text\n`);
 
+  writeDiag();
   return { claims, scoredEvidence: scoreEvidence(evidence) };
 }
 
@@ -302,12 +401,13 @@ async function main() {
     console.log(JSON.stringify(diffs, null, 2));
   }
 
-  const resultsDir = new URL('./results/', import.meta.url);
+  const resultsDir = process.env.RESULTS_DIR
+    ? new URL(`file://${process.env.RESULTS_DIR.replace(/\/+$/, '')}/`)
+    : new URL('./results/', import.meta.url);
   mkdirSync(resultsDir, { recursive: true });
-  const slug = PRODUCT.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   // REPLAY writes to a distinct filename so it never clobbers the pinned
   // input JSON it just read (even mid-run, if the same slug is reused).
-  const outName = replayInput ? `verify-${slug}-replay.json` : `verify-${slug}.json`;
+  const outName = replayInput ? `verify-${SLUG}-replay.json` : `verify-${SLUG}.json`;
   const outPath = new URL(outName, resultsDir);
   writeFileSync(
     outPath,
