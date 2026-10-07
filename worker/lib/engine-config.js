@@ -28,7 +28,12 @@ export const ENGINE_CONFIG = {
   synthModel: 'minimax/minimax-m3',
   plannerModel: 'google/gemini-3.8-flash',
   synthReasoning: undefined,
-  stanceModel: 'minimax/minimax-m3', // verify stance judge: won the independent-gold stance bench. extractClaims now has its own model below (extractModel); synth uses synthModel.
+  // verify stance judge. 2026-10-08 judge bench (benchmarks/judge-bench.mjs +
+  // judge-grade.mjs, 5 products, 56 pinned claims, Sonnet 5.5 grader): mimo
+  // 22 correct, 79% precision, 0 wrong-direction, $0.009/product, 2.2 s p50,
+  // against minimax-m3 23 correct, 68%, $0.089/product, 9.5 s. Served by
+  // OpenRouter (not in the LiteLLM map, so LiteLLM routes fall back to it).
+  stanceModel: 'xiaomi/mimo-v2.6-flash',
   extractModel: 'anthropic/claude-haiku-4.5', // extractClaims: no-OpenAI pick; only non-OpenAI model matching the incumbent on the extract-gold bench.
   synthMaxTokens: 16000,
   // ── speed knobs (OpenRouter platform levers) ──────────────────────────────
