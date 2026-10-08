@@ -36,6 +36,13 @@
 //     Judges with the older evidence selection (topEvidenceForClaim, whole
 //     REPLAY pool) instead of the production one (evidencePool +
 //     rankClaimEvidence). With REPLAY it gives the A/B on pinned evidence.
+//
+//   Bench-only model overrides (no effect when unset):
+//     VP_STANCE_MODEL=<id>        stance judge model (cfg.stanceModel)
+//     VP_STANCE_FALLBACK=<id>     fallback judge (cfg.stanceFallbackModel); empty = none
+//     VP_EXTRACT_MODEL=<id>       claim extraction model (cfg.extractModel)
+//     VP_CLAIM_CONCURRENCY=<n>    claims judged at once (default CLAIM_JUDGE_CONCURRENCY)
+//     An anthropic/ override needs BENCH_ALLOW_ANTHROPIC=1 (owner bench exception).
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { gatherParallel } from '../worker/engine/parallel-engine.js';
@@ -45,8 +52,8 @@ import { ENGINE_CONFIG } from '../worker/lib/engine-config.js';
 import { llmRouteFromEnv } from '../worker/lib/llm-route.js';
 import {
   VERDICT_OPTS,
-  judgeClaim,
-  rerankOptions,
+  judgeClaims,
+  CLAIM_JUDGE_CONCURRENCY,
   resolveClaimSources,
   extractProductClaims,
   evidencePool,
@@ -118,6 +125,30 @@ const replayInput = REPLAY_PATH ? loadReplayInput(REPLAY_PATH) : null;
 const PRODUCT = process.env.PRODUCT || process.argv[2] || replayInput?.product || 'Anker Soundcore Space A40';
 const PRODUCT_URL = process.env.PRODUCT_URL || replayInput?.productUrl || null;
 
+// Bench-only overrides of the production models and claim concurrency.
+function modelOverrides(env) {
+  const out = {};
+  if (env.VP_STANCE_MODEL) out.stanceModel = env.VP_STANCE_MODEL;
+  if (env.VP_STANCE_FALLBACK !== undefined) out.stanceFallbackModel = env.VP_STANCE_FALLBACK || null;
+  if (env.VP_EXTRACT_MODEL) out.extractModel = env.VP_EXTRACT_MODEL;
+  const vetoed = Object.values(out).filter((id) => typeof id === 'string' && id.startsWith('anthropic/'));
+  if (vetoed.length > 0 && env.BENCH_ALLOW_ANTHROPIC !== '1') {
+    console.error(`anthropic override ${vetoed.join(', ')} needs BENCH_ALLOW_ANTHROPIC=1`);
+    process.exit(1);
+  }
+  return out;
+}
+
+function claimConcurrency(env) {
+  if (env.VP_CLAIM_CONCURRENCY === undefined || env.VP_CLAIM_CONCURRENCY === '') return CLAIM_JUDGE_CONCURRENCY;
+  const n = Number(env.VP_CLAIM_CONCURRENCY);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error(`VP_CLAIM_CONCURRENCY must be a positive integer, got "${env.VP_CLAIM_CONCURRENCY}"`);
+    process.exit(1);
+  }
+  return n;
+}
+
 // Same config as production verification: VERIFICATION_CONFIG in
 // worker/pipeline/verify-orchestrator.js (not exported, so mirrored here).
 const cfg = Object.freeze({
@@ -126,9 +157,12 @@ const cfg = Object.freeze({
   maxSearches: 60,
   maxToolCalls: 90,
   measurementSeedQueries: true,
+  ...modelOverrides(process.env),
 });
+const CLAIM_CONCURRENCY = claimConcurrency(process.env);
 const extractModel = cfg.extractModel || cfg.synthModel;
 const stanceModel = cfg.stanceModel || cfg.synthModel;
+console.log(`[models] extract=${extractModel} stance=${stanceModel} fallback=${cfg.stanceFallbackModel || 'none'} concurrency=${CLAIM_CONCURRENCY}`);
 
 let totalCostUsd = 0;
 
@@ -257,20 +291,21 @@ async function resolveAndExtract() {
 
 
 // ── 5. STANCE + VERDICT per claim ──────────────────────────────────────────────
-// judgeClaim() in worker/engine/verify.js is the per-claim step of
-// runVerification (claim-aware top evidence, STANCE_SYSTEM call, deterministic
-// backstops, verdict under VERDICT_OPTS). The harness calls it as is, so a
-// replay measures the production path.
+// judgeClaims() in worker/engine/verify.js is step 6 of runVerification: per
+// claim, claim-aware top evidence, the stance call, the fallback judge
+// (cfg.stanceFallbackModel) on an undecided claim, backstops, and the verdict
+// under VERDICT_OPTS. The harness calls it as is, so a run measures the
+// production path.
 const STANCE_LOG = process.env.STANCE_LOG || null;
 
 // callLLM, plus one STANCE_LOG line per call when STANCE_LOG is set.
-function stanceCallLLM(claimId) {
+function stanceCallLLM() {
   if (!STANCE_LOG) return callLLM;
   return async (...args) => {
     const resp = await callLLM(...args);
     const choice = resp?.choices?.[0] ?? {};
     const line = {
-      claimId,
+      model: args[1] ?? null,
       finishReason: choice.finish_reason ?? null,
       usage: resp?.usage ?? null,
       reasoningChars: String(choice.message?.reasoning ?? '').length,
@@ -283,19 +318,23 @@ function stanceCallLLM(claimId) {
 
 const LEGACY_SELECTION = process.env.LEGACY_SELECTION === '1';
 
-async function judgeOne(claim, scoredEvidence) {
-  const { verdict, evidence, costUsd } = await judgeClaim({
-    claim,
+async function judgeAll(claims, scoredEvidence) {
+  const results = await judgeClaims({
+    claims,
     scoredEvidence,
+    config: cfg,
     apiKey: LLM_KEY,
-    model: stanceModel,
-    callLLM: stanceCallLLM(claim.id),
+    callLLM: stanceCallLLM(),
     product: LEGACY_SELECTION ? undefined : PRODUCT,
-    // Same as runVerification: reranked evidence when ENGINE_CONFIG.evidenceRerank is on.
-    rerank: rerankOptions(ENGINE_CONFIG, TOOL_ENV),
+    env: TOOL_ENV,
+    concurrency: CLAIM_CONCURRENCY,
   });
-  totalCostUsd += costUsd;
-  return { verdict, evidence };
+  const failed = results.find((r) => r && 'error' in r);
+  if (failed) throw failed.error;
+  return results.map((r, i) => {
+    totalCostUsd += r.costUsd;
+    return { claim: claims[i], verdict: r.verdict, evidence: r.evidence, judgeModel: r.judgeModel };
+  });
 }
 
 // ── OUTPUT FORMATTING ──────────────────────────────────────────────────────────
@@ -333,6 +372,19 @@ function printLedger({ overall, claimVerdicts, evidenceCount, spent }) {
   console.log('\n──────────────────────────────────────────────────────────────────');
 }
 
+// Stage marks, as runVerification logs them ([verify] timing ...). REPLAY has
+// no extract or gather stage, so both marks stay at the start.
+const timing = { startedAt: Date.now(), extractedAt: null, gatheredAt: null, judgedAt: null };
+const secondsSince = (start, end) => ((end - start) / 1000).toFixed(1);
+
+function logTiming() {
+  const extractedAt = timing.extractedAt ?? timing.startedAt;
+  const gatheredAt = timing.gatheredAt ?? extractedAt;
+  console.log(
+    `[verify] timing gather=${secondsSince(extractedAt, gatheredAt)} extract=${secondsSince(timing.startedAt, extractedAt)} judge=${secondsSince(gatheredAt, timing.judgedAt)} total=${secondsSince(timing.startedAt, timing.judgedAt)}`,
+  );
+}
+
 // ── FIX 3: REPLAY — load a prior run's pinned claims + evidence, skip
 // gather/extraction, run only stance + verdict. `evidence` in a prior
 // results JSON is already in the scored `{url,title,content,credibility,
@@ -348,6 +400,7 @@ async function loadClaimsAndEvidence() {
 
   // Same order as runVerification: resolve and extract, then gather.
   const claims = await resolveAndExtract();
+  timing.extractedAt = Date.now();
   if (claims.length === 0) {
     writeDiag();
     console.error('[extract-claims] no claims extracted — cannot proceed');
@@ -359,6 +412,7 @@ async function loadClaimsAndEvidence() {
   process.stderr.write(`[tests] ${tests.sources.length} results, ${tests.reads} test page reads, ${tests.filled} filled\n`);
   diag.tests = { queries: tests.queries, reads: tests.reads, filled: tests.filled };
   const sources = await gather();
+  timing.gatheredAt = Date.now();
   const evidence = evidencePool([...tests.sources, ...sources], PRODUCT, PRODUCT_URL);
   const full = evidence.filter((s) => (s.content || '').length >= 1500).length;
   process.stderr.write(`[evidence] ${evidence.length} independent source(s) of ${tests.sources.length + sources.length}, ${full} with page text\n`);
@@ -371,17 +425,16 @@ async function loadClaimsAndEvidence() {
 async function main() {
   const { claims, scoredEvidence } = await loadClaimsAndEvidence();
 
-  process.stderr.write('[stance] judging each claim...\n');
-  const judged = [];
-  for (const claim of claims) {
-    const { verdict, evidence } = await judgeOne(claim, scoredEvidence);
-    judged.push({ claim, verdict, evidence });
+  process.stderr.write(`[stance] judging ${claims.length} claims, ${CLAIM_CONCURRENCY} at once...\n`);
+  const judged = await judgeAll(claims, scoredEvidence);
+  timing.judgedAt = Date.now();
+  for (const { claim, verdict, evidence, judgeModel } of judged) {
     process.stderr.write(
-      `[stance] ${claim.id}: ${evidence.length} sources judged, ${verdict.supporting.length} support, ${verdict.contradicting.length} contradict\n`,
+      `[stance] ${claim.id}: ${evidence.length} sources judged, ${verdict.supporting.length} support, ${verdict.contradicting.length} contradict, judge=${judgeModel}\n`,
     );
   }
 
-  const claimVerdicts = judged.map(({ claim, verdict }) => ({ ...verdict, claim, claimType: claim.type }));
+  const claimVerdicts = judged.map(({ claim, verdict, judgeModel }) => ({ ...verdict, claim, claimType: claim.type, judgeModel }));
   const overall = overallVerdict(claimVerdicts);
 
   process.stderr.write('[determinism] re-running verdictForClaim on pinned evidence...\n');
@@ -397,6 +450,8 @@ async function main() {
   }
 
   printLedger({ overall, claimVerdicts, evidenceCount: scoredEvidence.length, spent: totalCostUsd });
+  logTiming();
+  console.log(`[cost] total LLM USD=${totalCostUsd.toFixed(4)}`);
 
   if (reproducible) {
     console.log('verdict pass reproducible: ✓');
@@ -423,6 +478,8 @@ async function main() {
         claims,
         claimVerdicts,
         evidence: scoredEvidence,
+        models: { extract: extractModel, stance: stanceModel, fallback: cfg.stanceFallbackModel || null, concurrency: CLAIM_CONCURRENCY },
+        timing,
         reproducible,
         totalCostUsd,
         replay: replayInput ? REPLAY_PATH : null,

@@ -49,7 +49,10 @@ async function serperSearch(query, apiKey, opts = {}) {
       // Auth/quota failures (401/403/429) mean the provider is unusable for this
       // run: signal unavailability so the caller falls back through the fallback chain. Other
       // non-ok statuses are treated as a genuine empty result.
-      if (response.status === 401 || response.status === 403 || response.status === 429) return null;
+      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
+      // An empty account balance can answer 400 (Serper: "Not enough credits").
+      // That is also unavailability, not an empty result: fall back.
+      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
       return [];
     }
     const data = await response.json();
@@ -101,7 +104,10 @@ async function braveSearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[brave] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
-      if (response.status === 401 || response.status === 403 || response.status === 429) return null;
+      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
+      // An empty account balance can answer 400 (Serper: "Not enough credits").
+      // That is also unavailability, not an empty result: fall back.
+      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
       return [];
     }
     const data = await response.json();
@@ -157,7 +163,10 @@ async function tavilySearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[tavily] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
-      if (response.status === 401 || response.status === 403 || response.status === 429) return null;
+      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
+      // An empty account balance can answer 400 (Serper: "Not enough credits").
+      // That is also unavailability, not an empty result: fall back.
+      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
       return [];
     }
     const data = await response.json();
@@ -265,7 +274,10 @@ async function serperVideos(query, apiKey) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[serper-videos] HTTP ${response.status} q="${query}" body=${text.slice(0, 200)}`);
-      if (response.status === 401 || response.status === 403 || response.status === 429) return null;
+      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
+      // An empty account balance can answer 400 (Serper: "Not enough credits").
+      // That is also unavailability, not an empty result: fall back.
+      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
       return [];
     }
     const data = await response.json();
