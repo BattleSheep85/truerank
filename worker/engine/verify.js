@@ -673,8 +673,9 @@ export const CLAIM_JUDGE_CONCURRENCY = 12;
  * Step 6, JUDGE: judgeClaim for every claim, at most `concurrency` at once.
  * Evidence is reranked when config.evidenceRerank is true and env carries
  * JINA_API_KEY (rerankOptions).
- * Results keep the claim order. A claim that throws does not stop the others:
- * its slot is { error }. Other slots are judgeClaim's result.
+ * Results keep the claim order. A claim that throws (an LLM error, a timeout,
+ * an AbortError) does not stop the others: its slot is failedClaimResult.
+ * Other slots are judgeClaim's result.
  */
 export async function judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, env, concurrency = CLAIM_JUDGE_CONCURRENCY }) {
   const rerank = rerankOptions(config, env);
@@ -690,7 +691,41 @@ export async function judgeClaims({ claims, scoredEvidence, config, apiKey, call
       rerank,
     }),
   );
-  return runPool(thunks, concurrency, (error) => ({ error }));
+  return runPool(thunks, concurrency, (error, i) => failedClaimResult(claims[i], error));
+}
+
+/**
+ * The judge slot for a claim whose judgeClaim threw: the no-evidence verdict
+ * (unsubstantiated, built by verdictForClaim so the shape stays the same), no
+ * evidence rows, no judge model. judgeClaim does not report a cost when it
+ * throws, so costUsd is 0. `error` is kept for runVerification and is not
+ * copied into the claim. Logs the claim id and the error message only.
+ */
+export function failedClaimResult(claim, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[verify] judge failed for claim ${claim?.id}, marked unsubstantiated: ${message}`);
+  return {
+    verdict: verdictForClaim(claim, [], VERDICT_OPTS),
+    evidence: [],
+    costUsd: 0,
+    judgeModel: null,
+    error,
+  };
+}
+
+/**
+ * Merges the judgeClaims slots into the claim verdicts. Throws the first
+ * error (in claim order) only when every claim failed. Returns
+ * { claimVerdicts, costUsd }.
+ */
+export function collectClaimVerdicts(claims, judged) {
+  if (judged.length > 0 && judged.every((r) => r && r.error !== undefined)) throw judged[0].error;
+  const claimVerdicts = claims.map((claim, i) => {
+    const { verdict, judgeModel } = judged[i];
+    return { ...claim, ...verdict, judgeModel, claimType: claim.type };
+  });
+  const costUsd = judged.reduce((sum, r) => sum + (Number.isFinite(r?.costUsd) ? r.costUsd : 0), 0);
+  return { claimVerdicts, costUsd };
 }
 
 const secondsSince = (start, end) => ((end - start) / 1000).toFixed(1);
@@ -869,16 +904,11 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   const scoredEvidence = scoreEvidence(evidencePool([...tests.sources, ...(gathered.sources || [])], product, productUrl));
 
   // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict.
-  //    Claims run concurrently. As before, a claim error fails the run: the
-  //    first failed claim (in claim order) is rethrown after all settle.
+  //    Claims run concurrently. A failed claim is unsubstantiated and the run
+  //    goes on. Only when every claim failed is the first error rethrown.
   const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, env });
-  const failed = judged.find((r) => r && 'error' in r);
-  if (failed) throw failed.error;
-  const claimVerdicts = claims.map((claim, i) => {
-    const { verdict, judgeModel, costUsd: stanceCost } = judged[i];
-    costUsd += stanceCost;
-    return { ...claim, ...verdict, judgeModel, claimType: claim.type };
-  });
+  const { claimVerdicts, costUsd: stanceCost } = collectClaimVerdicts(claims, judged);
+  costUsd += stanceCost;
   const judgedAt = Date.now();
   console.log(
     `[verify] timing gather=${secondsSince(extractedAt, gatheredAt)} extract=${secondsSince(startedAt, extractedAt)} judge=${secondsSince(gatheredAt, judgedAt)} total=${secondsSince(startedAt, judgedAt)}`,

@@ -927,7 +927,19 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
     return { ...reply, usage: { cost: n / 1000 } };
   };
   // Fake callLLM: resolves after DELAY_MS, records the peak in-flight count.
-  const delayedLLM = ({ failText } = {}) => {
+  // Silences console.warn while fn runs, keeps the lines for assertions.
+  const captureWarn = async (fn) => {
+    const original = console.warn;
+    const lines = [];
+    console.warn = (...a) => { lines.push(a.join(' ')); };
+    try { return { value: await fn(), lines }; } finally { console.warn = original; }
+  };
+  const abortError = () => {
+    const err = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    return err;
+  };
+  const delayedLLM = ({ failText, failWith = () => new Error('upstream 502') } = {}) => {
     const state = { inFlight: 0, maxInFlight: 0, calls: 0 };
     const fn = async (_key, _model, messages) => {
       state.calls++;
@@ -935,7 +947,8 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
       state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
       try {
         await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
-        if (failText && String(messages?.[1]?.content ?? '').includes(failText)) throw new Error('upstream 502');
+        const prompt = String(messages?.[1]?.content ?? '');
+        if (failText && (failText === '*' || prompt.includes(failText))) throw failWith();
         return replyFor(messages);
       } finally {
         state.inFlight--;
@@ -975,15 +988,58 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
     eq(`${label}: results deep-equal the sequential path`, concurrent, sequential);
   });
 
+  // CHANGED 2026-10-08: a single failing claim no longer fails the run. Its
+  // slot is the no-evidence unsubstantiated verdict. All claims failing still
+  // fails the run with the first error.
+  const noEvidenceVerdict = (claim) => verdictForClaim(claim, [], verifyModule.VERDICT_OPTS);
+
   await guarded('one claim error', async () => {
     const llm = delayedLLM({ failText: 'Battery lasts 12 hours' });
-    const results = await verifyFn('judgeClaims')(args(llm.fn));
+    const { value: results, lines } = await captureWarn(() => verifyFn('judgeClaims')(args(llm.fn)));
     eq(`${label}: one result slot per claim`, results.length, 8);
-    ok(`${label}: the failed claim slot holds its error`, results[2]?.error?.message === 'upstream 502');
+    eq(`${label}: the failed claim gets the no-evidence verdict`, results[2]?.verdict, noEvidenceVerdict(claims[2]));
+    eq(`${label}: the failed claim verdict is unsubstantiated`, results[2]?.verdict?.status, 'unsubstantiated');
+    eq(`${label}: the failed claim has no evidence rows`, results[2]?.evidence, []);
+    eq(`${label}: the failed claim has no judge model`, results[2]?.judgeModel, null);
+    eq(`${label}: the failed claim costs 0`, results[2]?.costUsd, 0);
     ok(
       `${label}: the other claims are judged`,
-      results.every((r, i) => i === 2 || (r?.verdict && typeof r.verdict.status === 'string' && !('error' in r))),
+      results.every((r, i) => i === 2 || (r?.verdict && typeof r.verdict.status === 'string' && r.error === undefined)),
     );
+    eq(`${label}: one warning for the failed claim`, lines.length, 1);
+    ok(`${label}: the warning names the claim id and the error`, /claim c2\b/.test(lines[0] ?? '') && (lines[0] ?? '').includes('upstream 502'));
+    ok(`${label}: the warning has no prompt text`, !(lines[0] ?? '').includes('Battery lasts'));
+  });
+
+  await guarded('one claim AbortError, run completes', async () => {
+    const llm = delayedLLM({ failText: 'Battery lasts 15 hours', failWith: abortError });
+    const { value: results } = await captureWarn(() => verifyFn('judgeClaims')(args(llm.fn)));
+    const { claimVerdicts, costUsd } = verifyFn('collectClaimVerdicts')(claims, results);
+    eq(`${label}: abort: every claim has a verdict`, claimVerdicts.length, 8);
+    eq(`${label}: abort: the aborted claim is unsubstantiated`, claimVerdicts[5].status, 'unsubstantiated');
+    eq(`${label}: abort: the aborted claim has no supporting rows`, claimVerdicts[5].supporting, noEvidenceVerdict(claims[5]).supporting);
+    eq(`${label}: abort: the aborted claim has no judge model`, claimVerdicts[5].judgeModel, null);
+    ok(`${label}: abort: the error is not copied into the claim`, !('error' in claimVerdicts[5]));
+    ok(
+      `${label}: abort: the other claims are judged by the primary model`,
+      claimVerdicts.every((c, i) => i === 5 || c.judgeModel === 'primary'),
+    );
+    const expectedCost = claims.reduce((sum, _, i) => sum + (i === 5 ? 0 : (10 + i) / 1000), 0);
+    ok(`${label}: abort: cost sums the judged claims`, Math.abs(costUsd - expectedCost) < 1e-9);
+  });
+
+  await guarded('every claim fails', async () => {
+    const llm = delayedLLM({ failText: '*', failWith: abortError });
+    const { value: results, lines } = await captureWarn(() => verifyFn('judgeClaims')(args(llm.fn)));
+    eq(`${label}: all fail: one warning per claim`, lines.length, 8);
+    let thrown = null;
+    try { verifyFn('collectClaimVerdicts')(claims, results); } catch (err) { thrown = err; }
+    ok(`${label}: all fail: the run fails with the first error`, thrown === results[0].error && thrown?.name === 'AbortError');
+  });
+
+  await guarded('no claims', async () => {
+    const out = verifyFn('collectClaimVerdicts')([], []);
+    eq(`${label}: no claims: no verdicts and no cost`, out, { claimVerdicts: [], costUsd: 0 });
   });
 }
 
