@@ -5,9 +5,27 @@
 // site:{retailer} technique that works cleanly for Amazon returns genuine
 // product pages about as often as Q&A/review-tab/search-listing noise for
 // other retailers.
-import { RETAILER_FALLBACKS, titleMatches } from '../../worker/lib/asin-resolver.js';
+import { RETAILER_FALLBACKS, titleMatches, resolveAsins } from '../../worker/lib/asin-resolver.js';
 
-export function runAsinResolverTests() {
+// Swap globalThis.fetch for a recording fake for the duration of fn().
+async function withFakeFetch(respond, fn) {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return respond(String(url), init);
+  };
+  try {
+    await fn(calls);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+const jsonResponse = (body) => new Response(JSON.stringify(body), { status: 200 });
+const PRODUCT = { name: 'Synology DS224', brand: 'Synology', productUrl: '' };
+
+export async function runAsinResolverTests() {
   const report = { passed: 0, failed: 0, failures: [] };
   const eq = (name, a, e) => {
     const A = JSON.stringify(a), E = JSON.stringify(e);
@@ -50,6 +68,49 @@ export function runAsinResolverTests() {
   ok('titleMatches: 2+ shared tokens', titleMatches('Synology DS224', 'Synology DiskStation DS224 2-Bay NAS'));
   eq('titleMatches: unrelated title rejected', titleMatches('Synology DS224', 'Apple MacBook Pro 16-inch'), false);
   ok('titleMatches: single-token subject matches on 1 shared token', titleMatches('Bose', 'Bose QuietComfort Earbuds'));
+
+  // ── Provider selection: Brave when Serper has no key, Serper otherwise ──
+  await withFakeFetch(() => jsonResponse({
+    web: { results: [{ url: 'https://www.amazon.com/Synology-DS224/dp/B0ABCDEFGH/ref=x', title: 'Synology DS224+ NAS' }] },
+  }), async (calls) => {
+    const out = await resolveAsins({ BRAVE_API_KEY: 'brave-key', AMAZON_AFFILIATE_TAG: 'tag-20' }, [PRODUCT]);
+    eq('brave only: one request', calls.length, 1);
+    const u = new URL(calls[0].url);
+    eq('brave only: hits the Brave web endpoint', `${u.host}${u.pathname}`, 'api.search.brave.com/res/v1/web/search');
+    eq('brave only: same site: query shape as Serper', u.searchParams.get('q'), 'site:amazon.com "Synology DS224"');
+    eq('brave only: sends the subscription token', calls[0].init.headers['X-Subscription-Token'], 'brave-key');
+    eq('brave only: ASIN set from /dp/ result', out[0].productUrl, 'https://www.amazon.com/dp/B0ABCDEFGH');
+    ok('brave only: affiliate tag applied', String(out[0].affiliateUrl).includes('tag=tag-20'));
+    eq('brave only: input product not mutated', PRODUCT.productUrl, '');
+  });
+
+  await withFakeFetch(() => jsonResponse({
+    web: { results: [{ url: 'https://www.amazon.co.uk/gp/product/B0UKASIN01', title: 'Synology DS224 2-Bay' }] },
+  }), async () => {
+    const out = await resolveAsins({ BRAVE_API_KEY: 'brave-key' }, [PRODUCT]);
+    eq('brave only: /gp/product/ form resolves', out[0].productUrl, 'https://www.amazon.com/dp/B0UKASIN01');
+  });
+
+  await withFakeFetch(() => jsonResponse({ web: { results: [] } }), async (calls) => {
+    const out = await resolveAsins({ BRAVE_API_KEY: 'brave-key' }, [PRODUCT]);
+    eq('brave only: no Amazon hit skips the Serper-only retailer fallback', calls.length, 1);
+    eq('brave only: no hit leaves product unchanged', out[0], PRODUCT);
+  });
+
+  await withFakeFetch(() => jsonResponse({
+    organic: [{ link: 'https://www.amazon.com/dp/B0SERPER01', title: 'Synology DS224+ NAS' }],
+  }), async (calls) => {
+    const out = await resolveAsins({ SERPER_API_KEY: 'serper-key', BRAVE_API_KEY: 'brave-key' }, [PRODUCT]);
+    eq('both keys: Serper only', calls.map((c) => new URL(c.url).host), ['google.serper.dev']);
+    eq('both keys: Serper body unchanged', JSON.parse(calls[0].init.body), { q: 'site:amazon.com "Synology DS224"', num: 3 });
+    eq('both keys: ASIN from Serper', out[0].productUrl, 'https://www.amazon.com/dp/B0SERPER01');
+  });
+
+  await withFakeFetch(() => { throw new Error('fetch must not be called'); }, async (calls) => {
+    const out = await resolveAsins({}, [PRODUCT]);
+    eq('no keys: no request', calls.length, 0);
+    eq('no keys: product untouched', out[0], PRODUCT);
+  });
 
   return report;
 }

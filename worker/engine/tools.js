@@ -139,7 +139,8 @@ async function serperSearch(query, apiKey, opts = {}) {
 export const BRAVE_MIN_GAP_MS = 1100;
 let braveNextSlot = 0;
 
-async function waitForBraveSlot() {
+// Exported so image-resolver.js paces Brave Image Search calls on the same slot.
+export async function waitForBraveSlot() {
   const now = Date.now();
   const slot = Math.max(now, braveNextSlot);
   braveNextSlot = slot + BRAVE_MIN_GAP_MS;
@@ -190,6 +191,13 @@ async function braveSearch(query, apiKey, opts = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Public wrapper for callers outside the engine (asin-resolver.js). Same pacing,
+// rate-limit retry, and cooldown as the engine's web chain. Returns the result
+// list, [] for no hits or a transient error, or null when Brave is unavailable.
+export async function braveWebSearch(query, apiKey, opts = {}) {
+  return braveSearch(query, apiKey, opts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

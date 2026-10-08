@@ -3,7 +3,7 @@
 // Both must NEVER throw and pass unresolved products through unchanged.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { resolveAsins } from '../../worker/lib/asin-resolver.js';
-import { resolveImages, buildImageQuery, pickBestImage } from '../../worker/lib/image-resolver.js';
+import { resolveImages, buildImageQuery, pickBestImage, braveImagesToSerperShape } from '../../worker/lib/image-resolver.js';
 
 const ENV = { SERPER_API_KEY: 'test-key', AMAZON_AFFILIATE_TAG: 'battlesheep0a-20' };
 afterEach(() => vi.unstubAllGlobals());
@@ -88,5 +88,67 @@ describe('resolveImages', () => {
     }), { status: 200 })));
     const out = await resolveImages(ENV, [{ name: 'Synology DS224', brand: 'Synology' }]);
     expect(out[0].imageUrl).toContain('media-amazon.com');
+  });
+});
+
+describe('resolveImages Brave fallback', () => {
+  const BRAVE_ENV = { BRAVE_API_KEY: 'brave-key' };
+  const product = { name: 'Synology DS224', brand: 'Synology' };
+
+  it('no Serper key + Brave key → Brave Image Search sets the image', async () => {
+    const spy = vi.fn(async () => new Response(JSON.stringify({
+      results: [
+        { properties: { url: 'http://blog.example/p.jpg', width: 600, height: 600 } },
+        { properties: { url: 'https://m.media-amazon.com/images/ds224.jpg', width: 500, height: 500 } },
+      ],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    const out = await resolveImages(BRAVE_ENV, [product]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [url, init] = spy.mock.calls[0];
+    const u = new URL(url);
+    expect(`${u.host}${u.pathname}`).toBe('api.search.brave.com/res/v1/images/search');
+    expect(u.searchParams.get('q')).toBe('Synology DS224 product');
+    expect(u.searchParams.get('count')).toBe('5');
+    expect(init.headers['X-Subscription-Token']).toBe('brave-key');
+    expect(out[0].imageUrl).toBe('https://m.media-amazon.com/images/ds224.jpg');
+    expect(product.imageUrl).toBeUndefined();
+  });
+
+  it('both keys → Serper only', async () => {
+    const spy = vi.fn(async () => new Response(JSON.stringify({
+      images: [{ imageUrl: 'https://m.media-amazon.com/images/p.jpg', imageWidth: 600, imageHeight: 600 }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    const out = await resolveImages({ ...ENV, BRAVE_API_KEY: 'brave-key' }, [product]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(new URL(spy.mock.calls[0][0]).host).toBe('google.serper.dev');
+    expect(out[0].imageUrl).toContain('media-amazon.com');
+  });
+
+  it('no keys → untouched, no request', async () => {
+    const spy = vi.fn();
+    vi.stubGlobal('fetch', spy);
+    const out = await resolveImages({}, [product]);
+    expect(spy).not.toHaveBeenCalled();
+    expect(out[0]).toBe(product);
+  });
+
+  it('Brave image 403 → untouched, no throw, one log, later products skipped', async () => {
+    const spy = vi.fn(async () => new Response('forbidden', { status: 403 }));
+    vi.stubGlobal('fetch', spy);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const products = [product, { name: 'Sony WH-1000XM5', brand: 'Sony' }];
+    const out = await resolveImages(BRAVE_ENV, products);
+    expect(out).toEqual(products);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.filter(([m]) => String(m).includes('brave images HTTP 403'))).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it('braveImagesToSerperShape falls back to thumbnail fields', () => {
+    expect(braveImagesToSerperShape(null)).toEqual([]);
+    expect(braveImagesToSerperShape([{ thumbnail: { src: 'https://imgs.search.brave.com/t.jpg', width: 500, height: 400 } }]))
+      .toEqual([{ imageUrl: 'https://imgs.search.brave.com/t.jpg', imageWidth: 500, imageHeight: 400 }]);
   });
 });

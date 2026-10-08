@@ -13,11 +13,17 @@
  * fetches, run sequentially. This keeps us well under the Workers subrequest
  * limit and the Serper free-tier quota.
  *
+ * Brave fallback: with no SERPER_API_KEY but a BRAVE_API_KEY, the Amazon site:
+ * query goes through the engine's paced Brave client instead. The retailer
+ * fallback stays Serper-only: Brave's free plan is 1 request/s and 2,000/month,
+ * so 3 queries per product would triple the paced wall-clock and quota spend.
+ *
  * Contract: NEVER throws. No key / quota / network error / no confident match
  * leaves the product unchanged (immutable — original object is returned as-is).
  */
 
 import { buildAffiliateUrl } from './affiliate-links.js';
+import { braveWebSearch } from '../engine/tools.js';
 
 // Cap on how many products we spend a Serper query on per run. Reports carry
 // 4-8 products; 8 covers every card so each quoted product links to its exact
@@ -71,7 +77,7 @@ const STOPWORDS = new Set([
 /**
  * Resolve direct Amazon /dp/ links for products missing one.
  *
- * @param {object} env - worker env (reads env.SERPER_API_KEY + affiliate tags)
+ * @param {object} env - worker env (reads env.SERPER_API_KEY or env.BRAVE_API_KEY + affiliate tags)
  * @param {Array<object>} products - engine product objects (camelCase fields)
  * @param {(msg: string) => Promise<void>} [onProgress] - optional progress sink
  * @returns {Promise<Array<object>>} products with resolved product_url/affiliate_url
@@ -80,9 +86,9 @@ const STOPWORDS = new Set([
 export async function resolveAsins(env, products, onProgress) {
   if (!Array.isArray(products) || products.length === 0) return products;
 
-  const apiKey = env?.SERPER_API_KEY;
+  const search = searchProviderFromEnv(env);
   // No key → nothing to do. Don't burn the subrequest; return untouched.
-  if (!apiKey) return products;
+  if (!search) return products;
 
   const affiliateIds = affiliateIdsFromEnv(env);
 
@@ -99,7 +105,8 @@ export async function resolveAsins(env, products, onProgress) {
     try {
       // Amazon first (direct /dp/ commission on the primary affiliate program);
       // only fall back to another retailer when Amazon genuinely has no match.
-      const url = await resolveOne(out[i], apiKey) || await resolveOtherRetailer(out[i], apiKey);
+      const url = await resolveOne(out[i], search)
+        || (search.retailerFallback ? await resolveOtherRetailer(out[i], search) : null);
       if (url) {
         const affiliateUrl = buildAffiliateUrl(url, affiliateIds);
         out[i] = { ...out[i], productUrl: url, affiliateUrl: affiliateUrl || out[i].affiliateUrl };
@@ -141,8 +148,34 @@ function productSubject(product) {
     : name).replace(/"/g, '');
 }
 
+// Serper when its key is set (unchanged behavior), else Brave, else null.
+// `siteSearch(host, subject)` resolves to [{ link, title }] (Serper organic shape).
+function searchProviderFromEnv(env) {
+  const serperKey = env?.SERPER_API_KEY;
+  if (serperKey) {
+    return { retailerFallback: true, siteSearch: (host, subject) => serperSiteSearch(host, subject, serperKey) };
+  }
+  const braveKey = env?.BRAVE_API_KEY;
+  if (braveKey) {
+    return { retailerFallback: false, siteSearch: (host, subject) => braveSiteSearch(host, subject, braveKey) };
+  }
+  return null;
+}
+
+function siteQuery(host, subject) {
+  return `site:${host} "${subject}"`;
+}
+
+// Brave web results mapped to the Serper organic shape. braveWebSearch never
+// throws: null (unavailable) and [] (no hits) both mean no candidates.
+async function braveSiteSearch(host, subject, apiKey) {
+  const results = await braveWebSearch(siteQuery(host, subject), apiKey);
+  if (!Array.isArray(results)) return [];
+  return results.map((r) => ({ link: r?.url, title: r?.title }));
+}
+
 async function serperSiteSearch(host, subject, apiKey) {
-  const query = `site:${host} "${subject}"`;
+  const query = siteQuery(host, subject);
   const response = await fetch(SERPER_ENDPOINT, {
     method: 'POST',
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -162,11 +195,11 @@ async function serperSiteSearch(host, subject, apiKey) {
 
 // Tries each RETAILER_FALLBACKS host in order, first URL-pattern-verified match
 // wins. Only called after the Amazon resolver (resolveOne) finds nothing.
-async function resolveOtherRetailer(product, apiKey) {
+async function resolveOtherRetailer(product, search) {
   const subject = productSubject(product);
   if (!subject) return null;
   for (const retailer of RETAILER_FALLBACKS) {
-    const organic = await serperSiteSearch(retailer.host, subject, apiKey);
+    const organic = await search.siteSearch(retailer.host, subject);
     for (const item of organic) {
       const link = typeof item?.link === 'string' ? item.link : '';
       if (!link || !retailer.accept(link)) continue;
@@ -177,12 +210,12 @@ async function resolveOtherRetailer(product, apiKey) {
   return null;
 }
 
-// One Serper query for a single product. Returns a canonical
+// One site:amazon.com query (Serper or Brave) for a single product. Returns a canonical
 // https://www.amazon.com/dp/ASIN URL on a confident match, else null.
-async function resolveOne(product, apiKey) {
+async function resolveOne(product, search) {
   const subject = productSubject(product);
   if (!subject) return null;
-  const organic = await serperSiteSearch('amazon.com', subject, apiKey);
+  const organic = await search.siteSearch('amazon.com', subject);
 
   for (const item of organic) {
     const link = typeof item?.link === 'string' ? item.link : '';

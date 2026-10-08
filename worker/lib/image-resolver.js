@@ -7,11 +7,23 @@
  * render path serves images through the /api/img/:id proxy, so even
  * hotlink-hostile hosts work — ranking is about accuracy, not loadability.
  *
+ * Brave fallback: with no SERPER_API_KEY but a BRAVE_API_KEY, the query goes
+ * to the Brave Image Search API, paced on the engine's shared Brave slot. Brave
+ * results are mapped to the Serper image shape so pickBestImage filters both
+ * the same way. If Brave refuses the endpoint (401/403/422, for example a plan
+ * without image search), the run logs once and leaves the remaining products as they are.
+ *
  * Contract mirrors asin-resolver: NEVER throws; unresolved products pass
  * through unchanged (immutable updates only).
  */
 
+import { waitForBraveSlot } from '../engine/tools.js';
+
 const SERPER_IMAGES_ENDPOINT = 'https://google.serper.dev/images';
+const BRAVE_IMAGES_ENDPOINT = 'https://api.search.brave.com/res/v1/images/search';
+const BRAVE_IMAGES_COUNT = 5;
+// Brave answers these when the key or plan cannot use the image endpoint.
+const BRAVE_IMAGES_REFUSED = new Set([401, 403, 422]);
 const TIMEOUT_MS = 8000;
 // Cap per run: one Serper query each → ≤8 extra subrequests.
 const MAX_RESOLVE = 8;
@@ -70,6 +82,56 @@ export function pickBestImage(images) {
   return sorted[0]?.url || '';
 }
 
+/**
+ * Map Brave Image Search results to the Serper image shape pickBestImage reads.
+ * properties.url is the original image; width/height are not always present,
+ * so the proxied thumbnail's dimensions stand in (same aspect ratio).
+ */
+export function braveImagesToSerperShape(results) {
+  if (!Array.isArray(results)) return [];
+  return results.map((r) => ({
+    imageUrl: r?.properties?.url || r?.thumbnail?.src,
+    imageWidth: r?.properties?.width ?? r?.thumbnail?.width,
+    imageHeight: r?.properties?.height ?? r?.thumbnail?.height,
+  }));
+}
+
+// One Brave Image Search call. `state` is shared by one resolveImages run so a
+// refused endpoint logs once and stops later calls in that run.
+async function searchImageBrave(query, apiKey, state) {
+  if (state.refused) return '';
+  await waitForBraveSlot();
+  if (state.refused) return '';
+  const params = new URLSearchParams({ q: query, count: String(BRAVE_IMAGES_COUNT) });
+  const response = await fetch(`${BRAVE_IMAGES_ENDPOINT}?${params.toString()}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    headers: { 'X-Subscription-Token': apiKey, Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    if (BRAVE_IMAGES_REFUSED.has(response.status)) {
+      if (!state.refused) console.log(`[image-resolver] brave images HTTP ${response.status}: endpoint not available, skipping images`);
+      state.refused = true;
+      return '';
+    }
+    console.log(`[image-resolver] brave images HTTP ${response.status} q="${query}"`);
+    return '';
+  }
+  const data = await response.json().catch(() => null);
+  return pickBestImage(braveImagesToSerperShape(data?.results));
+}
+
+// Serper when its key is set (unchanged behavior), else Brave, else null.
+function imageSearchFromEnv(env) {
+  const serperKey = env?.SERPER_API_KEY;
+  if (serperKey) return (query) => searchImage(query, serperKey);
+  const braveKey = env?.BRAVE_API_KEY;
+  if (braveKey) {
+    const state = { refused: false };
+    return (query) => searchImageBrave(query, braveKey, state);
+  }
+  return null;
+}
+
 async function searchImage(query, apiKey) {
   const response = await fetch(SERPER_IMAGES_ENDPOINT, {
     method: 'POST',
@@ -90,8 +152,8 @@ async function searchImage(query, apiKey) {
  */
 export async function resolveImages(env, products, onProgress) {
   if (!Array.isArray(products) || products.length === 0) return products;
-  const apiKey = env?.SERPER_API_KEY;
-  if (!apiKey) return products;
+  const search = imageSearchFromEnv(env);
+  if (!search) return products;
 
   // Pick up to MAX_RESOLVE products needing an image, then resolve them CONCURRENTLY
   // (each is one Serper call; sequential resolution blew the queue-consumer wall-clock on
@@ -105,7 +167,7 @@ export async function resolveImages(env, products, onProgress) {
   let resolved = 0;
   await Promise.all(targets.map(async (i) => {
     try {
-      const url = await searchImage(buildImageQuery(out[i]), apiKey);
+      const url = await search(buildImageQuery(out[i]));
       if (url) { out[i] = { ...out[i], imageUrl: url }; resolved++; }
     } catch (err) {
       console.log(`[image-resolver] failed for "${out[i]?.name}": ${err instanceof Error ? err.message : String(err)}`);
