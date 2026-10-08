@@ -622,7 +622,7 @@ export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbac
 
 // Claims judged at the same time. Each claim makes the same LLM calls as
 // before, so the subrequest count does not change, only the overlap.
-export const CLAIM_JUDGE_CONCURRENCY = 4;
+export const CLAIM_JUDGE_CONCURRENCY = 12;
 
 /**
  * Step 6, JUDGE: judgeClaim for every claim, at most `concurrency` at once.

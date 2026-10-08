@@ -912,10 +912,11 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
   const args = (callLLM) => ({ claims, scoredEvidence: scored, config, apiKey: 'k', callLLM, product: 'Acme Buds' });
 
   await guarded('bounded concurrency', async () => {
-    eq(`${label}: CLAIM_JUDGE_CONCURRENCY is 4`, verifyModule.CLAIM_JUDGE_CONCURRENCY, 4);
+    eq(`${label}: CLAIM_JUDGE_CONCURRENCY is 12`, verifyModule.CLAIM_JUDGE_CONCURRENCY, 12);
     const llm = delayedLLM();
     const started = Date.now();
-    const results = await verifyFn('judgeClaims')(args(llm.fn));
+    // The bound is checked with an explicit concurrency of 4 (8 claims, 2 batches).
+    const results = await verifyFn('judgeClaims')({ ...args(llm.fn), concurrency: 4 });
     const elapsed = Date.now() - started;
     eq(`${label}: max in-flight is 4`, llm.state.maxInFlight, 4);
     eq(`${label}: one call per claim`, llm.state.calls, 8);
