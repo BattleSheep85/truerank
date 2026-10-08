@@ -334,16 +334,46 @@ function charCount(messages) {
   return n;
 }
 
+// Append mode (cache-friendly). Provider prompt caches (Gemini implicit caching) match
+// the longest unchanged prefix, so any edit to an earlier message re-bills everything
+// after it at the full input price. Up to opts.maxChars the history goes out unchanged
+// (same array). Above it, the oldest middle messages are dropped in whole steps of
+// half the ceiling: step k drops the shortest middle prefix holding at least k * step
+// chars. The cut only moves when the total crosses the next step, so the turns between
+// two cuts share a stable prefix, and each sent context is between about half the
+// ceiling and the ceiling. A cut never starts on an orphaned tool result and never
+// reaches into the last keepTail messages.
+function pruneAppendOnly(messages, maxChars, keepTail) {
+  const total = charCount(messages);
+  if (total <= maxChars) return messages;
+  const middleEnd = messages.length - keepTail;
+  if (middleEnd <= KEEP_HEAD) return messages;
+  const step = Math.max(1, Math.floor(maxChars / 2));
+  const target = (Math.floor((total - maxChars) / step) + 1) * step;
+  let cut = KEEP_HEAD;
+  let dropped = 0;
+  while (cut < middleEnd && dropped < target) {
+    dropped += (messages[cut].content ?? '').length;
+    cut++;
+  }
+  while (cut < middleEnd && messages[cut].role === 'tool') cut++;
+  return [...messages.slice(0, KEEP_HEAD), ...messages.slice(cut)];
+}
+
 // Returns a NEW message array under opts.maxChars (default MAX_CONTEXT_CHARS). Head/tail
 // references are reused unchanged; middle messages are either truncated (tool results
 // only) or dropped oldest-first until the budget is met. Never mutates input messages —
 // the agent loop keeps the authoritative history in the caller's array.
+// opts.mode 'append' uses pruneAppendOnly (maxChars is then the ceiling); any other
+// value keeps this truncate-then-drop behavior ('prune').
 export function pruneMessages(messages, opts = {}) {
   const {
     maxChars = MAX_CONTEXT_CHARS,
     keepTail = KEEP_TAIL,
     middleToolTruncate = MIDDLE_TOOL_TRUNCATE,
+    mode = 'prune',
   } = opts;
+  if (mode === 'append') return pruneAppendOnly(messages, maxChars, keepTail);
   if (charCount(messages) <= maxChars) return messages;
   if (messages.length <= KEEP_HEAD + keepTail) return messages;
 

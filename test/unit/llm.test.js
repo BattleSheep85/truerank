@@ -106,5 +106,59 @@ export function runLlmTests() {
     ok('prune opts: default middleToolTruncate 200', def[2].content.startsWith('z'.repeat(200) + '\n[...truncated'));
   }
 
+  // pruneMessages mode 'append' — history is sent unchanged (same array) up to the ceiling.
+  const chars = (ms) => ms.reduce((n, m) => n + (m.content ?? '').length, 0);
+  const turns = (n, size) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? 'tool' : 'assistant', content: String(i).padEnd(size, 'c') }));
+  const head2 = [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }];
+  {
+    const big = [...head2, ...turns(50, 10_000)]; // 500k chars, far over the prune default
+    ok('append: under ceiling → same array', pruneMessages(big, { mode: 'append', maxChars: 600_000, keepTail: 6 }) === big);
+    ok('append: exactly at ceiling → same array', pruneMessages(big, { mode: 'append', maxChars: chars(big), keepTail: 6 }) === big);
+    eq('append: no middle truncation under ceiling', big[10].content.length, 10_000);
+    ok('prune mode still prunes the same history', pruneMessages(big, { maxChars: 60_000, keepTail: 6 }) !== big);
+  }
+
+  // Above the ceiling: one large step to about half, head kept, tail kept, input not mutated.
+  {
+    const msgs = [...head2, ...turns(70, 10_000)]; // 700k chars
+    const out = pruneMessages(msgs, { mode: 'append', maxChars: 600_000, keepTail: 6 });
+    ok('append: above ceiling → new array', out !== msgs);
+    ok('append: keeps head references', out[0] === msgs[0] && out[1] === msgs[1]);
+    ok('append: keeps the tail references', out.slice(-6).every((m, i) => m === msgs[msgs.length - 6 + i]));
+    ok('append: one large step (<= ceiling, >= about half)', chars(out) <= 600_000 && chars(out) >= 280_000);
+    ok('append: kept messages unchanged (no truncation)', out.slice(2).every((m) => m.content.length === 10_000));
+    ok('append: kept middle is a contiguous suffix of the history', out.slice(2).every((m, i, a) => i === 0 || msgs.indexOf(m) === msgs.indexOf(a[i - 1]) + 1));
+    eq('append: input not mutated', msgs.length, 72);
+  }
+
+  // Cache stability: after a cut, later appends keep the same first kept message until
+  // the total crosses the next step, then the cut moves once.
+  {
+    const opts = { mode: 'append', maxChars: 100_000, keepTail: 4 };
+    const firstKept = (n) => pruneMessages([...head2, ...turns(n, 10_000)], opts)[2];
+    const seq = [11, 12, 13, 14].map((n) => firstKept(n).content);
+    ok('append: same first kept message for 110k..140k (step 1)', seq.every((c) => c === seq[0]));
+    ok('append: cut moves at the next step (150k)', firstKept(15).content !== seq[0]);
+    const prefixA = pruneMessages([...head2, ...turns(13, 10_000)], opts);
+    const prefixB = pruneMessages([...head2, ...turns(14, 10_000)], opts);
+    ok('append: earlier send is a prefix of the next', prefixA.every((m, i) => m.content === prefixB[i].content));
+  }
+
+  // A cut never starts on an orphaned tool result.
+  {
+    const msgs = [...head2,
+      { role: 'assistant', content: 'a'.repeat(60_000) },
+      { role: 'tool', content: 't1' }, { role: 'tool', content: 't2' },
+      ...turns(6, 10_000)];
+    const out = pruneMessages(msgs, { mode: 'append', maxChars: 100_000, keepTail: 2 });
+    ok('append: first kept middle message is not a tool result', out[2].role !== 'tool');
+  }
+
+  // Too few messages to cut → unchanged even above the ceiling.
+  {
+    const few = [...head2, ...turns(4, 50_000)];
+    ok('append: <= head+keepTail → same array', pruneMessages(few, { mode: 'append', maxChars: 10, keepTail: 4 }) === few);
+  }
+
   return report;
 }

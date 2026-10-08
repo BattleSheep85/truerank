@@ -50,7 +50,7 @@ describe('LITELLM_MODEL_MAP and LITELLM_PRICES', () => {
     for (const target of Object.values(LITELLM_MODEL_MAP)) {
       expect(LITELLM_PRICES[target], target).toBeDefined();
     }
-    expect(LITELLM_PRICES['google/gemini-3.8-flash']).toEqual({ in: 7.5e-7, out: 3.75e-6 });
+    expect(LITELLM_PRICES['google/gemini-3.8-flash']).toEqual({ in: 7.5e-7, cachedIn: 7.5e-8, out: 3.75e-6 });
     expect(LITELLM_PRICES['anthropic/claude-haiku-4-5']).toEqual({ in: 1e-6, out: 5e-6 });
     expect(LITELLM_PRICES['anthropic/claude-sonnet-5']).toEqual({ in: 2e-6, out: 1e-5 });
   });
@@ -343,6 +343,59 @@ describe('costFromUsage', () => {
   it('returns 0 when usage is missing', () => {
     expect(costFromUsage('google/gemini-3.8-flash', undefined)).toBe(0);
     expect(costFromUsage('google/gemini-3.8-flash', null)).toBe(0);
+  });
+
+  it('prices gemini-3.8-flash cached input at a tenth of fresh input', () => {
+    expect(LITELLM_PRICES['google/gemini-3.8-flash'].cachedIn).toBeCloseTo(7.5e-8, 15);
+  });
+
+  it('bills prompt_tokens_details.cached_tokens at cachedIn and the rest at in', () => {
+    const usage = { prompt_tokens: 50_000, completion_tokens: 100, prompt_tokens_details: { cached_tokens: 45_000 } };
+    // 5000 * 7.5e-7 + 45000 * 7.5e-8 + 100 * 3.75e-6 = 0.00375 + 0.003375 + 0.000375
+    expect(costFromUsage('google/gemini-3.8-flash', usage)).toBeCloseTo(0.0075, 12);
+  });
+
+  it('reads cache_read_input_tokens when prompt_tokens_details is absent', () => {
+    const usage = { prompt_tokens: 10_000, completion_tokens: 0, cache_read_input_tokens: 10_000 };
+    expect(costFromUsage('google/gemini-3.8-flash', usage)).toBeCloseTo(0.00075, 12);
+  });
+
+  it('caps cached tokens at prompt_tokens', () => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 5000 } };
+    expect(costFromUsage('google/gemini-3.8-flash', usage)).toBeCloseTo(1000 * 7.5e-8, 15);
+  });
+
+  it.each([
+    ['NaN', Number.NaN],
+    ['negative', -10],
+    ['a string', '500'],
+  ])('ignores a cached token count that is %s', (_label, cached) => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 0, prompt_tokens_details: { cached_tokens: cached } };
+    expect(costFromUsage('google/gemini-3.8-flash', usage)).toBeCloseTo(0.00075, 12);
+  });
+
+  it('bills cached tokens at in for a model without cachedIn', () => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 800 } };
+    expect(costFromUsage('anthropic/claude-haiku-4-5', usage)).toBeCloseTo(0.001, 12);
+  });
+
+  it('keeps usage.cost authoritative when cached tokens are present', () => {
+    const usage = { cost: 0.042, prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 900 } };
+    expect(costFromUsage('google/gemini-3.8-flash', usage)).toBe(0.042);
+  });
+});
+
+describe('cachedTokensOf', () => {
+  const { cachedTokensOf } = llmRoute;
+
+  it('returns 0 for missing usage or no cache fields', () => {
+    expect(cachedTokensOf(undefined)).toBe(0);
+    expect(cachedTokensOf({ prompt_tokens: 100 })).toBe(0);
+  });
+
+  it('prefers prompt_tokens_details.cached_tokens over cache_read_input_tokens', () => {
+    const usage = { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 40 }, cache_read_input_tokens: 70 };
+    expect(cachedTokensOf(usage)).toBe(40);
   });
 });
 

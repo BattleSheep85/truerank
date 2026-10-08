@@ -85,13 +85,23 @@ export const ENGINE_CONFIG = {
   // Cap a hung planner routing turn well below the synth budget (the loop retries
   // once on error, so a rare false abort self-heals). gemini tool turns finish in s.
   plannerHardMs: 45_000,
-  // Planner context budget for pruneMessages (llm.js): above plannerContextMaxChars the
+  // Planner context budget for pruneMessages (llm.js). In 'prune' mode, above plannerContextMaxChars the
   // middle tool outputs are truncated, then the oldest middle turns are dropped; the last
   // plannerContextKeepTail messages always survive. The planner is ~95% of research LLM
   // cost, almost all prompt tokens, so this budget is the main cost lever.
   // 2026-10-08 bench (4 queries x 2, blind Sonnet 5.5): 120000/10 quality 4.63, $0.0765,
   // 139.5 s; 60000/6 quality 5.13, $0.0719, 140.5 s; 40000/4 quality 4.13, $0.0827, 162 s.
-  plannerContextMaxChars: 60_000,
+  // plannerContextMode 'prune' is the budget above. 'append' sends the history unchanged
+  // up to plannerContextMaxChars as a ceiling, then cuts once to about half, so the
+  // Gemini implicit prompt cache keeps hitting (llm.js pruneAppendOnly). Any edit to an
+  // earlier message re-bills everything after it at the full input price.
+  // 2026-10-08 cache bench (bench-planner-cost.mjs P,Q,R, planner via LiteLLM, cache-aware
+  // cost, blind Sonnet 5.5, 6 query/rep cells run by all three): append 600000/6 quality
+  // 4.17, $0.1197/report, planner cached share 0.43, median 200.5 s; prune 60000/6 4.50,
+  // $0.1407, 0.22, 226.5 s; prune 120000/10 4.00, $0.1312, 0.33, 215.5 s. 0 failures.
+  // Peak planner context was 74 KB, so the 600000 ceiling did not trigger a cut.
+  plannerContextMode: 'append',
+  plannerContextMaxChars: 600_000,
   plannerContextKeepTail: 6,
   maxConcurrency: 6, // parallel sub-researchers on the CF queue consumer (6 = validated memory-safe; bumping to 12 gave no latency gain — bottleneck is the agent loop + synth, not gather)
   reportSections: ['summary', 'products', 'comparison', 'categories', 'pitfalls', 'buyerGuide', 'methodology'],

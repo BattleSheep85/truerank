@@ -16,6 +16,13 @@
 // presets F (60000/6) and G (40000/4) pin them so A,F,G compare in one session. Every chat call is tagged with its role (planner, recall, cleanup, consel)
 // from the request body, so cost, tokens, and call time split per role.
 //
+// Prompt caching (2026-10): CTX_MODE (prune|append) sets plannerContextMode; presets P
+// (prune 60000/6), Q (append, ceiling 600000), and R (prune 120000/10) compare them. With
+// LITELLM_BASE_URL + LITELLM_API_KEY set, LLM calls route through LiteLLM (mapped models
+// only; the rest and failures fall back to OpenRouter unless NO_FALLBACK=1). LiteLLM sends
+// no USD cost, so the meter prices those calls with costFromUsage (cached input tokens at
+// the cached price) and also sums the x-litellm-response-cost header as a cross-check.
+//
 // Cost = sum of usage.cost over EVERY OpenRouter chat response in the run (the engine's
 // own totalCostUsd misses the recall/cleanup/con-selector calls). Quality = the
 // bench-planner metrics (sources, credible sources, notes, products) plus a blind judge
@@ -25,6 +32,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, closeSync
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { assertNotAnthropicOnOpenRouter } from './lib/no-anthropic-on-openrouter.mjs';
+import { costFromUsage, cachedTokensOf, llmRouteFromEnv } from '../worker/lib/llm-route.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const OUT_DIR = process.env.BENCH_OUT_DIR || '/tmp/planner-cost-bench';
@@ -35,6 +43,10 @@ const CONCURRENCY = Number(process.env.BENCH_CONCURRENCY || 8);
 const RUN_TIMEOUT_MS = 9 * 60_000;
 const JUDGE = process.env.JUDGE || 'anthropic/claude-sonnet-5.5';
 const OPENROUTER_CHAT = 'openrouter.ai/api/v1/chat/completions';
+const LITELLM_BASE = (process.env.LITELLM_BASE_URL || '').replace(/\/+$/, '');
+const USE_LITELLM = Boolean(LITELLM_BASE && process.env.LITELLM_API_KEY);
+const LITELLM_CHAT = USE_LITELLM ? `${LITELLM_BASE}/v1/chat/completions` : null;
+const LITELLM_COST_HEADER = 'x-litellm-response-cost';
 const SEARCH_HOSTS = ['google.serper.dev', 'api.search.brave.com', 'api.tavily.com', 'hn.algolia.com', 'duckduckgo.com'];
 const READ_HOSTS = ['r.jina.ai'];
 
@@ -56,6 +68,9 @@ export const PRESETS = Object.freeze({
   D: () => roles(G38, 'xiaomi/mimo-v2.6-flash', 'default'),
   F: () => ({ ...roles(G38, G38, 'default'), ctxMaxChars: 60_000, ctxKeepTail: 6 }),
   G: () => ({ ...roles(G38, G38, 'default'), ctxMaxChars: 40_000, ctxKeepTail: 4 }),
+  P: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'prune', ctxMaxChars: 60_000, ctxKeepTail: 6 }),
+  Q: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'append', ctxMaxChars: 600_000, ctxKeepTail: 6 }),
+  R: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'prune', ctxMaxChars: 120_000, ctxKeepTail: 10 }),
   E: () => {
     if (!process.env.E_ROLE_MODEL) throw new Error('preset E needs E_ROLE_MODEL (the cheaper of C/D)');
     return roles(G38, process.env.E_ROLE_MODEL, process.env.E_REASONING || 'minimal');
@@ -83,6 +98,10 @@ export function ctxFromEnv(env) {
     const n = Number(env[k]);
     if (!Number.isInteger(n) || n < 1) throw new Error(`${k} must be a positive integer`);
     out[field] = n;
+  }
+  if (env.CTX_MODE !== undefined && env.CTX_MODE !== '') {
+    if (!['prune', 'append'].includes(env.CTX_MODE)) throw new Error('CTX_MODE must be prune or append');
+    out.ctxMode = env.CTX_MODE;
   }
   return out;
 }
@@ -133,24 +152,37 @@ export function roleOf(body) {
   return 'other';
 }
 function addRoleCall(prev, usage, cost, ms) {
-  const p = prev || { calls: 0, usd: 0, prompt: 0, completion: 0, reasoning: 0, ms: 0 };
+  const p = prev || { calls: 0, usd: 0, prompt: 0, cached: 0, completion: 0, reasoning: 0, ms: 0 };
   return {
     calls: p.calls + 1,
     usd: p.usd + (Number.isFinite(cost) ? cost : 0),
     prompt: p.prompt + (Number(usage?.prompt_tokens) || 0),
+    cached: (p.cached || 0) + cachedTokensOf(usage),
     completion: p.completion + (Number(usage?.completion_tokens) || 0),
     reasoning: p.reasoning + (Number(usage?.completion_tokens_details?.reasoning_tokens) || 0),
     ms: p.ms + ms,
   };
 }
 
-// ── fetch meter: sums OpenRouter usage.cost, counts search + read calls ─────
+// Request model for a LiteLLM call (the mapped id the price table is keyed by).
+function requestModel(body) {
+  try { return JSON.parse(body)?.model || 'unknown'; } catch { return 'unknown'; }
+}
+
+// USD for one chat response: OpenRouter usage.cost, else (LiteLLM) the cache-aware price table.
+export function chatCost(isLitellm, reqModel, usage) {
+  if (!isLitellm) return Number(usage?.cost);
+  return costFromUsage(reqModel, usage);
+}
+
+// ── fetch meter: sums chat cost (OpenRouter + LiteLLM), counts search + read calls ─
 function installMeter(capUsd) {
-  const meter = { usd: 0, calls: 0, noCost: 0, searches: 0, searchErrors: 0, reads: 0, byModel: {}, byRole: {} };
+  const meter = { usd: 0, calls: 0, noCost: 0, searches: 0, searchErrors: 0, reads: 0, byModel: {}, byRole: {}, litellmCalls: 0, litellmUsd: 0, litellmHeaderUsd: 0, litellmHeaderCalls: 0 };
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input?.url || String(input);
-    const isChat = url.includes(OPENROUTER_CHAT);
+    const isLitellm = Boolean(LITELLM_CHAT) && url === LITELLM_CHAT;
+    const isChat = url.includes(OPENROUTER_CHAT) || isLitellm;
     if (isChat && meter.usd >= capUsd) throw new Error(`run cost cap $${capUsd} reached`);
     if (SEARCH_HOSTS.some((h) => url.includes(h))) meter.searches++;
     if (READ_HOSTS.some((h) => url.includes(h))) meter.reads++;
@@ -161,9 +193,15 @@ function installMeter(capUsd) {
     if (isChat && res.ok && !String(res.headers.get('content-type') || '').includes('event-stream')) {
       try {
         const body = JSON.parse(await res.clone().text());
-        const model = body?.model || 'unknown';
-        const cost = Number(body?.usage?.cost);
+        const model = isLitellm ? `litellm:${requestModel(init?.body)}` : body?.model || 'unknown';
+        const cost = chatCost(isLitellm, requestModel(init?.body), body?.usage);
         meter.calls++;
+        if (isLitellm) {
+          meter.litellmCalls++;
+          meter.litellmUsd += Number.isFinite(cost) ? cost : 0;
+          const hdr = Number(res.headers.get(LITELLM_COST_HEADER));
+          if (res.headers.has(LITELLM_COST_HEADER) && Number.isFinite(hdr)) { meter.litellmHeaderUsd += hdr; meter.litellmHeaderCalls++; }
+        }
         meter.byRole[role] = addRoleCall(meter.byRole[role], body.usage, cost, Date.now() - t0);
         if (Number.isFinite(cost)) {
           meter.usd += cost;
@@ -177,29 +215,44 @@ function installMeter(capUsd) {
 }
 
 // ── child: one engine run ──────────────────────────────────────────────────
+// LiteLLM route (env set) or the plain OpenRouter key. Keys are never logged.
+function llmKeyFor(e) {
+  if (!USE_LITELLM) return e.OPENROUTER_API_KEY;
+  return llmRouteFromEnv({
+    LLM_PROVIDER: 'litellm',
+    LITELLM_BASE_URL: LITELLM_BASE,
+    LITELLM_API_KEY: process.env.LITELLM_API_KEY,
+    LITELLM_MODEL_MAP_JSON: process.env.LITELLM_MODEL_MAP_JSON,
+    OPENROUTER_API_KEY: process.env.NO_FALLBACK === '1' ? '' : e.OPENROUTER_API_KEY,
+  });
+}
+
 async function childRun(cfgJson, qi, outFile) {
   const c = JSON.parse(cfgJson);
   const { runEngine } = await import('../worker/engine/engine.js');
   const { callLLM } = await import('../worker/engine/llm.js');
   const { ENGINE_CONFIG } = await import('../worker/lib/engine-config.js');
   const e = devVars();
+  const llmKey = llmKeyFor(e);
   const meter = installMeter(RUN_MAX_USD);
   const { q, cat } = QUERIES[qi];
   const out = { model: c.id, config: c, query: q, qi };
   const TOOL = [{ type: 'function', function: { name: 'ping', description: 'reply', parameters: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } } }];
   try {
-    const probe = await callLLM(e.OPENROUTER_API_KEY, c.planner, [{ role: 'user', content: 'Call the ping tool with ok=true.' }], { tools: TOOL, reasoning: { effort: 'low' }, maxTokens: 200, hardMsOverride: 30000 });
+    const probe = await callLLM(llmKey, c.planner, [{ role: 'user', content: 'Call the ping tool with ok=true.' }], { tools: TOOL, reasoning: { effort: 'low' }, maxTokens: 200, hardMsOverride: 30000 });
     if (!probe.choices?.[0]?.message?.tool_calls?.length) throw new Error('tool-calling probe failed');
     const probeUsd = meter.usd;
+    const probeLitellm = { usd: meter.litellmUsd, hdr: meter.litellmHeaderUsd };
     const cfg = {
       ...ENGINE_CONFIG, plannerModel: c.planner, recallModel: c.recall, cleanupModel: c.cleanup, conSelectorModel: c.consel,
       plannerReasoning: plannerReasoningOf(c, ENGINE_CONFIG.plannerReasoning), plannerProvider: null,
       plannerContextMaxChars: c.ctxMaxChars ?? ENGINE_CONFIG.plannerContextMaxChars,
       plannerContextKeepTail: c.ctxKeepTail ?? ENGINE_CONFIG.plannerContextKeepTail,
+      plannerContextMode: c.ctxMode ?? ENGINE_CONFIG.plannerContextMode,
     };
     const env = { SERPER_API_KEY: e.SERPER_API_KEY, BRAVE_API_KEY: e.BRAVE_API_KEY, TAVILY_API_KEY: e.TAVILY_API_KEY, JINA_API_KEY: e.JINA_API_KEY, SYNTH_ENGINE: 'extract' };
     const t0 = Date.now();
-    const r = await runEngine(q, cfg, e.OPENROUTER_API_KEY, env, async () => {}, F, cat, {});
+    const r = await runEngine(q, cfg, llmKey, env, async () => {}, F, cat, {});
     const products = r.result?.products || [];
     Object.assign(out, {
       ok: true,
@@ -209,6 +262,7 @@ async function childRun(cfgJson, qi, outFile) {
       by_role: Object.fromEntries(Object.entries(meter.byRole).filter(([k]) => k !== 'probe')),
       llm_calls: meter.calls,
       calls_without_cost: meter.noCost,
+      litellm: { calls: meter.litellmCalls, usd: meter.litellmUsd - probeLitellm.usd, header_usd: meter.litellmHeaderUsd - probeLitellm.hdr, header_calls: meter.litellmHeaderCalls },
       searches: meter.searches,
       search_http_errors: meter.searchErrors,
       reads: meter.reads,
@@ -310,6 +364,12 @@ ${lists}`;
 const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN; };
 const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const r2 = (x) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : '-');
+// Share of planner prompt tokens served from the provider cache, over all ok runs.
+export function cachedShare(runs) {
+  const p = runs.reduce((a, r) => a + (r.by_role?.planner?.prompt || 0), 0);
+  const c = runs.reduce((a, r) => a + (r.by_role?.planner?.cached || 0), 0);
+  return p ? Math.round((c / p) * 1000) / 1000 : '-';
+}
 
 function summarize(configs, done, judged) {
   return configs.map((c) => {
@@ -320,13 +380,15 @@ function summarize(configs, done, judged) {
     return {
       config: c.id,
       roles: `${c.planner}@${c.reasoning} | ${[...new Set([c.recall, c.cleanup, c.consel])].join(',')}`,
-      ctx: `${c.ctxMaxChars ?? 'default'}/${c.ctxKeepTail ?? 'default'}`,
+      ctx: `${c.ctxMode ?? 'default'} ${c.ctxMaxChars ?? 'default'}/${c.ctxKeepTail ?? 'default'}`,
       quality: r2(avg(q)),
       judged: q.length,
       products: r2(avg(ok.map((r) => r.products.length))),
       usd_report: Number.isFinite(usd) ? Number(usd.toFixed(4)) : '-',
       median_wall_s: median(ok.map((r) => r.wall_s)),
       planner_prompt_tok: Math.round(avg(ok.map((r) => r.by_role?.planner?.prompt || 0))),
+      planner_cached_share: cachedShare(ok),
+      planner_usd: Number(avg(ok.map((r) => r.by_role?.planner?.usd || 0)).toFixed(4)),
       searches: r2(avg(ok.map((r) => r.searches))),
       sources: r2(avg(ok.map((r) => r.sources))),
       failures: `${runs.length - ok.length}/${runs.length}`,
@@ -339,13 +401,13 @@ export function roleSplit(runs) {
   const ok = runs.filter((r) => r.ok && r.by_role);
   const acc = {};
   for (const r of ok) for (const [role, v] of Object.entries(r.by_role)) {
-    const a = acc[role] || { calls: 0, usd: 0, prompt: 0, completion: 0, reasoning: 0, ms: 0 };
+    const a = acc[role] || { calls: 0, usd: 0, prompt: 0, cached: 0, completion: 0, reasoning: 0, ms: 0 };
     acc[role] = Object.fromEntries(Object.keys(a).map((k) => [k, a[k] + (v[k] || 0)]));
   }
   const n = ok.length || 1;
   return Object.entries(acc).map(([role, a]) => ({
     role, calls: r2(a.calls / n), usd: Number((a.usd / n).toFixed(4)),
-    prompt_tok: Math.round(a.prompt / n), completion_tok: Math.round(a.completion / n),
+    prompt_tok: Math.round(a.prompt / n), cached_tok: Math.round(a.cached / n), completion_tok: Math.round(a.completion / n),
     reasoning_tok: Math.round(a.reasoning / n), call_s: r2(a.ms / n / 1000),
   }));
 }

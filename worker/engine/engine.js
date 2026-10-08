@@ -165,6 +165,7 @@ export async function runEngine(
     const prunedMessages = pruneMessages(messages, {
       maxChars: config.plannerContextMaxChars,
       keepTail: config.plannerContextKeepTail,
+      mode: config.plannerContextMode,
     });
     const contextSize = prunedMessages.reduce((acc, m) => acc + (m.content ?? '').length, 0);
     console.log(`[engine] turn ${turn}: ${prunedMessages.length} messages, ${Math.round(contextSize / 1024)}KB context`);

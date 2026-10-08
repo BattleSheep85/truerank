@@ -30,8 +30,12 @@ export const LITELLM_MODEL_MAP = Object.freeze({
 
 // D4. USD per token for each LiteLLM model (from LiteLLM /model/info). The
 // Anthropic entries stay so LITELLM_MODEL_MAP_JSON can still target them.
+// cachedIn is the price of a cached input token. Gemini 3.8 Flash context
+// caching: $0.075 per 1M through 2026-12-31 ($0.15 from 2027-01-01, with input
+// $1.50 and output $7.50), https://ai.google.dev/gemini-api/docs/pricing
+// (read 2026-10-07). A model without cachedIn bills cached tokens at in.
 export const LITELLM_PRICES = Object.freeze({
-  'google/gemini-3.8-flash': Object.freeze({ in: 7.5e-7, out: 3.75e-6 }),
+  'google/gemini-3.8-flash': Object.freeze({ in: 7.5e-7, cachedIn: 7.5e-8, out: 3.75e-6 }),
   'anthropic/claude-sonnet-5': Object.freeze({ in: 2e-6, out: 1e-5 }),
   'anthropic/claude-haiku-4-5': Object.freeze({ in: 1e-6, out: 5e-6 }),
 });
@@ -190,13 +194,25 @@ function tokenCount(value) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+// Cached input tokens: OpenAI-style prompt_tokens_details.cached_tokens, else
+// Anthropic-style cache_read_input_tokens. Never more than the prompt tokens.
+export function cachedTokensOf(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const cached = tokenCount(usage.prompt_tokens_details?.cached_tokens) || tokenCount(usage.cache_read_input_tokens);
+  return Math.min(cached, tokenCount(usage.prompt_tokens));
+}
+
 // D4. Provider cost when given, else price table times token counts, else 0.
+// Cached prompt tokens cost cachedIn (when the model has one), the rest cost in.
 export function costFromUsage(model, usage) {
   if (!usage || typeof usage !== 'object') return 0;
   if (typeof usage.cost === 'number' && Number.isFinite(usage.cost)) return usage.cost;
   if (!Object.hasOwn(LITELLM_PRICES, model)) return 0;
   const price = LITELLM_PRICES[model];
-  return tokenCount(usage.prompt_tokens) * price.in + tokenCount(usage.completion_tokens) * price.out;
+  const prompt = tokenCount(usage.prompt_tokens);
+  const cached = cachedTokensOf(usage);
+  const cachedPrice = Number.isFinite(price.cachedIn) ? price.cachedIn : price.in;
+  return (prompt - cached) * price.in + cached * cachedPrice + tokenCount(usage.completion_tokens) * price.out;
 }
 
 // True when the route (or its fallback) has a key. A plain string is an OpenRouter key.
