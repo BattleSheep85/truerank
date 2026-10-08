@@ -153,6 +153,9 @@ export async function runJinaTests() {
   //    then the key is skipped for JINA_KEY_COOLDOWN_MS ────────────────────
   await runKeyOutOfCreditCases({ eq, ok, longBody });
 
+  // ── rerankPassages (Jina rerank API) ───────────────────────────────────
+  await runRerankCases({ eq, ok, report });
+
   return report;
 }
 
@@ -280,4 +283,59 @@ async function runKeyOutOfCreditCases({ eq, ok, longBody }) {
   }
 
   resetKeyState();
+}
+
+// rerankPassages: one POST to the rerank API, results sorted best first, a
+// clear Error on failure that never holds the key.
+async function runRerankCases({ eq, ok, report }) {
+  const P = 'rerankPassages';
+  const KEY = 'jina-secret-key-123';
+  const rerank = jina.rerankPassages;
+  if (typeof rerank !== 'function') {
+    report.failed++;
+    report.failures.push(`${P}: worker/lib/jina.js does not export rerankPassages()`);
+    return;
+  }
+  const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
+  const errorOf = async (fn) => { try { await fn(); return null; } catch (err) { return err; } };
+
+  {
+    const calls = [];
+    const usage = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init, body: JSON.parse(init.body) });
+      return reply(200, { model: 'jina-reranker-v3.5', usage: { total_tokens: 99 }, results: [
+        { index: 2, relevance_score: 0.1 }, { index: 0, relevance_score: 0.8 }, { index: 1, relevance_score: -0.2 }, { index: 7, relevance_score: 0.9 },
+      ] });
+    };
+    const out = await rerank({ apiKey: KEY, query: 'battery 30 hours', passages: ['a', 'b', 'c'], topN: 2, fetchImpl, onUsage: (u) => usage.push(u) });
+    eq(`${P}: one POST to the rerank endpoint`, calls.map((c) => [c.url, c.init.method]), [['https://api.jina.ai/v1/rerank', 'POST']]);
+    eq(`${P}: bearer key header`, authOf(calls[0]?.init), `Bearer ${KEY}`);
+    eq(`${P}: request body`, calls[0]?.body, { model: 'jina-reranker-v3.5', query: 'battery 30 hours', documents: ['a', 'b', 'c'], top_n: 2, return_documents: false });
+    eq(`${P}: sorted best first, out-of-range index dropped, topN kept`, out, [{ index: 0, score: 0.8 }, { index: 2, score: 0.1 }]);
+    eq(`${P}: onUsage gets the token count`, usage[0]?.totalTokens, 99);
+  }
+
+  {
+    let calls = 0;
+    const out = await rerank({ apiKey: KEY, query: 'q', passages: [], fetchImpl: async () => { calls++; return reply(200, { results: [] }); } });
+    eq(`${P}: no passages → [] and no call`, [out, calls], [[], 0]);
+  }
+
+  {
+    const err = await errorOf(() => rerank({ apiKey: '', query: 'q', passages: ['a'], fetchImpl: async () => reply(200, { results: [] }) }));
+    ok(`${P}: a missing key throws`, err instanceof Error && /no Jina API key/.test(err.message));
+  }
+
+  {
+    const fetchImpl = async () => reply(401, { detail: `invalid token Bearer ${KEY}` });
+    const err = await errorOf(() => rerank({ apiKey: KEY, query: 'q', passages: ['a'], fetchImpl }));
+    ok(`${P}: an HTTP failure throws an Error with the status`, err instanceof Error && err.message.includes('HTTP 401'));
+    ok(`${P}: the key is never in the error text`, err instanceof Error && !err.message.includes(KEY) && !String(err.stack).includes(KEY));
+  }
+
+  {
+    const err = await errorOf(() => rerank({ apiKey: KEY, query: 'q', passages: ['a'], fetchImpl: async () => reply(200, { detail: 'x' }) }));
+    ok(`${P}: a body without results throws`, err instanceof Error && /no results/.test(err.message));
+  }
 }

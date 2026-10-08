@@ -210,3 +210,57 @@ function matchRegion(html, tag) {
   const m = html.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return m ? m[1] : null;
 }
+
+// ── Rerank ────────────────────────────────────────────────────────────────────
+
+const RERANK_URL = 'https://api.jina.ai/v1/rerank';
+export const DEFAULT_RERANK_MODEL = 'jina-reranker-v3.5';
+const RERANK_TIMEOUT_MS = 15_000;
+// Chars of the error body kept in a thrown message.
+const RERANK_ERROR_BODY_CHARS = 200;
+
+/**
+ * Orders passages by relevance to a query with the Jina rerank API.
+ * Response shape (checked 2026-10-07 with jina-reranker-v3.5):
+ *   { model, object: 'list', usage: { total_tokens },
+ *     results: [{ index, relevance_score }] }  (results best first; scores can be negative)
+ * Returns [{ index, score }] sorted by score, best first, at most topN.
+ * `onUsage({ totalTokens, latencyMs })` is optional (benchmarks use it).
+ * Throws an Error on a missing key, an HTTP failure, a timeout, or a bad body.
+ * The key is never in the error text.
+ */
+export async function rerankPassages({
+  apiKey,
+  query,
+  passages,
+  topN,
+  model = DEFAULT_RERANK_MODEL,
+  fetchImpl = fetch,
+  timeoutMs = RERANK_TIMEOUT_MS,
+  onUsage,
+}) {
+  if (!apiKey) throw new Error('rerank: no Jina API key');
+  const documents = Array.isArray(passages) ? passages.map((p) => String(p ?? '')) : [];
+  if (documents.length === 0) return [];
+  const top = Math.min(documents.length, Number.isInteger(topN) && topN > 0 ? topN : documents.length);
+  const started = Date.now();
+  const response = await fetchImpl(RERANK_URL, {
+    method: 'POST',
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, query: String(query ?? ''), documents, top_n: top, return_documents: false }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    const detail = body.split(apiKey).join('[key]').slice(0, RERANK_ERROR_BODY_CHARS);
+    throw new Error(`rerank: HTTP ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  const body = await response.json();
+  if (!Array.isArray(body?.results)) throw new Error('rerank: response has no results array');
+  onUsage?.({ totalTokens: Number(body?.usage?.total_tokens) || 0, latencyMs: Date.now() - started });
+  return body.results
+    .filter((r) => Number.isInteger(r?.index) && r.index >= 0 && r.index < documents.length && Number.isFinite(r?.relevance_score))
+    .map((r) => ({ index: r.index, score: r.relevance_score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, top);
+}

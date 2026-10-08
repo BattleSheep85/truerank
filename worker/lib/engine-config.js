@@ -43,6 +43,11 @@ export const ENGINE_CONFIG = {
   // gemini-3.5-flash-lite as fallback added 0 correct on set 2; glm-5.3-flash hit the length
   // cap live and pushed runs past the Worker time limit.
   stanceFallbackModel: 'minimax/minimax-m3',
+  // Verify evidence: true reranks each claim's candidate passages with the Jina
+  // reranker (worker/engine/verify-rerank.js) before the stance judge. Needs
+  // JINA_API_KEY; without it, or on a rerank error, the term-ranked selection is used.
+  evidenceRerank: false,
+  rerankModel: 'jina-reranker-v3.5',
   // 2026-10-08 extract bench (benchmarks/extract-bench.mjs, 5 products, same
   // cached page text, Sonnet 5.5 grader): mimo 46 good claims, 3 flagged (2
   // checked as grader errors), $0.0006/product, 3.9 s; haiku-4.5 45 good, 1

@@ -46,6 +46,7 @@ import { llmRouteFromEnv } from '../worker/lib/llm-route.js';
 import {
   VERDICT_OPTS,
   judgeClaim,
+  rerankOptions,
   resolveClaimSources,
   extractProductClaims,
   evidencePool,
@@ -290,6 +291,8 @@ async function judgeOne(claim, scoredEvidence) {
     model: stanceModel,
     callLLM: stanceCallLLM(claim.id),
     product: LEGACY_SELECTION ? undefined : PRODUCT,
+    // Same as runVerification: reranked evidence when ENGINE_CONFIG.evidenceRerank is on.
+    rerank: rerankOptions(ENGINE_CONFIG, TOOL_ENV),
   });
   totalCostUsd += costUsd;
   return { verdict, evidence };

@@ -10,6 +10,7 @@ import * as verifyModule from '../../worker/engine/verify.js';
 import * as resolveModule from '../../worker/engine/verify-resolve.js';
 import * as toolsModule from '../../worker/engine/tools.js';
 import * as llmModule from '../../worker/engine/llm.js';
+import * as rerankModule from '../../worker/engine/verify-rerank.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
 
 const {
@@ -314,6 +315,9 @@ export async function runVerifyTests() {
 
   // ── concurrent claim judge (CLAIM_JUDGE_CONCURRENCY at once, order kept) ──
   await runConcurrentJudgeTests({ eq, ok, report });
+
+  // ── reranked claim evidence (ENGINE_CONFIG.evidenceRerank) ───────────────
+  await runRerankEvidenceTests({ eq, ok, report });
 
   return report;
 }
@@ -765,6 +769,17 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     ok(`${d7}: the judge is told the product`, user.startsWith('Product: "Sony WH-1000XM6 headphones"'));
     ok(`${d7}: the judge sees the page title and the claim passage`, user.includes('(Sony WH-1000XM6 review)\nIn our battery life test it lasted 37 hours.'));
   });
+
+  // Defect 9: the judge called "30 mm" a contradiction of "1.18 in", and a
+  // practical speed a contradiction of an "up to" maximum.
+  const d9 = 'the stance judge contradicted claims the source agreed with';
+  await guarded(d9, async () => {
+    const system = String(verifyModule.STANCE_SYSTEM ?? '');
+    ok(`${d9}: units are converted before a compare`, /Convert units before you compare \(mm\/in, g\/oz, W, mAh, dB, Hz, %\)/.test(system));
+    ok(`${d9}: a value within about 3% agrees`, /within normal measurement tolerance \(about 3%\)/.test(system));
+    ok(`${d9}: a typical figure does not contradict an "up to" maximum`, /does not contradict a stated maximum or peak \("up to"\)/.test(system));
+    ok(`${d9}: a contradiction needs a measurement of the same quantity`, /own measurement of the same quantity disagrees/.test(system));
+  });
 }
 
 // ── two-stage claim judge ───────────────────────────────────────────────────
@@ -949,5 +964,144 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
       `${label}: the other claims are judged`,
       results.every((r, i) => i === 2 || (r?.verdict && typeof r.verdict.status === 'string' && !('error' in r))),
     );
+  });
+}
+
+// ── reranked claim evidence ─────────────────────────────────────────────────
+// ENGINE_CONFIG.evidenceRerank: off (the default) keeps today's selection and
+// makes no rerank call. On, the judge's passages follow the rerank scores. A
+// rerank error falls back to today's selection.
+const RERANK_PRODUCT = 'Acme Buds Pro';
+const RERANK_CLAIM = Object.freeze({ id: 'c3', text: 'Battery lasts up to 30 hours', type: 'spec' });
+const RERANK_POOL = Object.freeze([
+  {
+    url: 'https://lab.example/acme-buds-pro-review',
+    title: 'Acme Buds Pro review',
+    content: `Acme Buds Pro review. The battery is rated for 30 hours. ${'The case is small and the hinge feels solid in the hand. '.repeat(25)}\n`
+      + 'In our battery test the Acme Buds Pro lasted 27 hours of playback at 50% volume before they shut off.',
+    credibility: 90, independence: 80, tags: ['hands-on'],
+  },
+  {
+    url: 'https://forum.example/acme-buds-pro',
+    title: 'Acme Buds Pro owners thread',
+    content: 'Acme Buds Pro owners thread. Mine get about 30 hours of battery with the case on a long trip, close to the box claim.',
+    credibility: 70, independence: 80, tags: ['hands-on'],
+  },
+  {
+    url: 'https://news.example/acme-buds-pro-launch',
+    title: 'Acme Buds Pro launch news',
+    content: 'Acme Buds Pro launch news. Acme announced the Buds Pro today with a 30 hours battery claim and a new blue color.',
+    credibility: 60, independence: 60, tags: [],
+  },
+]);
+
+// A fake rerank endpoint: scores each document with scoreOf(text), records each request body.
+function fakeRerankFetch(scoreOf, status = 200) {
+  const bodies = [];
+  const fn = async (url, init) => {
+    if (!String(url).startsWith('https://api.jina.ai/v1/rerank')) throw new Error(`unexpected fetch ${url}`);
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    if (status !== 200) return new Response('{"detail":"upstream error"}', { status });
+    const results = body.documents.map((d, index) => ({ index, relevance_score: scoreOf(d) }));
+    return jsonResponse({ model: body.model, usage: { total_tokens: 42 }, results });
+  };
+  return { fn, bodies };
+}
+
+async function runRerankEvidenceTests({ eq, ok, report }) {
+  const label = 'reranked claim evidence';
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${label}: ${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const pick = (rerank) => verifyFn('pickClaimEvidence')({ claim: RERANK_CLAIM, scoredEvidence: RERANK_POOL, product: RERANK_PRODUCT, rerank });
+  const today = () => verifyFn('rankClaimEvidence')(RERANK_POOL, RERANK_CLAIM, RERANK_PRODUCT, 15);
+  const quietWarn = async (fn) => {
+    const warnings = [];
+    const real = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try { return { value: await fn(), warnings }; } finally { console.warn = real; }
+  };
+
+  await guarded('rerankOptions', async () => {
+    const opts = verifyFn('rerankOptions');
+    eq(`${label}: flag off gives no rerank options`, opts({ evidenceRerank: false }, { JINA_API_KEY: 'jk' }), null);
+    eq(`${label}: flag on without a key gives no rerank options`, opts({ evidenceRerank: true }, {}), null);
+    eq(`${label}: flag on with a key gives the key and model`, opts({ evidenceRerank: true, rerankModel: 'm1' }, { JINA_API_KEY: 'jk' }), { apiKey: 'jk', model: 'm1' });
+  });
+
+  await guarded('flag off', async () => {
+    const fake = fakeRerankFetch(() => 1);
+    const picked = await withFakeFetch(fake.fn, () => pick(null));
+    eq(`${label}: flag off keeps today's selection`, picked, today());
+
+    const llmCalls = [];
+    const llm = async (_k, _m, messages) => { llmCalls.push(messages); return fakeReply('{"verdicts":[]}'); };
+    await withFakeFetch(fake.fn, () => verifyFn('judgeClaims')({
+      claims: [RERANK_CLAIM], scoredEvidence: RERANK_POOL, config: { stanceModel: 'm', evidenceRerank: false },
+      apiKey: 'k', callLLM: llm, product: RERANK_PRODUCT, env: { JINA_API_KEY: 'jk' },
+    }));
+    eq(`${label}: flag off makes no rerank call`, fake.bodies.length, 0);
+    eq(`${label}: flag off still judges the claim`, llmCalls.length, 1);
+  });
+
+  await guarded('flag on orders passages by rerank score', async () => {
+    // The measurement passage scores highest, then the forum, then the launch news.
+    const scoreOf = (d) => (d.includes('In our battery test') ? 0.9 : d.includes('owners thread') ? 0.5 : d.includes('launch news') ? 0.1 : -0.5);
+    const fake = fakeRerankFetch(scoreOf);
+    const usage = [];
+    const picked = await pick({ apiKey: 'jk', model: 'jina-reranker-v3.5', fetchImpl: fake.fn, onUsage: (u) => usage.push(u) });
+    eq(`${label}: one rerank call per claim`, fake.bodies.length, 1);
+    eq(`${label}: the query is the claim text`, fake.bodies[0]?.query, RERANK_CLAIM.text);
+    eq(`${label}: sources follow the rerank order`, picked.map((s) => s.url), [RERANK_POOL[0].url, RERANK_POOL[1].url, RERANK_POOL[2].url]);
+    ok(
+      `${label}: the top source carries its best-scored passage, not its first`,
+      picked[0]?.passage?.includes('In our battery test') && !picked[0]?.passage?.startsWith('Acme Buds Pro review'),
+    );
+    ok(`${label}: rows keep the source fields`, picked.every((s) => typeof s.credibility === 'number' && Array.isArray(s.tags) && typeof s.content === 'string'));
+    eq(`${label}: onUsage gets the token count`, usage[0]?.totalTokens, 42);
+
+    const reversed = fakeRerankFetch((d) => (d.includes('launch news') ? 0.9 : d.includes('owners thread') ? 0.5 : 0.1));
+    const flipped = await pick({ apiKey: 'jk', fetchImpl: reversed.fn });
+    eq(`${label}: other scores give another source order`, flipped.map((s) => s.url), [RERANK_POOL[2].url, RERANK_POOL[1].url, RERANK_POOL[0].url]);
+  });
+
+  await guarded('flag on through judgeClaims', async () => {
+    const fake = fakeRerankFetch((d) => (d.includes('launch news') ? 0.9 : 0.1));
+    const prompts = [];
+    const llm = async (_k, _m, messages) => { prompts.push(String(messages[1].content)); return fakeReply('{"verdicts":[]}'); };
+    await withFakeFetch(fake.fn, () => verifyFn('judgeClaims')({
+      claims: [RERANK_CLAIM], scoredEvidence: RERANK_POOL, config: { stanceModel: 'm', evidenceRerank: true, rerankModel: 'jina-reranker-v3.5' },
+      apiKey: 'k', callLLM: llm, product: RERANK_PRODUCT, env: { JINA_API_KEY: 'jk' },
+    }));
+    eq(`${label}: flag on makes one rerank call`, fake.bodies.length, 1);
+    eq(`${label}: the rerank call uses the configured model`, fake.bodies[0]?.model, 'jina-reranker-v3.5');
+    ok(`${label}: the judge sees the top-reranked source first`, prompts[0]?.includes(`1. ${RERANK_POOL[2].url}`));
+  });
+
+  await guarded('rerank failure falls back', async () => {
+    const fake = fakeRerankFetch(() => 1, 500);
+    const { value, warnings } = await quietWarn(() => pick({ apiKey: 'secret-jina-key', fetchImpl: fake.fn }));
+    eq(`${label}: a rerank error falls back to today's selection`, value, today());
+    eq(`${label}: a rerank error logs one warning`, warnings.length, 1);
+    ok(`${label}: the warning names the claim id`, warnings[0]?.includes('c3'));
+    ok(`${label}: the warning has no key`, !warnings[0]?.includes('secret-jina-key'));
+
+    const thrower = async () => { throw new Error('network down'); };
+    const net = await quietWarn(() => pick({ apiKey: 'jk', fetchImpl: thrower }));
+    eq(`${label}: a network error falls back to today's selection`, net.value, today());
+  });
+
+  await guarded('splitPassages', async () => {
+    const split = exportOf(rerankModule, 'worker/engine/verify-rerank.js', 'splitPassages');
+    const text = `${'A first sentence that is long enough to keep. '.repeat(3)}\n${'B'.repeat(150)}`;
+    const parts = split(text, 100);
+    ok(`${label}: every passage is at most maxChars`, parts.every((p) => p.length <= 100));
+    ok(`${label}: passages end at a sentence end when one fits`, parts[0]?.endsWith('keep.'));
+    eq(`${label}: no text is lost (except trimmed space)`, parts.join('').replace(/\s/g, ''), text.replace(/\s/g, ''));
+    eq(`${label}: tiny fragments are dropped`, split('Menu. Home.', 100), []);
   });
 }

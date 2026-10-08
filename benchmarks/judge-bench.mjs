@@ -17,6 +17,9 @@
 //   BENCH_CONCURRENCY   claims judged at a time per model (default 4).
 //   BENCH_TIMEOUT_MS    per-call timeout (default 90000).
 //   BENCH_OUT_DIR       results directory (default benchmarks/results/judge-bench).
+//   BENCH_RERANK=1      judge on reranked evidence (ENGINE_CONFIG.evidenceRerank
+//                       path, worker/engine/verify-rerank.js). Reads JINA_API_KEY
+//                       from .dev.vars. Records carry rerank tokens and latency.
 //   JEV_MIN_CONFIDENCE  BENCH_MODELS=jev only: Jev answers below it count as
 //                       neutral (default 0.7). See benchmarks/lib/jev-judge.mjs.
 //                       Jev reads TYPESAFE_API_KEY from the environment.
@@ -30,6 +33,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { callLLM } from '../worker/engine/llm.js';
 import { judgeClaim, evidencePool } from '../worker/engine/verify.js';
+import { ENGINE_CONFIG } from '../worker/lib/engine-config.js';
 import { evidenceText } from '../worker/engine/verify-resolve.js';
 import { parseFencedJson } from '../worker/lib/llm-json.js';
 import { assertNotAnthropicOnOpenRouter } from './lib/no-anthropic-on-openrouter.mjs';
@@ -64,6 +68,7 @@ const SPOT_CHECK_COUNT = 10;
 const MAX_UNGROUNDED_SHARE = 0.05;
 const MAX_PARSE_FAILURES = 1;
 const DECIDED = new Set(['verified', 'partially-verified', 'contradicted']);
+const RERANK = process.env.BENCH_RERANK === '1';
 
 function numEnv(name, fallback) {
   const n = Number(process.env[name]);
@@ -84,6 +89,15 @@ export function loadOpenRouterKey() {
   const line = text.split('\n').find((l) => l.startsWith('OPENROUTER_API_KEY='));
   const key = line ? line.slice('OPENROUTER_API_KEY='.length).trim() : '';
   if (!key) throw new Error('OPENROUTER_API_KEY is missing in .dev.vars');
+  return key;
+}
+
+// BENCH_RERANK=1: the Jina key for the rerank call (.dev.vars, never printed).
+export function loadJinaKey() {
+  const text = readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8');
+  const line = text.split('\n').find((l) => l.startsWith('JINA_API_KEY='));
+  const key = line ? line.slice('JINA_API_KEY='.length).trim() : '';
+  if (!key) throw new Error('JINA_API_KEY is missing in .dev.vars');
   return key;
 }
 
@@ -264,9 +278,19 @@ function usageSummary(usage) {
   };
 }
 
-async function judgeOne({ model, item, apiKey, price, budget }) {
+function rerankFor(ctxRerank, probe) {
+  if (!ctxRerank) return undefined;
+  return { ...ctxRerank, onUsage: (u) => { probe.rerank = u; } };
+}
+
+function rerankSummary(ctxRerank, probe) {
+  if (!ctxRerank) return {};
+  return { rerankUsed: Boolean(probe.rerank), rerankTokens: probe.rerank?.totalTokens ?? null, rerankMs: probe.rerank?.latencyMs ?? null };
+}
+
+async function judgeOne({ model, item, apiKey, price, budget, rerank }) {
   const { claim, product, pool, byUrl } = item;
-  const probe = { reply: null };
+  const probe = { reply: null, rerank: null };
   const started = Date.now();
   const base = { product: product.product, claimId: claim.id, claim: claim.text, claimType: claim.type };
   try {
@@ -277,6 +301,7 @@ async function judgeOne({ model, item, apiKey, price, budget }) {
       model,
       callLLM: instrumentedCallLLM({ price, budget, probe }),
       product: product.product,
+      rerank: rerankFor(rerank, probe),
     });
     return {
       ...base,
@@ -290,6 +315,7 @@ async function judgeOne({ model, item, apiKey, price, budget }) {
       parseFailure: !replyParsed(probe.reply),
       rowsJudged: evidence.length,
       ...usageSummary(probe.reply?.usage),
+      ...rerankSummary(rerank, probe),
       spans: citedSpans(evidence, byUrl),
     };
   } catch (err) {
@@ -370,6 +396,7 @@ function summarize(model, records, productCount) {
   const decisive = spans.filter((s) => s.stance !== 'neutral');
   const latencies = ran.map((r) => r.latencyMs);
   const totalUsd = ran.reduce((n, r) => n + (r.costUsd || 0), 0);
+  const reranked = ran.filter((r) => r.rerankUsed);
   return {
     model,
     claims: records.length,
@@ -392,6 +419,10 @@ function summarize(model, records, productCount) {
     p90Ms: percentile(latencies, 90),
     totalUsd,
     usdPerProduct: productCount ? totalUsd / productCount : 0,
+    rerankClaims: reranked.length,
+    rerankFallbacks: ran.filter((r) => r.rerankUsed === false).length,
+    rerankTokensPerClaim: reranked.length ? reranked.reduce((n, r) => n + r.rerankTokens, 0) / reranked.length : null,
+    rerankMedianMs: percentile(reranked.map((r) => r.rerankMs), 50),
   };
 }
 
@@ -406,7 +437,7 @@ async function runModel({ model, price }, items, ctx) {
     return { skipped: { model, reason: `expected $${expected.toFixed(3)} > remaining $${ctx.budget.remaining().toFixed(3)}` } };
   }
   process.stderr.write(`[bench] ${model}: ${items.length} claims, expected ~$${expected.toFixed(3)}\n`);
-  const records = await mapLimit(items, CONCURRENCY, (item) => judgeOne({ model, item, apiKey: ctx.apiKey, price, budget: ctx.budget }));
+  const records = await mapLimit(items, CONCURRENCY, (item) => judgeOne({ model, item, apiKey: ctx.apiKey, price, budget: ctx.budget, rerank: ctx.rerank }));
   const summary = summarize(model, records, ctx.productCount);
   writeFileSync(`${OUT_DIR}/${slugOf(model)}.json`, JSON.stringify({ model, price, summary, records }, null, 2));
   process.stderr.write(`[bench] ${model}: decided ${summary.decided}/${summary.claims}, $${summary.totalUsd.toFixed(4)}, spent so far $${ctx.budget.spent().toFixed(4)}\n`);
@@ -494,10 +525,16 @@ async function main() {
   const withJev = allIds.includes(JEV_MODEL_ID);
   const ids = allIds.filter((id) => id !== JEV_MODEL_ID);
   // The OpenRouter key and model listing are only needed for OpenRouter models.
-  const ctx = { apiKey: ids.length ? loadOpenRouterKey() : null, budget: createBudget(MAX_USD), productCount: products.length, typicalPromptTokens: typicalPromptTokens() };
+  const ctx = {
+    apiKey: ids.length ? loadOpenRouterKey() : null,
+    budget: createBudget(MAX_USD),
+    productCount: products.length,
+    typicalPromptTokens: typicalPromptTokens(),
+    rerank: RERANK ? { apiKey: loadJinaKey(), model: ENGINE_CONFIG.rerankModel } : null,
+  };
   const { runnable, skipped } = ids.length ? await planModels(ids, ctx.typicalPromptTokens) : { runnable: [], skipped: [] };
   mkdirSync(OUT_DIR, { recursive: true });
-  process.stderr.write(`[bench] ${products.length} products, ${items.length} claims, cap $${MAX_USD}, order: ${[...(withJev ? [JEV_MODEL_ID] : []), ...runnable.map((m) => m.model)].join(', ')}\n`);
+  process.stderr.write(`[bench] ${products.length} products, ${items.length} claims, rerank ${RERANK ? 'on' : 'off'}, cap $${MAX_USD}, order: ${[...(withJev ? [JEV_MODEL_ID] : []), ...runnable.map((m) => m.model)].join(', ')}\n`);
 
   const done = withJev ? [await runJev(items, ctx)] : [];
   for (const m of runnable) {
