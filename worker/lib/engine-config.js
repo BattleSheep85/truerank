@@ -25,7 +25,10 @@ export const ENGINE_CONFIG = {
   // co-leader of the synthesis-gold bench (composite 7.69 vs gpt-5.4-mini 7.61,
   // 8/8 reliable, 1 num_ung across 8 reports; benchmarks/ft-data/README.md).
   // Cheaper + richer reports than the incumbent.
-  synthModel: 'minimax/minimax-m3',
+  // 2026-10-08 synth-gold rerun (same 8 queries and corpora, production prompt, blind
+  // Sonnet 5.5 judge): mimo-v2.6-flash composite 7.63 (g 7.13 u 7.38 h 8.38), 0 fabricated
+  // numbers, 8/8, $0.0044/report, 33 s; minimax-m3 4.71, 0 fabricated, $0.032/report, 31 s.
+  synthModel: 'xiaomi/mimo-v2.6-flash',
   plannerModel: 'google/gemini-3.8-flash',
   synthReasoning: undefined,
   // verify stance judge. 2026-10-08 judge bench (benchmarks/judge-bench.mjs +

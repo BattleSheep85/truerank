@@ -31,6 +31,10 @@
 //        # optional, so it never changes the earlier xhigh invocation's
 //        # behavior.
 //
+//   --runs <path>  read reports from <path> instead of
+//                  benchmarks/ft-data/synth-gold-runs.jsonl (added 2026-10-07
+//                  for out-of-tree runs, synth-gold-gen.mjs --out-dir)
+//
 // Outputs (default mode):
 //   benchmarks/ft-data/synth-gold-blind/q<NN>.json  — per-query blinded bundle
 //   benchmarks/ft-data/synth-gold-blinding.json      — query -> {A:model, B:model, ...}
@@ -42,20 +46,24 @@ function parseArgs(argv) {
   let label = null;
   let outDir = null;
   let blindingOut = null;
+  let runsPath = null;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--model') { model = argv[i + 1] || null; i += 1; }
     else if (argv[i] === '--label') { label = argv[i + 1] || null; i += 1; }
     else if (argv[i] === '--out-dir') { outDir = argv[i + 1] || null; i += 1; }
     else if (argv[i] === '--blinding-out') { blindingOut = argv[i + 1] || null; i += 1; }
+    else if (argv[i] === '--runs') { runsPath = argv[i + 1] || null; i += 1; }
   }
-  return { model, label, outDir, blindingOut };
+  return { model, label, outDir, blindingOut, runsPath };
 }
 const cliArgs = parseArgs(process.argv.slice(2));
 if (cliArgs.model && (!cliArgs.outDir || !cliArgs.blindingOut)) {
   throw new Error('--model requires both --out-dir and --blinding-out (explicit output location, never the stored defaults)');
 }
 
-const RUNS_PATH = new URL('./ft-data/synth-gold-runs.jsonl', import.meta.url);
+const RUNS_PATH = cliArgs.runsPath
+  ? new URL(cliArgs.runsPath, `file://${process.cwd()}/`)
+  : new URL('./ft-data/synth-gold-runs.jsonl', import.meta.url);
 const CORPUS_PATH = new URL('./results/google-top50-corpus.json', import.meta.url);
 const OUT_DIR = cliArgs.outDir ? new URL(cliArgs.outDir.replace(/\/?$/, '/'), `file://${process.cwd()}/`) : new URL('./ft-data/synth-gold-blind/', import.meta.url);
 const BLINDING_OUT = cliArgs.blindingOut ? new URL(cliArgs.blindingOut, `file://${process.cwd()}/`) : new URL('./ft-data/synth-gold-blinding.json', import.meta.url);

@@ -38,7 +38,7 @@ export function runLibPureTests() {
   eq('guides lastmod', GUIDES_LASTMOD, '2026-06-09');
 
   // engine-config.js
-  eq('engine config synth model', ENGINE_CONFIG.synthModel, 'minimax/minimax-m3');
+  eq('engine config synth model', ENGINE_CONFIG.synthModel, 'xiaomi/mimo-v2.6-flash');
 
   // ads.js
   eq('adSlot no publisher → ""', adSlot({}, 'top', 'Ad'), '');

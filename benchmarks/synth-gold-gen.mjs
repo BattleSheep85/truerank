@@ -33,11 +33,23 @@
 //        # xhigh-reasoning model burning an unexpected amount of the 16000
 //        # maxTokens budget on hidden reasoning. Same $3 hard cap applies.
 //
+//   Optional flags (added 2026-10-07; defaults keep the old behavior):
+//     --out-dir <dir>          write synth-gold-runs.jsonl and
+//                              synth-gold-deterministic.json under <dir>
+//                              instead of benchmarks/ft-data/ (the committed
+//                              files are then never touched)
+//     --production-settings    call the model exactly as the engine does:
+//                              ENGINE_CONFIG.synthMaxTokens, synthProvider,
+//                              and no temperature override (default mode
+//                              keeps maxTokens 16000 and temperature 0)
+//   BENCH_MAX_USD=<n>          overrides the $3 hard spend cap for this process
+//   Single-candidate mode refuses openai/ ids (owner veto, 2026-07-24).
+//
 // Outputs:
 //   benchmarks/ft-data/synth-gold-runs.jsonl        — one line per (query, model)
 //   benchmarks/ft-data/synth-gold-deterministic.json — grounding-gate scores per report
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { buildSynthesisPrompt } from '../worker/engine/prompts.js';
 import { callLLMStreaming } from '../worker/engine/llm.js';
 import { validateResearchResult } from '../worker/engine/validate.js';
@@ -61,7 +73,8 @@ function loadOpenRouterKey() {
 const KEY = loadOpenRouterKey();
 
 // ── SPEND GOVERNOR ────────────────────────────────────────────────────────────
-const HARD_SPEND_CAP_USD = 3.0;
+const HARD_SPEND_CAP_USD = process.env.BENCH_MAX_USD ? Number(process.env.BENCH_MAX_USD) : 3.0;
+if (!Number.isFinite(HARD_SPEND_CAP_USD) || HARD_SPEND_CAP_USD <= 0) throw new Error('BENCH_MAX_USD must be a positive number');
 let spentUsd = 0;
 // A normal synth call here costs a few cents (100 sources x 200 chars each,
 // maxTokens 16000). If the very FIRST call of a single-candidate run costs
@@ -75,12 +88,16 @@ function parseArgs(argv) {
   let model = null;
   let label = null;
   let reasoningEffort = null;
+  let outDir = null;
+  let productionSettings = false;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--model') { model = argv[i + 1] || null; i += 1; }
+    else if (argv[i] === '--out-dir') { outDir = argv[i + 1] || null; i += 1; }
+    else if (argv[i] === '--production-settings') { productionSettings = true; }
     else if (argv[i] === '--label') { label = argv[i + 1] || null; i += 1; }
     else if (argv[i] === '--reasoning-effort') { reasoningEffort = argv[i + 1] || null; i += 1; }
   }
-  return { model, label, reasoningEffort };
+  return { model, label, reasoningEffort, outDir, productionSettings };
 }
 const cliArgs = parseArgs(process.argv.slice(2));
 
@@ -105,6 +122,9 @@ for (const c of CANDIDATES) {
   if (BANNED_MODEL_SUBSTRINGS.some((b) => c.model.toLowerCase().includes(b))) {
     throw new Error(`refusing to benchmark vetoed model: ${c.model}`);
   }
+}
+if (cliArgs.model && cliArgs.model.toLowerCase().startsWith('openai/')) {
+  throw new Error(`refusing to benchmark vetoed model (owner no-OpenAI directive): ${cliArgs.model}`);
 }
 if (cliArgs.model) {
   process.stderr.write(
@@ -180,7 +200,9 @@ async function runSynth(corpus, cand) {
   try {
     const r = await callLLMStreaming(KEY, cand.model, msgs,
       (chunk, acc) => { if (firstTokenMs === null && acc.length > 0) firstTokenMs = Date.now() - t0; },
-      { reasoning: cand.reasoning, maxTokens: 16000, temperature: 0 },
+      cliArgs.productionSettings
+        ? { reasoning: cand.reasoning ?? cfg.synthReasoning, maxTokens: cfg.synthMaxTokens, provider: cfg.synthProvider }
+        : { reasoning: cand.reasoning, maxTokens: 16000, temperature: 0 },
     );
     content = r.content;
     if (Number.isFinite(r.usage?.cost)) cost = r.usage.cost;
@@ -201,9 +223,12 @@ async function runSynth(corpus, cand) {
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
-const RUNS_OUT = new URL('./ft-data/synth-gold-runs.jsonl', import.meta.url);
-const DETERMINISTIC_OUT = new URL('./ft-data/synth-gold-deterministic.json', import.meta.url);
-mkdirSync(new URL('./ft-data/', import.meta.url), { recursive: true });
+const OUT_BASE = cliArgs.outDir
+  ? new URL(cliArgs.outDir.replace(/\/?$/, '/'), `file://${process.cwd()}/`)
+  : new URL('./ft-data/', import.meta.url);
+const RUNS_OUT = new URL('synth-gold-runs.jsonl', OUT_BASE);
+const DETERMINISTIC_OUT = new URL('synth-gold-deterministic.json', OUT_BASE);
+mkdirSync(OUT_BASE, { recursive: true });
 
 // Labels this invocation is about to (re)generate. Used at write time to
 // merge with, rather than clobber, whatever is already on disk (see
@@ -269,6 +294,8 @@ for (const corpus of corpora) {
       ms: r.ms,
       ttft: r.ttft ?? null,
     }));
+    // --out-dir mode: checkpoint each call as it lands, so a killed run keeps its work.
+    if (cliArgs.outDir) appendFileSync(new URL('synth-gold-runs.partial.jsonl', OUT_BASE), runLines[runLines.length - 1] + '\n');
 
     const base = { query: corpus.query, model: cand.label, ok: r.ok, ms: r.ms, cost: r.cost || 0, error: r.ok ? null : r.error };
     if (r.ok) {
