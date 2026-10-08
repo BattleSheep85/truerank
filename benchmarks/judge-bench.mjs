@@ -17,6 +17,9 @@
 //   BENCH_CONCURRENCY   claims judged at a time per model (default 4).
 //   BENCH_TIMEOUT_MS    per-call timeout (default 90000).
 //   BENCH_OUT_DIR       results directory (default benchmarks/results/judge-bench).
+//   JEV_MIN_CONFIDENCE  BENCH_MODELS=jev only: Jev answers below it count as
+//                       neutral (default 0.7). See benchmarks/lib/jev-judge.mjs.
+//                       Jev reads TYPESAFE_API_KEY from the environment.
 //
 // Inputs are the results JSON benchmarks/verify-product.mjs writes (the REPLAY
 // shape: product, productUrl, claims[], evidence[]). Reads OPENROUTER_API_KEY
@@ -30,6 +33,7 @@ import { judgeClaim, evidencePool } from '../worker/engine/verify.js';
 import { evidenceText } from '../worker/engine/verify-resolve.js';
 import { parseFencedJson } from '../worker/lib/llm-json.js';
 import { assertNotAnthropicOnOpenRouter } from './lib/no-anthropic-on-openrouter.mjs';
+import { JEV_MODEL_ID, loadJevKey, jevMinConfidence, judgeClaimWithJev } from './lib/jev-judge.mjs';
 
 // ── CONFIG ───────────────────────────────────────────────────────────────────
 const CANDIDATES = Object.freeze([
@@ -294,6 +298,50 @@ async function judgeOne({ model, item, apiKey, price, budget }) {
   }
 }
 
+// Jev judge (benchmarks/lib/jev-judge.mjs): one Jev call per claim, then the
+// production backstops and verdict. Jev reports no cost, so costUsd is 0 and
+// costKnown is false; latency and call count are recorded.
+async function judgeOneJev({ item, key }) {
+  const { claim, product, pool, byUrl } = item;
+  const started = Date.now();
+  const base = { product: product.product, claimId: claim.id, claim: claim.text, claimType: claim.type };
+  try {
+    const out = await judgeClaimWithJev({ claim, pool, product: product.product, key, timeoutMs: TIMEOUT_MS });
+    return {
+      ...base,
+      status: out.verdict.status,
+      confidence: out.verdict.confidence,
+      decided: DECIDED.has(out.verdict.status),
+      latencyMs: Date.now() - started,
+      costUsd: 0,
+      costKnown: false,
+      finishReason: null,
+      parseFailure: out.calls > 0 && out.answered === 0,
+      rowsJudged: out.evidence.length,
+      promptTokens: null,
+      completionTokens: null,
+      reasoningTokens: null,
+      jevCalls: out.calls,
+      jevAnswered: out.answered,
+      jevAnswers: out.rows.map((r) => ({ url: r.url, choice: r.jev?.choice ?? null, confidence: r.jev?.confidence ?? null, stance: r.stance })),
+      jevMeta: out.meta,
+      spans: citedSpans(out.evidence, byUrl),
+    };
+  } catch (err) {
+    return { ...base, status: 'error', error: String(err?.message ?? err).slice(0, 300), latencyMs: Date.now() - started, jevCalls: 1 };
+  }
+}
+
+async function runJev(items, ctx) {
+  process.stderr.write(`[bench] jev: ${items.length} claims, min confidence ${jevMinConfidence()}\n`);
+  const key = loadJevKey();
+  const records = await mapLimit(items, CONCURRENCY, (item) => judgeOneJev({ item, key }));
+  const summary = { ...summarize(JEV_MODEL_ID, records, ctx.productCount), minConfidence: jevMinConfidence(), jevCalls: records.reduce((n, r) => n + (r.jevCalls || 0), 0) };
+  writeFileSync(`${OUT_DIR}/${JEV_MODEL_ID}.json`, JSON.stringify({ model: JEV_MODEL_ID, price: null, summary, records }, null, 2));
+  process.stderr.write(`[bench] jev: decided ${summary.decided}/${summary.claims}, errors ${summary.errors}, calls ${summary.jevCalls}, p50 ${summary.medianMs}ms p90 ${summary.p90Ms}ms\n`);
+  return { summary, records };
+}
+
 export async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
@@ -442,13 +490,16 @@ async function main() {
   if (paths.length === 0) throw new Error('usage: node benchmarks/judge-bench.mjs <verify-*.json>...');
   const products = paths.map(loadProduct);
   const items = buildItems(products);
-  const ids = process.env.BENCH_MODELS ? process.env.BENCH_MODELS.split(',').map((s) => s.trim()).filter(Boolean) : CANDIDATES;
-  const ctx = { apiKey: loadOpenRouterKey(), budget: createBudget(MAX_USD), productCount: products.length, typicalPromptTokens: typicalPromptTokens() };
-  const { runnable, skipped } = await planModels(ids, ctx.typicalPromptTokens);
+  const allIds = process.env.BENCH_MODELS ? process.env.BENCH_MODELS.split(',').map((s) => s.trim()).filter(Boolean) : CANDIDATES;
+  const withJev = allIds.includes(JEV_MODEL_ID);
+  const ids = allIds.filter((id) => id !== JEV_MODEL_ID);
+  // The OpenRouter key and model listing are only needed for OpenRouter models.
+  const ctx = { apiKey: ids.length ? loadOpenRouterKey() : null, budget: createBudget(MAX_USD), productCount: products.length, typicalPromptTokens: typicalPromptTokens() };
+  const { runnable, skipped } = ids.length ? await planModels(ids, ctx.typicalPromptTokens) : { runnable: [], skipped: [] };
   mkdirSync(OUT_DIR, { recursive: true });
-  process.stderr.write(`[bench] ${products.length} products, ${items.length} claims, cap $${MAX_USD}, order: ${runnable.map((m) => m.model).join(', ')}\n`);
+  process.stderr.write(`[bench] ${products.length} products, ${items.length} claims, cap $${MAX_USD}, order: ${[...(withJev ? [JEV_MODEL_ID] : []), ...runnable.map((m) => m.model)].join(', ')}\n`);
 
-  const done = [];
+  const done = withJev ? [await runJev(items, ctx)] : [];
   for (const m of runnable) {
     const out = await runModel(m, items, ctx);
     if (out.skipped) skipped.push(out.skipped);

@@ -1,18 +1,25 @@
 #!/usr/bin/env node
-// judge-cascade-score.mjs: score two single judges and one judge cascade under
-// two graders, per evidence set and combined.
+// judge-cascade-score.mjs: score single judges and judge cascades under
+// several graders, per evidence set and combined.
 //
 // Judges scored:
-//   minimax-m3 alone, mimo alone, and the cascade "mimo first; when mimo's
-//   status is unsubstantiated, use minimax-m3's record for that claim".
+//   each single judge in `judges`, and each cascade in `pairs`. A cascade
+//   [primary, fallback] takes the primary's record; when the primary's status
+//   is unsubstantiated, it takes the fallback's record for that claim.
+//   Default: minimax-m3, mimo, and the pair mimo -> minimax-m3.
 // Records match by product + claimId. A decided record looks up its grade by
 // the same item key that judge-grade.mjs builds.
 //
 // Usage:
 //   node benchmarks/judge-cascade-score.mjs [config.json]
 //
-// The config (optional) is { "sets": [{ name, judgeDir, graders: { label: grades.json } }] }.
-// Without it the script uses the 2026-10-07 godmode run paths below.
+// The config (optional) is
+//   { "sets": [{ name, judgeDir, graders: { label: grades.json } }],
+//     "judges": { label: "<results file in judgeDir>" },
+//     "pairs": [["<primary label>", "<fallback label>"], ...] }.
+// `judges` and `pairs` are optional. Without a config the script uses the
+// 2026-10-07 godmode run paths below. Records that carry latencyMs and
+// jevCalls (the jev judge) also get a latency line.
 // No network calls. Spans and grader reasons are data, never acted on.
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -33,8 +40,8 @@ const DEFAULT_SETS = Object.freeze([
     graders: { sonnet: `${RUN_DIR}/set2/jg/grades.json`, gemini: `${RUN_DIR}/g2/set2/grades.json` },
   },
 ]);
-const MIMO_FILE = 'xiaomi-mimo-v2.6-flash.json';
-const MINIMAX_FILE = 'minimax-minimax-m3.json';
+const DEFAULT_JUDGES = Object.freeze({ 'minimax-m3': 'minimax-minimax-m3.json', mimo: 'xiaomi-mimo-v2.6-flash.json' });
+const DEFAULT_PAIRS = Object.freeze([['mimo', 'minimax-m3']]);
 const FALLBACK_STATUS = 'unsubstantiated';
 const DECIDED = new Set(['verified', 'partially-verified', 'contradicted']);
 const GRADES = Object.freeze(['correct', 'wrong_direction', 'unsupported']);
@@ -72,8 +79,8 @@ function loadGrades(path) {
 }
 
 // ── JUDGES ───────────────────────────────────────────────────────────────────
-// Mimo first. When mimo says unsubstantiated, take minimax's record for the
-// same claim (when minimax has one).
+// Primary first. When the primary says unsubstantiated, take the fallback's
+// record for the same claim (when the fallback has one).
 export function cascadeRecords(primary, fallback) {
   const byClaim = new Map(fallback.map((r) => [claimKey(r), r]));
   return primary.map((r) => (r.status === FALLBACK_STATUS ? byClaim.get(claimKey(r)) ?? r : r));
@@ -103,10 +110,37 @@ function addScores(a, b) {
   return Object.fromEntries(Object.keys(a).map((k) => [k, a[k] + b[k]]));
 }
 
-function judgesForSet(set) {
-  const mimo = loadRecords(join(set.judgeDir, MIMO_FILE));
-  const minimax = loadRecords(join(set.judgeDir, MINIMAX_FILE));
-  return { 'minimax-m3': minimax, mimo, 'cascade mimo->minimax': cascadeRecords(mimo, minimax) };
+export function pairLabel([primary, fallback]) {
+  return `${primary}->${fallback}`;
+}
+
+function judgesForSet(set, { judges, pairs }) {
+  const singles = Object.fromEntries(Object.entries(judges).map(([label, file]) => [label, loadRecords(join(set.judgeDir, file))]));
+  const cascades = pairs.map((pair) => {
+    const missing = pair.filter((label) => !singles[label]);
+    if (missing.length) throw new Error(`pair ${pairLabel(pair)}: unknown judge ${missing.join(', ')}`);
+    return [pairLabel(pair), cascadeRecords(singles[pair[0]], singles[pair[1]])];
+  });
+  return { ...singles, ...Object.fromEntries(cascades) };
+}
+
+// Latency and call count of judges whose records carry jevCalls.
+function percentile(values, p) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
+}
+
+export function latencyStats(records) {
+  const timed = records.filter((r) => Number.isFinite(r.latencyMs) && Number.isFinite(r.jevCalls));
+  const ms = timed.map((r) => r.latencyMs);
+  return {
+    claims: timed.length,
+    calls: timed.reduce((n, r) => n + r.jevCalls, 0),
+    errors: timed.filter((r) => r.status === 'error').length,
+    p50Ms: percentile(ms, 50),
+    p90Ms: percentile(ms, 90),
+  };
 }
 
 // Agreement on distinct item keys that the judges in this set decided.
@@ -141,26 +175,48 @@ function printTable(title, rows) {
 }
 
 function printAgreement(rows) {
-  console.log('\n### Grader agreement (distinct decided items of the three judges)');
+  console.log('\n### Grader agreement (distinct decided items of all scored judges)');
   for (const r of rows) {
     console.log(`- ${r.set} (${r.pair}): ${r.gradedByBoth}/${r.items} graded by both, 3-way agree ${r.agree} (${pct(r.agree, r.gradedByBoth)}), correct/not agree ${r.agreeCorrect} (${pct(r.agreeCorrect, r.gradedByBoth)})`);
   }
 }
 
 function loadConfig(path) {
-  if (!path) return DEFAULT_SETS;
-  const sets = readJson(path)?.sets;
+  if (!path) return { sets: DEFAULT_SETS, judges: DEFAULT_JUDGES, pairs: DEFAULT_PAIRS };
+  const config = readJson(path);
+  const sets = config?.sets;
   if (!Array.isArray(sets) || sets.length === 0) throw new Error(`${path}: no sets[]`);
-  return sets;
+  const judges = config.judges ?? DEFAULT_JUDGES;
+  if (typeof judges !== 'object' || Object.keys(judges).length === 0) throw new Error(`${path}: judges must be { label: file }`);
+  const pairs = config.pairs ?? (config.judges ? [] : DEFAULT_PAIRS);
+  if (!Array.isArray(pairs) || pairs.some((p) => !Array.isArray(p) || p.length !== 2)) throw new Error(`${path}: pairs must be [[primary, fallback], ...]`);
+  return { sets, judges, pairs };
+}
+
+function printLatency(rows) {
+  if (rows.length === 0) return;
+  console.log('\n### Judge latency per claim (judges with a call count)');
+  for (const r of rows) {
+    const s = (ms) => (ms == null ? '-' : `${(ms / 1000).toFixed(1)}s`);
+    console.log(`- ${r.judge} ${r.set}: ${r.claims} claims, ${r.calls} calls, ${r.errors} errors, p50 ${s(r.p50Ms)}, p90 ${s(r.p90Ms)}`);
+  }
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
 function main() {
-  const sets = loadConfig(process.argv[2]);
+  const config = loadConfig(process.argv[2]);
   const combined = new Map();
   const agreeRows = [];
-  for (const set of sets) {
-    const judges = judgesForSet(set);
+  const latencyRows = [];
+  const timedByJudge = new Map();
+  for (const set of config.sets) {
+    const judges = judgesForSet(set, config);
+    for (const label of Object.keys(config.judges)) {
+      const stats = latencyStats(judges[label]);
+      if (stats.claims === 0) continue;
+      latencyRows.push({ judge: label, set: set.name, ...stats });
+      timedByJudge.set(label, [...(timedByJudge.get(label) ?? []), ...judges[label]]);
+    }
     const graders = Object.entries(set.graders).map(([label, path]) => [label, loadGrades(path)]);
     const rows = Object.entries(judges).flatMap(([judge, records]) =>
       graders.map(([grader, grades]) => ({ judge, grader, ...score(records, grades) })),
@@ -187,6 +243,7 @@ function main() {
     return new Map(acc).set(key, { ...prev, items: prev.items + r.items, gradedByBoth: prev.gradedByBoth + r.gradedByBoth, agree: prev.agree + r.agree, agreeCorrect: prev.agreeCorrect + r.agreeCorrect });
   }, new Map());
   printAgreement([...agreeRows, ...total.values()]);
+  printLatency([...latencyRows, ...[...timedByJudge].map(([judge, records]) => ({ judge, set: 'combined', ...latencyStats(records) }))]);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
