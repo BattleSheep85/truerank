@@ -780,6 +780,26 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     ok(`${d9}: a typical figure does not contradict an "up to" maximum`, /does not contradict a stated maximum or peak \("up to"\)/.test(system));
     ok(`${d9}: a contradiction needs a measurement of the same quantity`, /own measurement of the same quantity disagrees/.test(system));
   });
+
+  // Defect 10 (2026-10-08): the name match required generic qualifier words
+  // ("12th", "mouse"), so retailer pages for "Kindle Paperwhite 12th
+  // generation" and the maker page for "Logitech G Pro X Superlight 2 mouse"
+  // were other-product, and the check ended needs_input.
+  const d10 = 'generic qualifier words made the right product page other-product';
+  await guarded(d10, async () => {
+    const reason = (url, product, title = '') => resolveFn('claimCandidateReason')({ url, title }, product);
+    const kindle = 'Kindle Paperwhite 12th generation';
+    eq(`${d10}: the Best Buy Paperwhite page matches`, reason('https://www.bestbuy.com/product/amazon-kindle-paperwhite-16-gb-2024-black/J39HW6QL86', kindle), 'retailer');
+    eq(`${d10}: the Target Paperwhite page matches`, reason('https://www.target.com/p/amazon-kindle-paperwhite-2024-black/-/A-91563138', kindle), 'retailer');
+    eq(`${d10}: a Kindle Scribe page does not match`, reason('https://www.bestbuy.com/product/amazon-kindle-scribe-16-gb-2024-tungsten/J39HW7XYZ1', kindle), 'other-product');
+    eq(`${d10}: an Amazon category landing page stays excluded`, reason('https://www.amazon.com/clp/B0CFPJYX7P', kindle, 'Kindle Paperwhite'), 'listing-page');
+    eq(`${d10}: a Paperwhite Signature name does not match a plain Paperwhite page`, reason('https://www.target.com/p/amazon-kindle-paperwhite-2024-black/-/A-91563138', 'Kindle Paperwhite Signature Edition'), 'other-product');
+
+    const mouse = 'Logitech G Pro X Superlight 2 mouse';
+    eq(`${d10}: the Superlight 2 page matches`, reason('https://www.logitechg.com/en-us/products/gaming-mice/pro-x-superlight-2.910-006628.html', mouse), 'maker');
+    eq(`${d10}: the first Superlight page does not match`, reason('https://www.logitechg.com/en-us/products/gaming-mice/pro-x-superlight-wireless-mouse.910-005878.html', mouse), 'other-product');
+    ok(`${d10}: a Superlight 1 page names another model`, resolveFn('namesOtherModel')({ url: 'https://example.com/pro-x-superlight-1-review' }, mouse));
+  });
 }
 
 // ── two-stage claim judge ───────────────────────────────────────────────────

@@ -33,6 +33,18 @@ const MIN_BRAND_CHARS = 3;
 // The brand is one of the first words of the product name.
 const BRAND_WORDS = 2;
 
+// Generic name words a product page often leaves out ("12th generation",
+// "2024", "mouse"). The name match ignores them; brand, series words, and
+// model numbers must still match.
+const QUALIFIER_WORDS = new Set([
+  'generation', 'gen', 'edition', 'model', 'version', 'series',
+  'mouse', 'headphones', 'earbuds', 'speaker', 'phone', 'watch', 'vacuum',
+  'printer', 'monitor', 'laptop', 'tablet', 'ereader', 'camera', 'keyboard',
+]);
+const ORDINAL_RE = /^(?:1st|2nd|3rd|[4-9]th|1\dth|20th)$/;
+const YEAR_RE = /^(?:2019|202\d|2030)$/;
+const E_READER_RE = /\be-reader\b/gi;
+
 // Retailer host labels on any country domain. credibility.js lists only a few
 // retailer hosts (amazon.com, amazon.co.uk, amazon.de).
 const RETAILER_LABELS = new Set([
@@ -45,7 +57,8 @@ const RETAILER_LABELS = new Set([
 const SECOND_LEVEL_LABELS = new Set(['co', 'com', 'net', 'org', 'ac', 'gov', 'edu']);
 
 // Search and listing pages name many products. They are not a product page.
-const LISTING_PATH_RE = /\/(?:s|b|sch|search|searchpage\.jsp)(?:\/|$)/i;
+// "clp" is an Amazon category landing page, not a product page.
+const LISTING_PATH_RE = /\/(?:s|b|sch|search|searchpage\.jsp|clp)(?:\/|$)/i;
 // Pages on the maker's site that are not the product page. Ranked last.
 const SECONDARY_PATH_RE = /\/(?:support|manuals?|faqs?|community|forums?|blog|news|press|compare|reviews?)(?:\/|$)/i;
 // Spec pages and spec sheets list the maker's claims densely. Ranked first,
@@ -62,6 +75,18 @@ export const CLAIM_PAGES_WANTED = 2;
 
 function tokens(text) {
   return String(text ?? '').toLowerCase().match(TOKEN_RE) || [];
+}
+
+function isQualifier(token) {
+  return QUALIFIER_WORDS.has(token) || ORDINAL_RE.test(token) || YEAR_RE.test(token);
+}
+
+// Product name tokens without the generic qualifier words, or all tokens
+// when only qualifier words are left.
+function nameTokens(product) {
+  const all = tokens(String(product ?? '').replace(E_READER_RE, 'ereader'));
+  const kept = all.filter((w) => !isQualifier(w));
+  return kept.length > 0 ? kept : all;
 }
 
 function squash(text) {
@@ -127,10 +152,11 @@ function seriesKey(words) {
  * Squashed name runs a page must contain to be about this product. A model
  * code (with its short letter prefix) is enough: "wh1000xm6", "aw3423dwf".
  * Otherwise the series word plus the model number plus one short variant
- * word ("liberty4nc", "flip7", "k2combo").
+ * word ("liberty4nc", "flip7", "k2combo"). Generic qualifier words
+ * ("12th generation", "2024", "mouse") are not part of a key.
  */
 export function productKeys(product) {
-  const words = tokens(product);
+  const words = nameTokens(product);
   if (words.length === 0) return [];
   const codes = words.filter(isModelCode);
   if (codes.length > 0) return [modelCodeKey(words, longest(codes))];
@@ -174,7 +200,7 @@ function seriesAndNumber(words) {
  */
 export function namesOtherModel(source, product) {
   if (namesProduct(source, product)) return false;
-  const ours = tokens(product);
+  const ours = nameTokens(product);
   const { words } = pathAndTitleWords(source);
   const codes = ours.filter(isModelCode);
   if (codes.length > 0) {
