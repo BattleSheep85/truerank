@@ -45,6 +45,9 @@ function startProviderCooldown(provider, status) {
 // and other providers put quota or balance text on 403/429.
 function isOutOfCredit(status, text) {
   if (status === 402) return true;
+  // A per-second rate limit (Brave: "Request rate limit exceeded") is
+  // transient, not an empty balance: never bench the provider for it.
+  if (status === 429 && /rate limit/i.test(text)) return false;
   return (status === 400 || status === 403 || status === 429) && OUT_OF_CREDIT_BODY.test(text);
 }
 
@@ -131,9 +134,22 @@ async function serperSearch(query, apiKey, opts = {}) {
 // (The DuckDuckGo HTML scraper is blocked from Cloudflare edge IPs, so it can't be the
 // real fallback.) Same result shape as serperSearch; returns null on auth/quota failure
 // so the caller can degrade further (to DDG as a last resort).
+// Brave's free plan allows 1 request per second. Space this isolate's calls
+// BRAVE_MIN_GAP_MS apart so parallel searches queue instead of failing with 429.
+export const BRAVE_MIN_GAP_MS = 1100;
+let braveNextSlot = 0;
+
+async function waitForBraveSlot() {
+  const now = Date.now();
+  const slot = Math.max(now, braveNextSlot);
+  braveNextSlot = slot + BRAVE_MIN_GAP_MS;
+  if (slot > now) await new Promise((resolve) => setTimeout(resolve, slot - now));
+}
+
 async function braveSearch(query, apiKey, opts = {}) {
   if (!apiKey) return null;
   if (isProviderCoolingDown('brave')) return null;
+  await waitForBraveSlot();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -146,6 +162,10 @@ async function braveSearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[brave] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
+      // Another isolate used the same second: wait for the next slot and try once more.
+      if (response.status === 429 && /rate limit/i.test(text) && !opts.retriedRateLimit) {
+        return braveSearch(query, apiKey, { ...opts, retriedRateLimit: true });
+      }
       return failedResponseResult('brave', response.status, text);
     }
     const data = await response.json();
