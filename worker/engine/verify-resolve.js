@@ -467,7 +467,7 @@ export async function findClaimCandidates({ product, env, search = runSearch }) 
   return { candidates: rankClaimCandidates(found, product), queries, found };
 }
 
-// The fallback read: keyless Jina with a longer wait, and without navigation,
+// The fallback read: Jina (with the key when one is set) with a longer wait, and without navigation,
 // headers, footers, and images. The shared reader (worker/lib/jina.js) stops
 // after 8 s (keyless Jina often needs longer on a product page) and keeps the
 // first 15,000 chars, which can be only menus.
@@ -481,12 +481,16 @@ const FOCUSED_READ_HEADERS = Object.freeze({
   'X-Timeout': '20',
 });
 
-/** Page text from the fallback read, or '' on any failure. Never throws. */
-export async function readFocusedPage(url, fetchImpl = fetch) {
+/**
+ * Page text from the fallback read, or '' on any failure. Never throws.
+ * With a Jina key the read uses it (paid tier: faster, no free rate cap).
+ */
+export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '') {
   if (!isFetchableUrl(url)) return '';
+  const headers = apiKey ? { ...FOCUSED_READ_HEADERS, Authorization: `Bearer ${apiKey}` } : FOCUSED_READ_HEADERS;
   try {
     const response = await fetchImpl(`https://r.jina.ai/${url}`, {
-      headers: FOCUSED_READ_HEADERS,
+      headers,
       signal: AbortSignal.timeout(FOCUSED_READ_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -506,7 +510,7 @@ async function readClaimPage(candidate, env, read, focusedRead) {
   const copy = { ...candidate };
   await read(copy, env);
   if (isUsableClaimPage(copy.content)) return copy;
-  const focused = await focusedRead(copy.url);
+  const focused = await focusedRead(copy.url, undefined, env?.JINA_API_KEY || '');
   const problem = claimPageProblem(focused);
   if (!problem) return { ...copy, content: focused };
   console.log(`[verify-resolve] focused read ${problem} (${focused.length} chars) for ${copy.url}`);
