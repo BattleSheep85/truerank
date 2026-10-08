@@ -10,14 +10,15 @@ and produces honest comparison reports. Monetized via affiliate links (Amazon As
 - **Database**: Cloudflare D1 (SQLite)
 - **Cache**: Cloudflare KV
 - **Background jobs**: Cloudflare Queues (consumer + cron `scheduled` reaper)
-- **AI** (bench-derived paid stack via OpenRouter, all over `fetch()`):
-  - **Classifier**: `google/gemini-2.5-flash-lite` (facets + topical category + reject)
-  - **Planner / agent loop**: `google/gemini-2.5-flash`
-  - **Synthesis**: `minimax/minimax-m3` (swapped 2026-07-24 per owner no-OpenAI directive; statistical co-leader of the synthesis-gold bench, composite 7.69 vs the prior incumbent `openai/gpt-5.4-mini` 7.61, 8/8 reliable — see `benchmarks/ft-data/README.md` + `worker/lib/engine-config.js`. Historical note: gpt-5.4-mini itself was locked 2026-06-29 after a 50-query × 150-juror blind panel, replacing kimi-k2.6 which was slowest and timed out ~1/8 runs — see `issues.md` 2026-06-29)
-  - **Extract (verify claims)**: `anthropic/claude-haiku-4.5` (swapped 2026-07-24 per owner no-OpenAI directive; only non-OpenAI model matching the prior gpt-5.4-mini incumbent on the extract-gold bench, 7.60 quality / 10/10 reliable / 0 hard-fails — `worker/lib/engine-config.js` `extractModel`, `worker/engine/verify.js`)
-  - **Stance (verify judge)**: `minimax/minimax-m3` (already OpenAI-free; won the independent-gold stance bench — `worker/lib/engine-config.js` `stanceModel`)
+- **AI** (bench-picked 2026-10-08; `worker/lib/engine-config.js`; calls go through LiteLLM when `LLM_PROVIDER=litellm`, with OpenRouter fallback, see `docs/litellm-2026-10.md`):
+  - **Classifier, recall, cleanup, con-selector**: `google/gemini-3.8-flash` (Gemini 2.5 ids are retired)
+  - **Research planner**: `mistralai/mistral-medium-3.1` (planner bench: quality 5.17 vs 5.00, $0.064 vs $0.142 per report vs gemini-3.8-flash; history kept append-only so the provider can cache it)
+  - **Synthesis**: `xiaomi/mimo-v2.6-flash` (synth-gold rerun: composite 7.63 vs 4.71 for minimax-m3, 0 fabricated numbers)
+  - **Extract (verify claims)**: `xiaomi/mimo-v2.6-flash` (extract bench: 46 good claims vs 45 for claude-haiku-4.5, about 10x cheaper)
+  - **Stance (verify judge)**: `xiaomi/mimo-v2.6-flash`, with `minimax/minimax-m3` as second opinion for claims mimo leaves unsubstantiated (216 graded claims, two graders: 77 vs 69 correct for minimax alone). Claims are judged 12 at a time.
+  - Bench tools: `benchmarks/judge-bench.mjs`, `judge-grade.mjs`, `judge-cascade-score.mjs`, `extract-bench.mjs`, `bench-planner-cost.mjs`, `synth-gold-*.mjs`.
   - **One engine config for every run (2026-06-16):** one model set and about 50 searches of deep research for every run. `worker/lib/engine-config.js` exports a single `ENGINE_CONFIG`. There is no tier selector. Rationale and data: `benchmarks/engine-llm-bench-2026-06.md`.
-- **Search**: Serper.dev Google Search (web + news, primary), SearXNG (self-hosted metasearch on blackbox, free/broad — fills the dead DuckDuckGo rotation slot + leads the web fallback chain), Brave + Tavily (keyed CF-reachable fallbacks / selectable providers), HN Algolia (free), DuckDuckGo (last resort, CAPTCHA-blocked from datacenter IPs), RSS expert feeds. Provider quality benchmark: `benchmarks/bench-providers.mjs` (all four ≈ equal credibility; SearXNG free-equals paid; "use them all" = +50–65% unique-source recall).
+- **Search**: Brave Search API (primary in production since 2026-10-08; free plan, 1 request/s and 2,000 searches/month, so `tools.js` paces calls 1.1 s apart), HN Algolia (free), RSS expert feeds. Serper was removed from production on 2026-10-08 (owner decision): the code still calls it first when `SERPER_API_KEY` is set and skips it otherwise; the Amazon ASIN and product-image resolvers (`asin-resolver.js`, `image-resolver.js`) need Serper and do nothing without it. SearXNG (self-hosted on Blackbox, reachable at `litellm.wafflemedia.net/search` behind the X-Edge-Gate header) was tried and removed: from the home IP only Bing answers, and its results ignore model names. Tavily is configured locally only (pay-as-you-go nearly used). Provider quality benchmark: `benchmarks/bench-providers.mjs`.
 - **Cost governor**: `MONTHLY_BUDGET_USD` (default 60) — each run increments a
   KV `cost:YYYY-MM` counter; `POST /api/research` returns 503 once the month's
   spend hits the cap. Per-run cost persists to `research.cost_usd`.
@@ -80,13 +81,12 @@ Research runs operate with a 50-search budget (`ENGINE_CONFIG.maxSearches = 50`)
 
 ## Secrets (set via wrangler secret put)
 - OPENROUTER_API_KEY — paid OpenRouter key (classifier/planner/synth models)
-- SERPER_API_KEY — Serper.dev Google Search (web + news search providers)
+- SERPER_API_KEY — removed from production 2026-10-08; optional (search falls back to Brave; ASIN and image resolvers stay off without it)
 - WORKER_SECRET: authentication secret gating /api/internal/* and internal worker requests
-- BRAVE_API_KEY — optional; Brave Search fallback when Serper is unavailable
+- BRAVE_API_KEY — Brave Search, the production web search provider (free plan, paced 1.1 s apart)
 - TAVILY_API_KEY — optional; Tavily LLM-tuned web search (selectable provider + fallback)
-- SEARXNG_URL — optional; self-hosted SearXNG metasearch (blackbox `http://192.168.5.10:8095`).
-  Set on the blackbox research-worker container env only (LAN-private; the CF edge can't
-  reach it, so the `searxng` provider returns null there and degrades gracefully).
+- SEARXNG_URL — not set in production (removed 2026-10-08, poor Bing-only results). When set,
+  the `searxng` provider leads the web chain and sends `X-Edge-Gate` from LITELLM_GATE_TOKEN.
 - JINA_API_KEY — optional; lifts Jina Reader's free rate cap for `read_page`
 - AMAZON_ASSOCIATE_TAG — optional; `AMAZON_AFFILIATE_TAG` ([vars]) is the default tag
 
