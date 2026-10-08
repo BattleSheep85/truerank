@@ -309,6 +309,9 @@ export async function runVerifyTests() {
   // named for the defect it guards.
   await runVerifyDefectTests({ eq, ok, report });
 
+  // ── two-stage claim judge (mimo first, glm on unsubstantiated) ───────────
+  await runTwoStageJudgeTests({ eq, ok, report });
+
   return report;
 }
 
@@ -758,5 +761,102 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     const user = String(sent?.[1]?.content ?? '');
     ok(`${d7}: the judge is told the product`, user.startsWith('Product: "Sony WH-1000XM6 headphones"'));
     ok(`${d7}: the judge sees the page title and the claim passage`, user.includes('(Sony WH-1000XM6 review)\nIn our battery life test it lasted 37 hours.'));
+  });
+}
+
+// ── two-stage claim judge ───────────────────────────────────────────────────
+// judgeClaim runs the fallback model only when the primary verdict is
+// unsubstantiated, and uses its verdict only when it is decided.
+async function runTwoStageJudgeTests({ eq, ok, report }) {
+  const label = 'two-stage claim judge';
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${label}: ${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const claim = { id: 'c9', text: 'Battery lasts up to 40 hours', type: 'spec' };
+  const scored = [
+    { url: 'https://lab.example/review', content: 'battery 40 hours measured', credibility: 90, independence: 70, tags: ['hands-on'] },
+    { url: 'https://forum.example/t', content: 'battery hours measured', credibility: 80, independence: 70, tags: ['hands-on'] },
+  ];
+  const decided = JSON.stringify({ verdicts: [
+    { url: 'https://lab.example/review', stance: 'contradict', span: 'we measured only 20 hours' },
+    { url: 'https://forum.example/t', stance: 'contradict', span: 'our test ran out at 21 hours' },
+  ] });
+  const undecided = JSON.stringify({ verdicts: [
+    { url: 'https://lab.example/review', stance: 'neutral', span: '' },
+    { url: 'https://forum.example/t', stance: 'neutral', span: '' },
+  ] });
+  // Fake callLLM: replies per model, records each call's model and maxTokens.
+  const fakeLLM = (replies) => {
+    const calls = [];
+    const fn = async (_key, model, _messages, opts) => {
+      calls.push({ model, maxTokens: opts?.maxTokens });
+      const reply = replies[model];
+      if (reply instanceof Error) throw reply;
+      return fakeReply(reply);
+    };
+    return { fn, calls };
+  };
+  const judge = (llm, extra = {}) => verifyFn('judgeClaim')({
+    claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'fallback', callLLM: llm.fn, ...extra,
+  });
+
+  await guarded('primary decided', async () => {
+    const llm = fakeLLM({ primary: decided, fallback: decided });
+    const result = await judge(llm);
+    eq(`${label}: a decided primary verdict makes one call`, llm.calls.map((c) => c.model), ['primary']);
+    eq(`${label}: a decided primary verdict is kept`, result?.verdict?.status, 'contradicted');
+    eq(`${label}: judgeModel is the primary`, result?.judgeModel, 'primary');
+  });
+
+  await guarded('fallback decided', async () => {
+    const llm = fakeLLM({ primary: undecided, fallback: decided });
+    const result = await judge(llm);
+    eq(`${label}: an unsubstantiated primary runs the fallback once`, llm.calls.map((c) => c.model), ['primary', 'fallback']);
+    eq(`${label}: a decided fallback verdict is used`, result?.verdict?.status, 'contradicted');
+    eq(`${label}: judgeModel is the fallback`, result?.judgeModel, 'fallback');
+    ok(`${label}: the fallback token budget is at least the primary's`, llm.calls[1].maxTokens >= llm.calls[0].maxTokens);
+    eq(
+      `${label}: the fallback verdict follows the verification policy`,
+      result?.verdict,
+      verdictForClaim(claim, result?.evidence, { policy: 'verification' }),
+    );
+  });
+
+  await guarded('fallback unsubstantiated', async () => {
+    const llm = fakeLLM({ primary: undecided, fallback: undecided });
+    const result = await judge(llm);
+    eq(`${label}: an unsubstantiated fallback runs once`, llm.calls.length, 2);
+    eq(`${label}: an unsubstantiated fallback keeps the primary verdict`, result?.verdict?.status, 'unsubstantiated');
+    eq(`${label}: judgeModel stays the primary`, result?.judgeModel, 'primary');
+  });
+
+  await guarded('fallback throws', async () => {
+    const llm = fakeLLM({ primary: undecided, fallback: new Error('upstream timeout') });
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    let result;
+    try { result = await judge(llm); } finally { console.warn = realWarn; }
+    eq(`${label}: a fallback error keeps the primary verdict`, result?.verdict?.status, 'unsubstantiated');
+    eq(`${label}: a fallback error keeps judgeModel as the primary`, result?.judgeModel, 'primary');
+    eq(`${label}: a fallback error logs one warning`, warnings.length, 1);
+    ok(`${label}: the warning names the claim id`, warnings[0]?.includes('c9'));
+    ok(`${label}: the warning has no claim text`, !warnings[0]?.includes(claim.text));
+  });
+
+  await guarded('no fallback model', async () => {
+    const llm = fakeLLM({ primary: undecided });
+    const result = await judge(llm, { fallbackModel: undefined });
+    eq(`${label}: no fallback model makes one call`, llm.calls.length, 1);
+    eq(`${label}: no fallback model keeps the primary verdict`, result?.verdict?.status, 'unsubstantiated');
+  });
+
+  await guarded('fallback same as primary', async () => {
+    const llm = fakeLLM({ primary: undecided });
+    await judge(llm, { fallbackModel: 'primary' });
+    eq(`${label}: a fallback equal to the primary makes one call`, llm.calls.length, 1);
   });
 }

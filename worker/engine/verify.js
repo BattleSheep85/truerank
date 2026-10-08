@@ -81,6 +81,10 @@ const PASSAGE_STEP_CHARS = 200;
 // (1,500) the JSON was cut off, did not parse, and the claim lost every row.
 const STANCE_MAX_TOKENS = 6000;
 
+// Verdict statuses that settle a claim (the fallback judge may replace an
+// unsubstantiated primary verdict only with one of these).
+const DECIDED_STATUSES = new Set(['verified', 'partially-verified', 'contradicted']);
+
 // The verdict options of the production verification path.
 export const VERDICT_OPTS = Object.freeze({ policy: 'verification' });
 
@@ -570,22 +574,47 @@ export async function classifyStance({ claim, evidence, apiKey, model, callLLM, 
   return { rows, costUsd };
 }
 
+// Stance + backstops + verdict for one claim with one model.
+async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product }) {
+  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product });
+  const evidence = buildClaimEvidence(claim, picked, rows);
+  const verdict = verdictForClaim(claim, evidence, VERDICT_OPTS);
+  return { verdict, evidence, costUsd };
+}
+
 /**
  * One claim, end to end: claim-aware top evidence -> stance -> deterministic
  * backstops -> verdict under VERDICT_OPTS. runVerification and
  * benchmarks/verify-product.mjs both call it, so the harness measures the
  * production path. With `product`, the evidence comes from rankClaimEvidence;
  * without it, from topEvidenceForClaim (the older selection).
- * Returns { verdict, evidence, costUsd }.
+ *
+ * Two-stage judge: when the primary verdict is unsubstantiated and
+ * `fallbackModel` is set (and differs from `model`), the same stance step runs
+ * once more with `fallbackModel` on the same evidence. Its verdict is used only
+ * if it is decided. A fallback error keeps the primary result.
+ * Returns { verdict, evidence, costUsd, judgeModel } (judgeModel = the model
+ * whose verdict was used).
  */
-export async function judgeClaim({ claim, scoredEvidence, apiKey, model, callLLM, product }) {
+export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product }) {
   const picked = product
     ? rankClaimEvidence(scoredEvidence, claim, product, DEFAULT_EVIDENCE_N)
     : topEvidenceForClaim(scoredEvidence, DEFAULT_EVIDENCE_N, claim);
-  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product });
-  const evidence = buildClaimEvidence(claim, picked, rows);
-  const verdict = verdictForClaim(claim, evidence, VERDICT_OPTS);
-  return { verdict, evidence, costUsd };
+  const primary = await judgeWithModel({ claim, picked, apiKey, model, callLLM, product });
+  const primaryResult = { ...primary, judgeModel: model };
+  if (primary.verdict.status !== 'unsubstantiated' || !fallbackModel || fallbackModel === model) {
+    return primaryResult;
+  }
+  try {
+    const fallback = await judgeWithModel({ claim, picked, apiKey, model: fallbackModel, callLLM, product });
+    const costUsd = primary.costUsd + fallback.costUsd;
+    return DECIDED_STATUSES.has(fallback.verdict.status)
+      ? { ...fallback, costUsd, judgeModel: fallbackModel }
+      : { ...primaryResult, costUsd };
+  } catch (err) {
+    console.warn(`[verify] fallback judge failed for claim ${claim.id}: ${err instanceof Error ? err.message : String(err)}`);
+    return primaryResult;
+  }
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -763,16 +792,17 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict
   const claimVerdicts = [];
   for (const claim of claims) {
-    const { verdict, costUsd: stanceCost } = await judgeClaim({
+    const { verdict, judgeModel, costUsd: stanceCost } = await judgeClaim({
       claim,
       scoredEvidence,
       apiKey,
       model: config.stanceModel || config.synthModel,
+      fallbackModel: config.stanceFallbackModel,
       callLLM,
       product,
     });
     costUsd += stanceCost;
-    claimVerdicts.push({ ...claim, ...verdict, claimType: claim.type });
+    claimVerdicts.push({ ...claim, ...verdict, judgeModel, claimType: claim.type });
   }
 
   // 7. OVERALL
