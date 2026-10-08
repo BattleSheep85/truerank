@@ -71,6 +71,10 @@ export const PRESETS = Object.freeze({
   P: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'prune', ctxMaxChars: 60_000, ctxKeepTail: 6 }),
   Q: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'append', ctxMaxChars: 600_000, ctxKeepTail: 6 }),
   R: () => ({ ...roles(G38, G38, 'default'), ctxMode: 'prune', ctxMaxChars: 120_000, ctxKeepTail: 10 }),
+  // Planner-only swaps (2026-10-08): other roles stay G38, production context mode.
+  PG: () => roles('z-ai/glm-5.3', G38, 'default'),
+  PM: () => roles('minimax/minimax-m3', G38, 'default'),
+  PS: () => roles('mistralai/mistral-medium-3.1', G38, 'default'),
   E: () => {
     if (!process.env.E_ROLE_MODEL) throw new Error('preset E needs E_ROLE_MODEL (the cheaper of C/D)');
     return roles(G38, process.env.E_ROLE_MODEL, process.env.E_REASONING || 'minimal');
@@ -151,6 +155,11 @@ export function roleOf(body) {
   if (text.includes('You grade product research reports')) return 'judge';
   return 'other';
 }
+// Tool messages in one planner request that report unparseable tool arguments (tools.js).
+const BAD_ARGS = 'Error: invalid JSON in tool arguments';
+export function badArgsIn(body) {
+  try { return (JSON.parse(body)?.messages || []).filter((m) => m.role === 'tool' && String(m.content).startsWith(BAD_ARGS)).length; } catch { return 0; }
+}
 function addRoleCall(prev, usage, cost, ms) {
   const p = prev || { calls: 0, usd: 0, prompt: 0, cached: 0, completion: 0, reasoning: 0, ms: 0 };
   return {
@@ -177,7 +186,7 @@ export function chatCost(isLitellm, reqModel, usage) {
 
 // ── fetch meter: sums chat cost (OpenRouter + LiteLLM), counts search + read calls ─
 function installMeter(capUsd) {
-  const meter = { usd: 0, calls: 0, noCost: 0, searches: 0, searchErrors: 0, reads: 0, byModel: {}, byRole: {}, litellmCalls: 0, litellmUsd: 0, litellmHeaderUsd: 0, litellmHeaderCalls: 0 };
+  const meter = { usd: 0, calls: 0, noCost: 0, searches: 0, searchErrors: 0, reads: 0, byModel: {}, byRole: {}, litellmCalls: 0, litellmUsd: 0, litellmHeaderUsd: 0, litellmHeaderCalls: 0, badArgs: 0 };
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input?.url || String(input);
@@ -187,6 +196,8 @@ function installMeter(capUsd) {
     if (SEARCH_HOSTS.some((h) => url.includes(h))) meter.searches++;
     if (READ_HOSTS.some((h) => url.includes(h))) meter.reads++;
     const role = isChat ? roleOf(init?.body) : null;
+    // Append mode resends the whole history, so the max over requests is the run's count.
+    if (role === 'planner') meter.badArgs = Math.max(meter.badArgs, badArgsIn(init?.body));
     const t0 = Date.now();
     const res = await realFetch(input, init);
     if (SEARCH_HOSTS.some((h) => url.includes(h)) && !res.ok) meter.searchErrors++;
@@ -261,6 +272,8 @@ async function childRun(cfgJson, qi, outFile) {
       usd_by_model: meter.byModel,
       by_role: Object.fromEntries(Object.entries(meter.byRole).filter(([k]) => k !== 'probe')),
       llm_calls: meter.calls,
+      planner_turns: meter.byRole.planner?.calls || 0,
+      tool_arg_parse_failures: meter.badArgs,
       calls_without_cost: meter.noCost,
       litellm: { calls: meter.litellmCalls, usd: meter.litellmUsd - probeLitellm.usd, header_usd: meter.litellmHeaderUsd - probeLitellm.hdr, header_calls: meter.litellmHeaderCalls },
       searches: meter.searches,
@@ -301,6 +314,16 @@ async function runAll(configs) {
   for (let rep = 0; rep < REPS; rep++) for (let qi = 0; qi < QUERIES.length; qi++) for (const c of configs) jobs.push({ c, qi, rep });
   let spent = 0; let inflight = 0;
   const done = [];
+  // A config that fails 3 of its first 4 runs is marked unreliable and its queue dropped.
+  const unreliable = new Set();
+  const checkUnreliable = (id) => {
+    const first = done.filter((r) => r.model === id).slice(0, 4);
+    if (first.length === 4 && first.filter((r) => !r.ok).length >= 3 && !unreliable.has(id)) {
+      unreliable.add(id);
+      for (let i = pending.length - 1; i >= 0; i--) if (pending[i].c.id === id) pending.splice(i, 1);
+      process.stderr.write(`[stop ] ${id} failed 3 of its first 4 runs: unreliable\n`);
+    }
+  };
   for (const j of jobs) if (existsSync(runFile(j.c, j.qi, j.rep))) { const r = { ...readJson(runFile(j.c, j.qi, j.rep)), rep: j.rep }; done.push(r); spent += r.usd || 0; }
   const pending = jobs.filter((j) => !existsSync(runFile(j.c, j.qi, j.rep)));
   await new Promise((resolveAll) => {
@@ -312,6 +335,7 @@ async function runAll(configs) {
         launch(j.c, j.qi, j.rep).then((r) => {
           inflight--; spent += r.usd || 0; done.push(r);
           process.stderr.write(`[done ] ${r.model} r${r.rep} :: ${r.query} ok=${r.ok} $${(r.usd || 0).toFixed(4)} ${r.wall_s ?? '-'}s products=${r.products?.length ?? 0} spent=$${spent.toFixed(3)}${r.error ? ' ERR ' + r.error : ''}\n`);
+          checkUnreliable(r.model);
           next();
         });
       }
@@ -389,6 +413,8 @@ function summarize(configs, done, judged) {
       planner_prompt_tok: Math.round(avg(ok.map((r) => r.by_role?.planner?.prompt || 0))),
       planner_cached_share: cachedShare(ok),
       planner_usd: Number(avg(ok.map((r) => r.by_role?.planner?.usd || 0)).toFixed(4)),
+      planner_turns: r2(avg(ok.map((r) => r.planner_turns || 0))),
+      arg_parse_fail: ok.reduce((a, r) => a + (r.tool_arg_parse_failures || 0), 0),
       searches: r2(avg(ok.map((r) => r.searches))),
       sources: r2(avg(ok.map((r) => r.sources))),
       failures: `${runs.length - ok.length}/${runs.length}`,

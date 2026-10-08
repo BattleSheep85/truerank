@@ -29,7 +29,12 @@ export const ENGINE_CONFIG = {
   // Sonnet 5.5 judge): mimo-v2.6-flash composite 7.63 (g 7.13 u 7.38 h 8.38), 0 fabricated
   // numbers, 8/8, $0.0044/report, 33 s; minimax-m3 4.71, 0 fabricated, $0.032/report, 31 s.
   synthModel: 'xiaomi/mimo-v2.6-flash',
-  plannerModel: 'google/gemini-3.8-flash',
+  // 2026-10-08 planner bench (benchmarks/bench-planner-cost.mjs, presets A/PS, 4 queries x 2,
+  // append context, other roles gemini-3.8-flash, blind Sonnet 5.5 judge): mistral-medium-3.1
+  // quality 5.17 vs 5.00, $0.064/report vs $0.142 (cache-aware), median 132 s vs 137 s,
+  // 0/6 failures, 0 tool-argument parse failures. glm-5.3 4.67 / $0.123; minimax-m3 5.00 /
+  // $0.058 but median 149 s (slower). Served by OpenRouter (not in the LiteLLM map).
+  plannerModel: 'mistralai/mistral-medium-3.1',
   synthReasoning: undefined,
   // verify stance judge. 2026-10-08 judge bench (benchmarks/judge-bench.mjs +
   // judge-grade.mjs, 5 products, 56 pinned claims, Sonnet 5.5 grader): mimo
