@@ -11,6 +11,53 @@ import { isFetchableUrl } from '../lib/url-guard.js';
 // is only available inside a request handler. Always compute year at call time.
 const TIMEOUT_MS = 8000;
 
+// ─── Out-of-credit provider cooldown ─────────────────────────────────────────
+// A provider whose account is out of credit fails every call until someone tops
+// it up. After one out-of-credit answer, skip that provider for
+// PROVIDER_COOLDOWN_MS so each later search does not waste a request on it.
+// Mirrors the Jina key cooldown in worker/lib/jina.js.
+export const PROVIDER_COOLDOWN_MS = 600000;
+const PROVIDER_COOLDOWN_MINUTES = PROVIDER_COOLDOWN_MS / 60000;
+// 401/402/403/429 mean the provider is unusable now: the caller falls back.
+const UNAVAILABLE_STATUSES = new Set([401, 402, 403, 429]);
+const OUT_OF_CREDIT_BODY = /credit|quota|balance/i;
+
+// Isolate-scoped: provider name -> Date.now() when it last answered out of credit.
+let providerCooldowns = {};
+
+export function resetProviderCooldowns() {
+  providerCooldowns = {};
+}
+
+function isProviderCoolingDown(provider) {
+  const startedAt = providerCooldowns[provider];
+  return startedAt !== undefined && Date.now() - startedAt < PROVIDER_COOLDOWN_MS;
+}
+
+function startProviderCooldown(provider, status) {
+  if (!isProviderCoolingDown(provider)) {
+    console.log(`[${provider}] out of credit (HTTP ${status}), skipping it for ${PROVIDER_COOLDOWN_MINUTES} minutes`);
+  }
+  providerCooldowns = { ...providerCooldowns, [provider]: Date.now() };
+}
+
+// 402 always means payment required. Serper can answer 400 "Not enough credits",
+// and other providers put quota or balance text on 403/429.
+function isOutOfCredit(status, text) {
+  if (status === 402) return true;
+  return (status === 400 || status === 403 || status === 429) && OUT_OF_CREDIT_BODY.test(text);
+}
+
+// Result for a non-ok provider response: null (unavailable, fall back) or []
+// (a genuine empty result). An out-of-credit answer also starts the cooldown.
+function failedResponseResult(provider, status, text) {
+  if (isOutOfCredit(status, text)) {
+    startProviderCooldown(provider, status);
+    return null;
+  }
+  return UNAVAILABLE_STATUSES.has(status) ? null : [];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Serper.dev Google Search — https://serper.dev
 // One provider, two flavors via the /search vs /news endpoint. Recency is
@@ -24,6 +71,7 @@ async function serperSearch(query, apiKey, opts = {}) {
   // would 403 anyway, so we skip the wasted subrequest. Returning [] here would
   // be indistinguishable from "0 hits" and would strand the agent.
   if (!apiKey) return null;
+  if (isProviderCoolingDown('serper')) return null;
   try {
     const endpoint = opts.topic === 'news'
       ? 'https://google.serper.dev/news'
@@ -46,14 +94,7 @@ async function serperSearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[serper] HTTP ${response.status} q="${query}" body=${text.slice(0, 200)}`);
-      // Auth/quota failures (401/403/429) mean the provider is unusable for this
-      // run: signal unavailability so the caller falls back through the fallback chain. Other
-      // non-ok statuses are treated as a genuine empty result.
-      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
-      // An empty account balance can answer 400 (Serper: "Not enough credits").
-      // That is also unavailability, not an empty result: fall back.
-      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
-      return [];
+      return failedResponseResult('serper', response.status, text);
     }
     const data = await response.json();
     const label = opts.sourceLabel ?? (opts.topic === 'news' ? 'news' : 'web');
@@ -92,6 +133,7 @@ async function serperSearch(query, apiKey, opts = {}) {
 // so the caller can degrade further (to DDG as a last resort).
 async function braveSearch(query, apiKey, opts = {}) {
   if (!apiKey) return null;
+  if (isProviderCoolingDown('brave')) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -104,11 +146,7 @@ async function braveSearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[brave] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
-      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
-      // An empty account balance can answer 400 (Serper: "Not enough credits").
-      // That is also unavailability, not an empty result: fall back.
-      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
-      return [];
+      return failedResponseResult('brave', response.status, text);
     }
     const data = await response.json();
     const results = data?.web?.results ?? [];
@@ -144,6 +182,7 @@ async function braveSearch(query, apiKey, opts = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function tavilySearch(query, apiKey, opts = {}) {
   if (!apiKey) return null;
+  if (isProviderCoolingDown('tavily')) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -163,11 +202,7 @@ async function tavilySearch(query, apiKey, opts = {}) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[tavily] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
-      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
-      // An empty account balance can answer 400 (Serper: "Not enough credits").
-      // That is also unavailability, not an empty result: fall back.
-      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
-      return [];
+      return failedResponseResult('tavily', response.status, text);
     }
     const data = await response.json();
     const results = data?.results ?? [];
@@ -272,6 +307,7 @@ async function searxngSearch(query, baseUrl, opts = {}) {
 
 async function serperVideos(query, apiKey) {
   if (!apiKey) return null;
+  if (isProviderCoolingDown('serper-videos')) return null;
   try {
     const response = await fetch('https://google.serper.dev/videos', {
       method: 'POST',
@@ -285,11 +321,7 @@ async function serperVideos(query, apiKey) {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       console.log(`[serper-videos] HTTP ${response.status} q="${query}" body=${text.slice(0, 200)}`);
-      if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) return null;
-      // An empty account balance can answer 400 (Serper: "Not enough credits").
-      // That is also unavailability, not an empty result: fall back.
-      if (response.status === 400 && /credit|quota|balance/i.test(text)) return null;
-      return [];
+      return failedResponseResult('serper-videos', response.status, text);
     }
     const data = await response.json();
     // Serper /videos returns `videos: [{title, link, snippet, date, ...}]`.

@@ -1,18 +1,25 @@
-// Unit coverage for worker/lib/quota.js — per-IP lifetime free-tier counters.
+// Unit coverage for worker/lib/quota.js — per-IP free-tier counters
+// (lifetime for 'search', per UTC day for 'verify').
 // Uses a minimal in-memory KV shim (get/put only, matching the Cloudflare KV
 // surface the module actually calls) rather than pulling in Miniflare.
-import { getQuota, consumeQuota, quotaKey, FREE_SEARCHES, FREE_VERIFIES } from '../../worker/lib/quota.js';
+import {
+  getQuota, consumeQuota, quotaKey, FREE_SEARCHES, FREE_VERIFIES,
+  QUOTA_EXPIRATION_TTL, DAILY_QUOTA_EXPIRATION_TTL,
+} from '../../worker/lib/quota.js';
 
 function fakeKv() {
   const store = new Map();
+  const puts = [];
   return {
     async get(key) {
       return store.has(key) ? store.get(key) : null;
     },
-    async put(key, value) {
+    async put(key, value, opts) {
       store.set(key, value);
+      puts.push({ key, opts });
     },
     _store: store,
+    _puts: puts,
   };
 }
 
@@ -27,7 +34,7 @@ export async function runQuotaTests() {
 
   // Constants
   eq('FREE_SEARCHES is 5', FREE_SEARCHES, 5);
-  eq('FREE_VERIFIES is 10', FREE_VERIFIES, 10);
+  eq('FREE_VERIFIES is 100', FREE_VERIFIES, 100);
 
   // getQuota: missing key -> used 0, remaining = limit
   {
@@ -89,6 +96,55 @@ export async function runQuotaTests() {
     // Fallback on missing salt
     const keyFallback = await quotaKey('search', '1.2.3.4', {});
     eq('quotaKey falls back to raw IP when no salt', keyFallback, 'quota:v2:search:1.2.3.4');
+  }
+
+  // Run fn with Date.now() pinned to nowMs, then restore the real clock.
+  const atTime = async (nowMs, fn) => {
+    const realNow = Date.now;
+    Date.now = () => nowMs;
+    try { return await fn(); } finally { Date.now = realNow; }
+  };
+  const DAY1 = Date.UTC(2026, 9, 8, 23, 59, 0);
+  const DAY2 = Date.UTC(2026, 9, 9, 0, 1, 0);
+
+  // verify: daily key carries the UTC date and a ~2 day TTL
+  {
+    const kv = fakeKv();
+    await atTime(DAY1, () => consumeQuota(kv, 'verify', '7.7.7.7', fakeEnv));
+    const [put] = kv._puts;
+    eq('verify key is quota:v3:verify:<hash>:<date>', /^quota:v3:verify:[^:]+:2026-10-08$/.test(put.key), true);
+    eq('verify key contains no raw IP', put.key.includes('7.7.7.7'), false);
+    eq('verify TTL is the daily TTL', put.opts.expirationTtl, DAILY_QUOTA_EXPIRATION_TTL);
+    eq('daily TTL is 2 days', DAILY_QUOTA_EXPIRATION_TTL, 2 * 24 * 60 * 60);
+  }
+
+  // verify: the UTC date rollover gives a fresh allowance
+  {
+    const kv = fakeKv();
+    await atTime(DAY1, async () => {
+      for (let i = 0; i < FREE_VERIFIES; i++) await consumeQuota(kv, 'verify', '8.8.4.4', fakeEnv);
+    });
+    const spent = await atTime(DAY1, () => getQuota(kv, 'verify', '8.8.4.4', fakeEnv));
+    eq('verify exhausted on day 1', spent.remaining, 0);
+    const fresh = await atTime(DAY2, () => getQuota(kv, 'verify', '8.8.4.4', fakeEnv));
+    eq('verify fresh on day 2: used', fresh.used, 0);
+    eq('verify fresh on day 2: remaining', fresh.remaining, FREE_VERIFIES);
+    await atTime(DAY2, () => consumeQuota(kv, 'verify', '8.8.4.4', fakeEnv));
+    const day2 = await atTime(DAY2, () => getQuota(kv, 'verify', '8.8.4.4', fakeEnv));
+    eq('verify day 2 counts from 1', day2.used, 1);
+  }
+
+  // search: lifetime behavior unchanged across the date rollover
+  {
+    const kv = fakeKv();
+    await atTime(DAY1, () => consumeQuota(kv, 'search', '4.4.4.4', fakeEnv));
+    const later = await atTime(DAY2, () => getQuota(kv, 'search', '4.4.4.4', fakeEnv));
+    eq('search usage survives the date rollover', later.used, 1);
+    const [put] = kv._puts;
+    eq('search key has no date suffix', /^quota:v2:search:[^:]+$/.test(put.key), true);
+    eq('search TTL is the lifetime TTL', put.opts.expirationTtl, QUOTA_EXPIRATION_TTL);
+    const keyFallback = await atTime(DAY1, () => quotaKey('verify', '1.2.3.4', {}));
+    eq('verify quotaKey falls back to raw IP with the date', keyFallback, 'quota:v3:verify:1.2.3.4:2026-10-08');
   }
 
   return report;

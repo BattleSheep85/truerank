@@ -234,7 +234,7 @@ async function handleNewSubmission(env, intake, sessionUser, clientIp) {
         const quota = await getQuota(env.KV, 'verify', clientIp, env);
         if (quota.remaining <= 0) {
             return jsonResponse({
-                error: 'Free limit reached — create a free account to keep verifying products.',
+                error: `You have used today's ${FREE_VERIFIES} free checks. Create a free account to keep verifying, or come back tomorrow.`,
                 code: 'signup_required',
                 kind: 'verify',
                 limit: FREE_VERIFIES,
