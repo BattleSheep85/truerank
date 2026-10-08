@@ -11,7 +11,9 @@
 // BENCH_CONFIGS, PLANNER / RECALL / CLEANUP / CONSEL (model ids) and PLANNER_REASONING
 // (none|minimal|low|medium) define one "custom" config; unset roles keep ENGINE_CONFIG.
 // BENCH_MODELS=1 runs the original sweep (one model in all four roles). BENCH_REPS repeats
-// each query. Every chat call is tagged with its role (planner, recall, cleanup, consel)
+// each query. Context budget (2026-10): CTX_MAX_CHARS / CTX_KEEP_TAIL set the planner's
+// plannerContextMaxChars / plannerContextKeepTail (pruneMessages budget) for the custom config;
+// presets F (60000/6) and G (40000/4) pin them so A,F,G compare in one session. Every chat call is tagged with its role (planner, recall, cleanup, consel)
 // from the request body, so cost, tokens, and call time split per role.
 //
 // Cost = sum of usage.cost over EVERY OpenRouter chat response in the run (the engine's
@@ -52,6 +54,8 @@ export const PRESETS = Object.freeze({
   B: () => roles(G38, G38, process.env.B_REASONING || 'minimal'),
   C: () => roles(G38, 'deepseek/deepseek-v4-flash', 'default'),
   D: () => roles(G38, 'xiaomi/mimo-v2.6-flash', 'default'),
+  F: () => ({ ...roles(G38, G38, 'default'), ctxMaxChars: 60_000, ctxKeepTail: 6 }),
+  G: () => ({ ...roles(G38, G38, 'default'), ctxMaxChars: 40_000, ctxKeepTail: 4 }),
   E: () => {
     if (!process.env.E_ROLE_MODEL) throw new Error('preset E needs E_ROLE_MODEL (the cheaper of C/D)');
     return roles(G38, process.env.E_ROLE_MODEL, process.env.E_REASONING || 'minimal');
@@ -69,7 +73,18 @@ export function resolveConfigs(env = process.env) {
     });
   }
   const r = env.PLANNER_REASONING || 'default';
-  return [{ id: 'custom', planner: env.PLANNER || G38, recall: env.RECALL || G38, cleanup: env.CLEANUP || G38, consel: env.CONSEL || G38, reasoning: r }];
+  return [{ id: 'custom', planner: env.PLANNER || G38, recall: env.RECALL || G38, cleanup: env.CLEANUP || G38, consel: env.CONSEL || G38, reasoning: r, ...ctxFromEnv(env) }];
+}
+// CTX_MAX_CHARS / CTX_KEEP_TAIL → planner context budget fields; unset keeps ENGINE_CONFIG.
+export function ctxFromEnv(env) {
+  const out = {};
+  for (const [k, field] of [['CTX_MAX_CHARS', 'ctxMaxChars'], ['CTX_KEEP_TAIL', 'ctxKeepTail']]) {
+    if (env[k] === undefined || env[k] === '') continue;
+    const n = Number(env[k]);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`${k} must be a positive integer`);
+    out[field] = n;
+  }
+  return out;
 }
 const CONFIG_ROLES = ['planner', 'recall', 'cleanup', 'consel'];
 const configModels = (c) => CONFIG_ROLES.map((k) => c[k]);
@@ -179,6 +194,8 @@ async function childRun(cfgJson, qi, outFile) {
     const cfg = {
       ...ENGINE_CONFIG, plannerModel: c.planner, recallModel: c.recall, cleanupModel: c.cleanup, conSelectorModel: c.consel,
       plannerReasoning: plannerReasoningOf(c, ENGINE_CONFIG.plannerReasoning), plannerProvider: null,
+      plannerContextMaxChars: c.ctxMaxChars ?? ENGINE_CONFIG.plannerContextMaxChars,
+      plannerContextKeepTail: c.ctxKeepTail ?? ENGINE_CONFIG.plannerContextKeepTail,
     };
     const env = { SERPER_API_KEY: e.SERPER_API_KEY, BRAVE_API_KEY: e.BRAVE_API_KEY, TAVILY_API_KEY: e.TAVILY_API_KEY, JINA_API_KEY: e.JINA_API_KEY, SYNTH_ENGINE: 'extract' };
     const t0 = Date.now();
@@ -303,11 +320,13 @@ function summarize(configs, done, judged) {
     return {
       config: c.id,
       roles: `${c.planner}@${c.reasoning} | ${[...new Set([c.recall, c.cleanup, c.consel])].join(',')}`,
+      ctx: `${c.ctxMaxChars ?? 'default'}/${c.ctxKeepTail ?? 'default'}`,
       quality: r2(avg(q)),
       judged: q.length,
       products: r2(avg(ok.map((r) => r.products.length))),
       usd_report: Number.isFinite(usd) ? Number(usd.toFixed(4)) : '-',
       median_wall_s: median(ok.map((r) => r.wall_s)),
+      planner_prompt_tok: Math.round(avg(ok.map((r) => r.by_role?.planner?.prompt || 0))),
       searches: r2(avg(ok.map((r) => r.searches))),
       sources: r2(avg(ok.map((r) => r.sources))),
       failures: `${runs.length - ok.length}/${runs.length}`,

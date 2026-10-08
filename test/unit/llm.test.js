@@ -63,5 +63,48 @@ export function runLlmTests() {
     ok('prune: dropped/truncated the middle tool spam', out.length < 2 + 4 + 10);
   }
 
+  // pruneMessages opts — explicit defaults match the no-opts call.
+  {
+    const head = [{ role: 'system', content: 'h'.repeat(70_000) }, { role: 'user', content: 'h'.repeat(70_000) }];
+    const middle = Array.from({ length: 4 }, (_, i) => ({ role: 'tool', content: 't'.repeat(1_000) + i }));
+    const tail = Array.from({ length: 10 }, (_, i) => ({ role: 'user', content: 'tail' + i }));
+    const msgs = [...head, ...middle, ...tail];
+    eq('prune opts: explicit defaults equal no-opts', pruneMessages(msgs, { maxChars: 120_000, keepTail: 10, middleToolTruncate: 200 }), pruneMessages(msgs));
+    eq('prune opts: empty opts equal no-opts', pruneMessages(msgs, {}), pruneMessages(msgs));
+  }
+
+  // pruneMessages opts.maxChars — a lower budget prunes what the default keeps.
+  {
+    const msgs = Array.from({ length: 20 }, (_, i) => ({ role: 'tool', content: 'x'.repeat(4_000) + i }));
+    ok('prune opts: 80k under default budget → unchanged', pruneMessages(msgs) === msgs);
+    const out = pruneMessages(msgs, { maxChars: 60_000 });
+    ok('prune opts: maxChars 60k → new array', out !== msgs);
+    ok('prune opts: maxChars 60k → result under budget', out.reduce((n, m) => n + m.content.length, 0) <= 60_000);
+    ok('prune opts: maxChars 60k keeps head', out[0] === msgs[0] && out[1] === msgs[1]);
+    ok('prune opts: maxChars 60k keeps the 10-message tail', out.slice(-10).every((m, i) => m === msgs[10 + i]));
+    eq('prune opts: input not mutated', msgs[5].content.length, 4_000 + 1);
+  }
+
+  // pruneMessages opts.keepTail — a shorter tail lets more of the middle be pruned.
+  {
+    const msgs = Array.from({ length: 14 }, (_, i) => ({ role: 'tool', content: 'y'.repeat(10_000) + i }));
+    ok('prune opts: 14 msgs, default keepTail 10 → middle still pruned', pruneMessages(msgs, { maxChars: 70_000 }).length < 14);
+    const out = pruneMessages(msgs, { maxChars: 70_000, keepTail: 4 });
+    ok('prune opts: keepTail 4 keeps last 4 intact', out.slice(-4).every((m, i) => m === msgs[10 + i]));
+    ok('prune opts: keepTail 4 truncates middle tool output', out.slice(2, -4).every((m) => m.content.length < 500));
+    eq('prune opts: keepTail 4 keeps all 14 (truncation fits budget)', out.length, 14);
+    const few = msgs.slice(0, 6);
+    ok('prune opts: <= head+keepTail → unchanged', pruneMessages(few, { maxChars: 1, keepTail: 4 }) === few);
+  }
+
+  // pruneMessages opts.middleToolTruncate — sets the kept prefix of middle tool output.
+  {
+    const msgs = Array.from({ length: 14 }, (_, i) => ({ role: 'tool', content: 'z'.repeat(10_000) + i }));
+    const out = pruneMessages(msgs, { maxChars: 70_000, keepTail: 4, middleToolTruncate: 50 });
+    ok('prune opts: middleToolTruncate 50 → 50-char prefix', out[2].content.startsWith('z'.repeat(50) + '\n[...truncated'));
+    const def = pruneMessages(msgs, { maxChars: 70_000, keepTail: 4 });
+    ok('prune opts: default middleToolTruncate 200', def[2].content.startsWith('z'.repeat(200) + '\n[...truncated'));
+  }
+
   return report;
 }

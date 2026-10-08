@@ -334,29 +334,34 @@ function charCount(messages) {
   return n;
 }
 
-// Returns a NEW message array under MAX_CONTEXT_CHARS. Head/tail references are
-// reused unchanged; middle messages are either truncated (tool results only) or
-// dropped oldest-first until the budget is met. Never mutates input messages —
+// Returns a NEW message array under opts.maxChars (default MAX_CONTEXT_CHARS). Head/tail
+// references are reused unchanged; middle messages are either truncated (tool results
+// only) or dropped oldest-first until the budget is met. Never mutates input messages —
 // the agent loop keeps the authoritative history in the caller's array.
-export function pruneMessages(messages) {
-  if (charCount(messages) <= MAX_CONTEXT_CHARS) return messages;
-  if (messages.length <= KEEP_HEAD + KEEP_TAIL) return messages;
+export function pruneMessages(messages, opts = {}) {
+  const {
+    maxChars = MAX_CONTEXT_CHARS,
+    keepTail = KEEP_TAIL,
+    middleToolTruncate = MIDDLE_TOOL_TRUNCATE,
+  } = opts;
+  if (charCount(messages) <= maxChars) return messages;
+  if (messages.length <= KEEP_HEAD + keepTail) return messages;
 
   const head = messages.slice(0, KEEP_HEAD);
-  const tail = messages.slice(messages.length - KEEP_TAIL);
-  const middleRaw = messages.slice(KEEP_HEAD, messages.length - KEEP_TAIL);
+  const tail = messages.slice(messages.length - keepTail);
+  const middleRaw = messages.slice(KEEP_HEAD, messages.length - keepTail);
 
   // Step 1: truncate tool outputs in the middle via copy (don't mutate).
   const middleTruncated = middleRaw.map((msg) => {
     if (msg.role === 'tool' && msg.content && msg.content.length > 500) {
-      return { ...msg, content: msg.content.slice(0, MIDDLE_TOOL_TRUNCATE) + '\n[...truncated for context management]' };
+      return { ...msg, content: msg.content.slice(0, middleToolTruncate) + '\n[...truncated for context management]' };
     }
     return msg;
   });
 
   // Step 2: if still over budget, drop oldest middle messages until under.
   let current = [...head, ...middleTruncated, ...tail];
-  while (charCount(current) > MAX_CONTEXT_CHARS && middleTruncated.length > 0) {
+  while (charCount(current) > maxChars && middleTruncated.length > 0) {
     middleTruncated.shift();
     current = [...head, ...middleTruncated, ...tail];
   }
