@@ -33,6 +33,7 @@ import {
 } from './verify-resolve.js';
 import { verdictForClaim, overallVerdict, verificationWeight } from '../lib/verdict.js';
 import { parseFencedJson } from '../lib/llm-json.js';
+import { runPool } from '../lib/pool.js';
 
 // Claim page text helpers live in verify-resolve.js. Re-exported here, where
 // the harnesses and tests import them.
@@ -619,6 +620,32 @@ export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbac
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
+// Claims judged at the same time. Each claim makes the same LLM calls as
+// before, so the subrequest count does not change, only the overlap.
+export const CLAIM_JUDGE_CONCURRENCY = 4;
+
+/**
+ * Step 6, JUDGE: judgeClaim for every claim, at most `concurrency` at once.
+ * Results keep the claim order. A claim that throws does not stop the others:
+ * its slot is { error }. Other slots are judgeClaim's result.
+ */
+export async function judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, concurrency = CLAIM_JUDGE_CONCURRENCY }) {
+  const thunks = claims.map((claim) => () =>
+    judgeClaim({
+      claim,
+      scoredEvidence,
+      apiKey,
+      model: config.stanceModel || config.synthModel,
+      fallbackModel: config.stanceFallbackModel,
+      callLLM,
+      product,
+    }),
+  );
+  return runPool(thunks, concurrency, (error) => ({ error }));
+}
+
+const secondsSince = (start, end) => ((end - start) / 1000).toFixed(1);
+
 // Fewer than this many extracted claims triggers one read-more+retry pass.
 const MIN_CLAIMS = 4;
 
@@ -748,6 +775,7 @@ export async function findClaimTests({ claims, product, env, search, read }) {
 export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM }) {
   const emit = onEvent || (() => {});
   let costUsd = 0;
+  const startedAt = Date.now();
 
   // 1. RESOLVE the product's own pages. No page and no pasted URL: stop
   //    before the gather spends anything.
@@ -769,6 +797,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
     callLLM,
   });
   costUsd += extractCost;
+  const extractedAt = Date.now();
 
   // 3. TEST PAGES: claim searches and reads of independent test pages.
   const tests = await findClaimTests({ claims, product, env });
@@ -785,25 +814,26 @@ export async function runVerification({ product, productUrl, config, apiKey, env
     {},
   );
   costUsd += gathered.totalCostUsd || 0;
+  const gatheredAt = Date.now();
 
   // 5. SCORE EVIDENCE
   const scoredEvidence = scoreEvidence(evidencePool([...tests.sources, ...(gathered.sources || [])], product, productUrl));
 
-  // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict
-  const claimVerdicts = [];
-  for (const claim of claims) {
-    const { verdict, judgeModel, costUsd: stanceCost } = await judgeClaim({
-      claim,
-      scoredEvidence,
-      apiKey,
-      model: config.stanceModel || config.synthModel,
-      fallbackModel: config.stanceFallbackModel,
-      callLLM,
-      product,
-    });
+  // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict.
+  //    Claims run concurrently. As before, a claim error fails the run: the
+  //    first failed claim (in claim order) is rethrown after all settle.
+  const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product });
+  const failed = judged.find((r) => r && 'error' in r);
+  if (failed) throw failed.error;
+  const claimVerdicts = claims.map((claim, i) => {
+    const { verdict, judgeModel, costUsd: stanceCost } = judged[i];
     costUsd += stanceCost;
-    claimVerdicts.push({ ...claim, ...verdict, judgeModel, claimType: claim.type });
-  }
+    return { ...claim, ...verdict, judgeModel, claimType: claim.type };
+  });
+  const judgedAt = Date.now();
+  console.log(
+    `[verify] timing gather=${secondsSince(extractedAt, gatheredAt)} extract=${secondsSince(startedAt, extractedAt)} judge=${secondsSince(gatheredAt, judgedAt)} total=${secondsSince(startedAt, judgedAt)}`,
+  );
 
   // 7. OVERALL
   const overall = overallVerdict(claimVerdicts);

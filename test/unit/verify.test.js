@@ -312,6 +312,9 @@ export async function runVerifyTests() {
   // ── two-stage claim judge (mimo first, glm on unsubstantiated) ───────────
   await runTwoStageJudgeTests({ eq, ok, report });
 
+  // ── concurrent claim judge (CLAIM_JUDGE_CONCURRENCY at once, order kept) ──
+  await runConcurrentJudgeTests({ eq, ok, report });
+
   return report;
 }
 
@@ -858,5 +861,92 @@ async function runTwoStageJudgeTests({ eq, ok, report }) {
     const llm = fakeLLM({ primary: undecided });
     await judge(llm, { fallbackModel: 'primary' });
     eq(`${label}: a fallback equal to the primary makes one call`, llm.calls.length, 1);
+  });
+}
+
+// ── concurrent claim judge ──────────────────────────────────────────────────
+// judgeClaims runs judgeClaim for every claim with bounded concurrency. The
+// results must equal the one-at-a-time path, in claim order.
+async function runConcurrentJudgeTests({ eq, ok, report }) {
+  const label = 'concurrent claim judge';
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${label}: ${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const DELAY_MS = 40;
+  const claims = Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, text: `Battery lasts ${10 + i} hours`, type: 'spec' }));
+  const scored = [
+    { url: 'https://lab.example/review', content: 'battery hours measured', credibility: 90, independence: 70, tags: ['hands-on'] },
+    { url: 'https://forum.example/t', content: 'battery hours measured', credibility: 80, independence: 70, tags: ['hands-on'] },
+  ];
+  // Each claim gets its own reply (and cost), picked from the claim text.
+  const replyFor = (messages) => {
+    const n = Number(/Battery lasts (\d+) hours/.exec(String(messages?.[1]?.content ?? ''))?.[1] ?? 0);
+    const stance = n % 2 === 0 ? 'contradict' : 'support';
+    const reply = fakeReply(JSON.stringify({ verdicts: [
+      { url: 'https://lab.example/review', stance, span: `in our test we measured ${n} hours` },
+      { url: 'https://forum.example/t', stance, span: `our battery test ran ${n} hours` },
+    ] }));
+    return { ...reply, usage: { cost: n / 1000 } };
+  };
+  // Fake callLLM: resolves after DELAY_MS, records the peak in-flight count.
+  const delayedLLM = ({ failText } = {}) => {
+    const state = { inFlight: 0, maxInFlight: 0, calls: 0 };
+    const fn = async (_key, _model, messages) => {
+      state.calls++;
+      state.inFlight++;
+      state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+        if (failText && String(messages?.[1]?.content ?? '').includes(failText)) throw new Error('upstream 502');
+        return replyFor(messages);
+      } finally {
+        state.inFlight--;
+      }
+    };
+    return { fn, state };
+  };
+  const config = { stanceModel: 'primary' };
+  const args = (callLLM) => ({ claims, scoredEvidence: scored, config, apiKey: 'k', callLLM, product: 'Acme Buds' });
+
+  await guarded('bounded concurrency', async () => {
+    eq(`${label}: CLAIM_JUDGE_CONCURRENCY is 4`, verifyModule.CLAIM_JUDGE_CONCURRENCY, 4);
+    const llm = delayedLLM();
+    const started = Date.now();
+    const results = await verifyFn('judgeClaims')(args(llm.fn));
+    const elapsed = Date.now() - started;
+    eq(`${label}: max in-flight is 4`, llm.state.maxInFlight, 4);
+    eq(`${label}: one call per claim`, llm.state.calls, 8);
+    ok(`${label}: 8 claims take about 2 delays, not 8 (${elapsed} ms)`, elapsed < DELAY_MS * 4);
+    eq(
+      `${label}: results keep the claim order`,
+      results.map((r) => r?.costUsd),
+      claims.map((_, i) => (10 + i) / 1000),
+    );
+  });
+
+  await guarded('equals the sequential path', async () => {
+    const sequential = [];
+    for (const claim of claims) {
+      sequential.push(await verifyFn('judgeClaim')({
+        claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: undefined,
+        callLLM: delayedLLM().fn, product: 'Acme Buds',
+      }));
+    }
+    const concurrent = await verifyFn('judgeClaims')(args(delayedLLM().fn));
+    eq(`${label}: results deep-equal the sequential path`, concurrent, sequential);
+  });
+
+  await guarded('one claim error', async () => {
+    const llm = delayedLLM({ failText: 'Battery lasts 12 hours' });
+    const results = await verifyFn('judgeClaims')(args(llm.fn));
+    eq(`${label}: one result slot per claim`, results.length, 8);
+    ok(`${label}: the failed claim slot holds its error`, results[2]?.error?.message === 'upstream 502');
+    ok(
+      `${label}: the other claims are judged`,
+      results.every((r, i) => i === 2 || (r?.verdict && typeof r.verdict.status === 'string' && !('error' in r))),
+    );
   });
 }
