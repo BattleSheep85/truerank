@@ -34,8 +34,11 @@ export const ENGINE_CONFIG = {
   // against minimax-m3 23 correct, 68%, $0.089/product, 9.5 s. Served by
   // OpenRouter (not in the LiteLLM map, so LiteLLM routes fall back to it).
   stanceModel: 'xiaomi/mimo-v2.6-flash',
-  // Second judge, only for claims mimo leaves unsubstantiated. 2026-10-08 graded bench (56 claims): mimo alone 22/28 decided correct, glm alone 26/34, cascade 29/41 with 0 wrong-direction (minimax-m3 23/34).
-  stanceFallbackModel: 'z-ai/glm-5.3-flash',
+  // Second judge, only for claims mimo leaves unsubstantiated. 2026-10-08 graded bench (56 claims):
+  // mimo -> gemini-3.5-flash-lite gets 24/30 decided correct, 80%, 0 wrong-direction (minimax-m3
+  // 23/34, 68%). glm-5.3-flash scored higher on the bench (29/41) but live its replies hit the
+  // length cap ("0 of 15 sources judged") and its latency pushed runs past the Worker time limit.
+  stanceFallbackModel: 'google/gemini-3.5-flash-lite',
   // 2026-10-08 extract bench (benchmarks/extract-bench.mjs, 5 products, same
   // cached page text, Sonnet 5.5 grader): mimo 46 good claims, 3 flagged (2
   // checked as grader errors), $0.0006/product, 3.9 s; haiku-4.5 45 good, 1
