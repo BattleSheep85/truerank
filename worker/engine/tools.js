@@ -197,16 +197,27 @@ async function tavilySearch(query, apiKey, opts = {}) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SearXNG metasearch — self-hosted on blackbox (http://192.168.5.10:8095), tuned
-// to a curated engine set (google + startpage + bing + mojeek + brave). Free, no
+// to a curated engine set (google + bing + duckduckgo + brave + wikipedia). Free, no
 // quota, no key. Aggregates several indexes per call → high source breadth at $0,
 // which the provider benchmark showed matches paid providers on credibility.
-// Reads env.SEARXNG_URL. Returns null when the instance is unreachable / not
-// configured (e.g. from the CF edge, which can't reach the LAN host) so the
-// caller falls through to the next provider; [] on a transient query error.
+// Reads env.SEARXNG_URL (the LAN URL, or https://litellm.wafflemedia.net from the
+// CF edge). Returns null when the instance is unreachable, gated (403), or not
+// configured so the caller falls through to the next provider.
 // ─────────────────────────────────────────────────────────────────────────────
 // SearXNG aggregates several engines per call, so it needs more headroom than a
 // single-API provider — give it a dedicated ceiling above the shared TIMEOUT_MS.
 const SEARXNG_TIMEOUT_MS = 11000;
+// The public SearXNG (litellm.wafflemedia.net/search) sits behind the same
+// BunkerWeb header gate as LiteLLM: env.LITELLM_GATE_TOKEN in X-Edge-Gate.
+// Never log the token.
+const EDGE_GATE_HEADER = 'X-Edge-Gate';
+
+// Gate header object for fetch, or {} when the token is missing or blank.
+function edgeGateHeader(rawToken) {
+  const token = typeof rawToken === 'string' ? rawToken.trim() : '';
+  return token ? { [EDGE_GATE_HEADER]: token } : {};
+}
+
 async function searxngSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
   const controller = new AbortController();
@@ -217,7 +228,7 @@ async function searxngSearch(query, baseUrl, opts = {}) {
     if (opts.timeRange === 'y') params.set('time_range', 'year');
     const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`, {
       signal: controller.signal,
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...edgeGateHeader(opts.gateToken) },
     });
     if (!response.ok) {
       console.log(`[searxng] HTTP ${response.status} q="${query}"`);
@@ -518,6 +529,7 @@ async function executeSearch(
   const braveApiKey = env?.BRAVE_API_KEY;
   const tavilyApiKey = env?.TAVILY_API_KEY;
   const searxngUrl = env?.SEARXNG_URL;
+  const searxngGate = env?.LITELLM_GATE_TOKEN;
 
   state.searchCount++;
   let results;
@@ -536,7 +548,7 @@ async function executeSearch(
   // keyed). DuckDuckGo is CAPTCHA-blocked from datacenter IPs and returns empty results,
   // so it is removed from active fallbacks.
   const webFallback = async (q) => {
-    const sx = searxngUrl ? await searxngSearch(q, searxngUrl, { timeRange: tr }) : null;
+    const sx = searxngUrl ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate }) : null;
     if (sx !== null) return sx;
     const brave = braveApiKey ? await braveSearch(q, braveApiKey, { timeRange: tr }) : null;
     if (brave !== null) return brave;
@@ -584,7 +596,7 @@ async function executeSearch(
     case 'searxng': {
       // Self-hosted metasearch (free, broad). Falls back through the web chain
       // (Brave / Tavily) when the SearXNG instance is unreachable.
-      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr }) : null;
+      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate }) : null;
       if (sx !== null) { results = sx; subs = 1; break; }
       const serp = await serperSearch(query, serperApiKey, { sourceLabel: 'web', timeRange: tr });
       results = serp === null ? await webFallback(query) : serp;
