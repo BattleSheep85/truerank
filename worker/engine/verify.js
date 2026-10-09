@@ -28,12 +28,15 @@ import {
   interleave,
   testPagesToRead,
   readTestPages,
+  evidencePagesToRead,
+  evidenceReader,
   MAX_RESOLVE_READS,
   CLAIM_PAGES_WANTED,
 } from './verify-resolve.js';
 import { verdictForClaim, overallVerdict, verificationWeight } from '../lib/verdict.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
+import { deadlineSignal, deferred, delay, hedged } from '../lib/deadline.js';
 import { rerankClaimEvidence } from './verify-rerank.js';
 
 // Claim page text helpers live in verify-resolve.js. Re-exported here, where
@@ -501,9 +504,12 @@ export function buildClaimEvidence(claim, scoredEvidence, stanceRows) {
 /**
  * Extracts checkable claims from a product's own claim-source pages.
  * `claimText` is the pre-assembled source block (title/url/content per
- * source, already capped by the caller). Returns { claims, costUsd }.
+ * source, already capped by the caller). `hedgeMs` (optional) sends a second
+ * request when the first has no reply by then (see hedged in
+ * worker/lib/deadline.js; the cost is the answering call's). Returns
+ * { claims, costUsd }.
  */
-export async function extractClaims({ product, claimText, apiKey, model, callLLM, reasoning }) {
+export async function extractClaims({ product, claimText, apiKey, model, callLLM, reasoning, hedgeMs = 0 }) {
   const messages = [
     { role: 'system', content: CLAIM_EXTRACTION_SYSTEM },
     { role: 'user', content: `Product: "${product}"\n\n${claimText}` },
@@ -512,7 +518,10 @@ export async function extractClaims({ product, claimText, apiKey, model, callLLM
   // It exists so benchmark harnesses can test reasoning-model candidates
   // through this exact production code path without changing production
   // behavior. See worker/lib/engine-config.js's extractReasoning field.
-  const resp = await callLLM(apiKey, model, messages, { maxTokens: 2000, reasoning });
+  // `hedgeMs` (optional): a second request when the first has no reply by then.
+  const call = () => callLLM(apiKey, model, messages, { maxTokens: 2000, reasoning });
+  const onHedge = () => console.log(`[verify] extract: no reply from ${model} after ${hedgeMs} ms, sent a second request`);
+  const resp = await hedged(call, hedgeMs, { onHedge });
   const costUsd = Number.isFinite(resp?.usage?.cost) ? resp.usage.cost : 0;
   const raw = resp.choices?.[0]?.message?.content ?? '';
   const parsed = parseFencedJson(raw);
@@ -535,8 +544,9 @@ const MAX_TITLE_CHARS = 120;
  * is expected to already be the top-N slice (see `rankClaimEvidence`). An
  * item's `passage` (from rankClaimEvidence) is the text the model sees,
  * else claimPassage of its content. Returns { rows: [{url,stance,span}], costUsd }.
+ * `hardMs` (optional) caps the model call.
  */
-export async function classifyStance({ claim, evidence, apiKey, model, callLLM, reasoning, product }) {
+export async function classifyStance({ claim, evidence, apiKey, model, callLLM, reasoning, product, hardMs = 0 }) {
   const picked = Array.isArray(evidence) ? evidence : [];
   if (picked.length === 0) return { rows: [], costUsd: 0 };
 
@@ -553,8 +563,10 @@ export async function classifyStance({ claim, evidence, apiKey, model, callLLM, 
     { role: 'user', content: `${product ? `Product: "${product}"\n` : ''}Claim: "${claim.text}"\n\nEvidence sources:\n${block}` },
   ];
   // `reasoning` is optional (undefined in every production call site today).
-  // See extractClaims above for why this parameter exists.
-  const resp = await callLLM(apiKey, model, messages, { maxTokens: STANCE_MAX_TOKENS, reasoning });
+  // See extractClaims above for why this parameter exists. `hardMs` (optional)
+  // caps the call (config.verifyStanceCallMs); a timeout throws.
+  const cap = hardMs > 0 ? { hardMsOverride: hardMs } : {};
+  const resp = await callLLM(apiKey, model, messages, { maxTokens: STANCE_MAX_TOKENS, reasoning, ...cap });
   const costUsd = Number.isFinite(resp?.usage?.cost) ? resp.usage.cost : 0;
   const choice = resp?.choices?.[0];
   const raw = choice?.message?.content ?? '';
@@ -621,11 +633,47 @@ export async function pickClaimEvidence({ claim, scoredEvidence, product, rerank
 }
 
 // Stance + backstops + verdict for one claim with one model.
-async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product }) {
-  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product });
+async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product, hardMs }) {
+  const started = Date.now();
+  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product, hardMs });
   const evidence = buildClaimEvidence(claim, picked, rows);
   const verdict = verdictForClaim(claim, evidence, VERDICT_OPTS);
+  console.log(`[verify] judge ${claim.id}: ${model} ${verdict.status} in ${Date.now() - started} ms`);
   return { verdict, evidence, costUsd };
+}
+
+const errorText = (err) => (err instanceof Error ? err.message : String(err));
+
+// The outcome of one judge call: { result } or { error }, tagged with its model.
+function judgeOutcome(promise, judgeModel) {
+  return promise.then((result) => ({ result, judgeModel }), (error) => ({ error, judgeModel }));
+}
+
+const isDecided = (outcome) => Boolean(outcome.result) && DECIDED_STATUSES.has(outcome.result.verdict.status);
+
+// After the hedge: the first decided verdict of the two judges wins. Neither
+// decided: the primary result, else the fallback result, else the primary
+// error is thrown. costUsd sums the calls that finished by then.
+function firstDecided(primaryRun, fallbackRun, primaryModel) {
+  return new Promise((resolve, reject) => {
+    const done = [];
+    const costOfDone = () => done.reduce((sum, o) => sum + (o.result?.costUsd ?? 0), 0);
+    const settle = (outcome) => (outcome.result
+      ? resolve({ ...outcome.result, costUsd: costOfDone(), judgeModel: outcome.judgeModel })
+      : reject(outcome.error));
+    for (const run of [primaryRun, fallbackRun]) {
+      run.then((outcome) => {
+        done.push(outcome);
+        if (isDecided(outcome)) {
+          settle(outcome);
+        } else if (done.length === 2) {
+          const primary = done.find((o) => o.judgeModel === primaryModel);
+          const fallback = done.find((o) => o !== primary);
+          settle(primary.result || !fallback.result ? primary : fallback);
+        }
+      });
+    }
+  });
 }
 
 /**
@@ -638,29 +686,52 @@ async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product }
  * Two-stage judge: when the primary verdict is unsubstantiated and
  * `fallbackModel` is set (and differs from `model`), the same stance step runs
  * once more with `fallbackModel` on the same evidence. Its verdict is used only
- * if it is decided. A fallback error keeps the primary result.
+ * if it is decided. A fallback error keeps the primary result. A primary call
+ * that fails (an error, or the `hardMs` cap) takes the fallback verdict as it
+ * is; when the fallback also fails, the primary error is thrown.
+ * `hedgeMs` (optional): when the primary has no verdict by then, the fallback
+ * call starts at once, and the first decided verdict of the two wins (neither
+ * decided: as above). A slow primary call then holds no claim back.
  * `rerank` (optional, see rerankOptions): with a product, the evidence comes
- * from reranked passages (pickClaimEvidence).
+ * from reranked passages (pickClaimEvidence). `hardMs` (optional) caps each
+ * stance call.
  * Returns { verdict, evidence, costUsd, judgeModel } (judgeModel = the model
  * whose verdict was used).
  */
-export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product, rerank }) {
+export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product, rerank, hardMs, hedgeMs = 0 }) {
   const picked = await pickClaimEvidence({ claim, scoredEvidence, product, rerank });
-  const primary = await judgeWithModel({ claim, picked, apiKey, model, callLLM, product });
-  const primaryResult = { ...primary, judgeModel: model };
-  if (primary.verdict.status !== 'unsubstantiated' || !fallbackModel || fallbackModel === model) {
+  const judge = (judgeModel) => judgeWithModel({ claim, picked, apiKey, model: judgeModel, callLLM, product, hardMs });
+  if (!fallbackModel || fallbackModel === model) return { ...(await judge(model)), judgeModel: model };
+
+  const primaryRun = judgeOutcome(judge(model), model);
+  const hedge = hedgeMs > 0 ? delay(hedgeMs) : null;
+  const HEDGE = Symbol('hedge');
+  const first = await Promise.race([primaryRun, ...(hedge ? [hedge.promise.then(() => HEDGE)] : [])]);
+  hedge?.cancel();
+  if (first === HEDGE) {
+    console.log(`[verify] judge ${claim.id}: no ${model} verdict after ${hedgeMs} ms, ${fallbackModel} starts now`);
+    const fallbackRun = judgeOutcome(judge(fallbackModel), fallbackModel);
+    return firstDecided(primaryRun, fallbackRun, model);
+  }
+
+  if (first.error) {
+    const fallback = await judgeOutcome(judge(fallbackModel), fallbackModel);
+    if (fallback.error) throw first.error;
+    console.warn(`[verify] judge ${claim.id}: ${model} failed (${errorText(first.error)}), used the ${fallbackModel} verdict`);
+    return { ...fallback.result, judgeModel: fallbackModel };
+  }
+  const primaryResult = { ...first.result, judgeModel: model };
+  if (first.result.verdict.status !== 'unsubstantiated') return primaryResult;
+
+  const fallback = await judgeOutcome(judge(fallbackModel), fallbackModel);
+  if (fallback.error) {
+    console.warn(`[verify] fallback judge failed for claim ${claim.id}: ${errorText(fallback.error)}`);
     return primaryResult;
   }
-  try {
-    const fallback = await judgeWithModel({ claim, picked, apiKey, model: fallbackModel, callLLM, product });
-    const costUsd = primary.costUsd + fallback.costUsd;
-    return DECIDED_STATUSES.has(fallback.verdict.status)
-      ? { ...fallback, costUsd, judgeModel: fallbackModel }
-      : { ...primaryResult, costUsd };
-  } catch (err) {
-    console.warn(`[verify] fallback judge failed for claim ${claim.id}: ${err instanceof Error ? err.message : String(err)}`);
-    return primaryResult;
-  }
+  const costUsd = first.result.costUsd + fallback.result.costUsd;
+  return isDecided(fallback)
+    ? { ...fallback.result, costUsd, judgeModel: fallbackModel }
+    : { ...primaryResult, costUsd };
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -672,13 +743,16 @@ export const CLAIM_JUDGE_CONCURRENCY = 12;
 /**
  * Step 6, JUDGE: judgeClaim for every claim, at most `concurrency` at once.
  * Evidence is reranked when config.evidenceRerank is true and env carries
- * JINA_API_KEY (rerankOptions).
+ * JINA_API_KEY (rerankOptions). config.verifyStanceCallMs (optional) caps
+ * each stance call, and config.verifyHedgeMs (optional) starts the fallback
+ * judge when the primary is slow (verifyBudget, judgeClaim).
  * Results keep the claim order. A claim that throws (an LLM error, a timeout,
  * an AbortError) does not stop the others: its slot is failedClaimResult.
  * Other slots are judgeClaim's result.
  */
 export async function judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, env, concurrency = CLAIM_JUDGE_CONCURRENCY }) {
   const rerank = rerankOptions(config, env);
+  const { stanceCallMs, hedgeMs } = verifyBudget(config);
   const thunks = claims.map((claim) => () =>
     judgeClaim({
       claim,
@@ -689,6 +763,8 @@ export async function judgeClaims({ claims, scoredEvidence, config, apiKey, call
       callLLM,
       product,
       rerank,
+      hardMs: stanceCallMs,
+      hedgeMs,
     }),
   );
   return runPool(thunks, concurrency, (error, i) => failedClaimResult(claims[i], error));
@@ -748,24 +824,65 @@ export function scoreEvidence(evidenceSources) {
   });
 }
 
+// Positive ms, else 0 (no deadline).
+function positiveMs(value) {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * The time budget of a product check, from the config.verify* knobs
+ * (worker/lib/engine-config.js). Each *Ms value is a stage deadline in ms;
+ * 0 = no deadline. claimPatienceMs: see readClaimPages (0 = wait for the
+ * better ranked candidate). hedgeMs: when the primary stance call has no verdict by
+ * then, the fallback judge starts (judgeClaim). extractHedgeMs: when the
+ * extract call has no reply by then, a second request goes out
+ * (extractClaims). 0 = off. overlapGather: the gather starts with the check
+ * instead of after the test pages.
+ */
+export function verifyBudget(config) {
+  return {
+    resolveReadMs: positiveMs(config?.verifyResolveReadMs),
+    testReadMs: positiveMs(config?.verifyTestReadMs),
+    gatherReadMs: positiveMs(config?.verifyGatherReadMs),
+    plannerMs: positiveMs(config?.verifyPlannerMs),
+    stanceCallMs: positiveMs(config?.verifyStanceCallMs),
+    claimPatienceMs: positiveMs(config?.verifyClaimPatienceMs),
+    hedgeMs: positiveMs(config?.verifyHedgeMs),
+    extractHedgeMs: positiveMs(config?.verifyExtractHedgeMs),
+    overlapGather: config?.verifyOverlapGather === true,
+  };
+}
+
+// A stage deadline signal for ms, or null when ms is 0.
+function stageDeadline(ms) {
+  return ms > 0 ? deadlineSignal(ms) : null;
+}
+
 /**
  * Step 1, RESOLVE: the product's own pages to extract claims from. Candidates
  * come from searches for the product's own pages (see verify-resolve.js). A
- * pasted productUrl is the first candidate. Runs before the gather, so its
- * page reads do not compete with the gather's read burst for the reader's
- * rate limit. `search`, `read`, and `focusedRead` are injectable for tests.
- * Returns { claimSources, candidates, nextIndex, readsLeft, rejected, queries, found }.
+ * pasted productUrl is the first candidate. The candidate reads run at the
+ * same time (readClaimPages); `readMs` (optional) is their stage deadline,
+ * and `patienceMs` (optional, 0 = none) the wait for a slow better ranked
+ * candidate. `search`, `read`, and `focusedRead` are injectable for tests.
+ * Returns { claimSources, candidates, nextIndex, readsLeft, rejected, queries,
+ * found, spares } (spares: see readClaimPages).
  */
-export async function resolveClaimSources({ product, productUrl, env, search, read, focusedRead }) {
+export async function resolveClaimSources({ product, productUrl, env, search, read, focusedRead, readMs = 0, patienceMs = 0 }) {
   const { candidates: ranked, queries, found } = await findClaimCandidates({ product, env, search });
   const pasted = productUrl ? [{ url: productUrl, title: productUrl, content: '', source: 'manual' }] : [];
   const candidates = [...pasted, ...ranked.filter((c) => c.url !== productUrl)];
+  const stage = stageDeadline(readMs);
   const first = await readClaimPages(candidates, env, {
     wanted: CLAIM_PAGES_WANTED,
     maxReads: MAX_RESOLVE_READS,
     read,
     focusedRead,
+    signal: stage?.signal,
+    patienceMs,
   });
+  // The spare reads keep the stage deadline until they settle.
+  const spares = first.spares.finally(() => stage?.cancel());
   return {
     claimSources: first.pages,
     candidates,
@@ -774,6 +891,7 @@ export async function resolveClaimSources({ product, productUrl, env, search, re
     rejected: first.rejected,
     queries,
     found,
+    spares,
   };
 }
 
@@ -789,33 +907,52 @@ export function evidencePool(sources, product, productUrl) {
   return uniqueEvidence(about.length > 0 ? about : independent);
 }
 
+// More claim pages for the extraction retry: the resolve reads after the
+// first pages (spares), then reads of further candidates inside the read
+// budget left, `readMs` each pass.
+async function moreClaimPages({ resolved, env, read, focusedRead, readMs, patienceMs }) {
+  const spare = resolved.spares ? await resolved.spares : { pages: [] };
+  const missing = CLAIM_PAGES_WANTED - spare.pages.length;
+  const canRead = missing > 0 && resolved.readsLeft > 0 && resolved.nextIndex < resolved.candidates.length;
+  if (!canRead) return spare.pages.slice(0, CLAIM_PAGES_WANTED);
+  const stage = stageDeadline(readMs);
+  try {
+    const more = await readClaimPages(resolved.candidates, env, {
+      wanted: missing,
+      maxReads: resolved.readsLeft,
+      start: resolved.nextIndex,
+      read,
+      focusedRead,
+      signal: stage?.signal,
+      patienceMs,
+    });
+    return [...spare.pages, ...more.pages];
+  } finally {
+    stage?.cancel();
+  }
+}
+
 /**
  * Step 2, EXTRACT: claims from the resolved pages. A first pass with fewer
- * than MIN_CLAIMS claims reads more candidates (inside the read budget left)
- * and extracts again. The pass with more claims wins.
+ * than MIN_CLAIMS claims takes more pages (moreClaimPages: the spare resolve
+ * reads, then more candidates inside the read budget left) and extracts
+ * again. The pass with more claims wins. `readMs` and `patienceMs`
+ * (optional) apply to the retry reads (see resolveClaimSources). `hedgeMs`
+ * (optional): see extractClaims.
  * Returns { claims, claimSources, costUsd }.
  */
-export async function extractProductClaims({ product, resolved, env, apiKey, model, callLLM, read, focusedRead }) {
+export async function extractProductClaims({ product, resolved, env, apiKey, model, callLLM, read, focusedRead, readMs = 0, hedgeMs = 0, patienceMs = 0 }) {
   const extract = async (claimSources) => {
     if (claimSources.length === 0) return { claims: [], costUsd: 0 };
-    return extractClaims({ product, claimText: buildClaimTextBlock(claimSources), apiKey, model, callLLM });
+    return extractClaims({ product, claimText: buildClaimTextBlock(claimSources), apiKey, model, callLLM, hedgeMs });
   };
   const first = await extract(resolved.claimSources);
-  const canRetry = first.claims.length < MIN_CLAIMS
-    && resolved.readsLeft > 0
-    && resolved.nextIndex < resolved.candidates.length;
-  if (!canRetry) return { claims: first.claims, claimSources: resolved.claimSources, costUsd: first.costUsd };
+  if (first.claims.length >= MIN_CLAIMS) return { claims: first.claims, claimSources: resolved.claimSources, costUsd: first.costUsd };
 
-  const more = await readClaimPages(resolved.candidates, env, {
-    wanted: CLAIM_PAGES_WANTED,
-    maxReads: resolved.readsLeft,
-    start: resolved.nextIndex,
-    read,
-    focusedRead,
-  });
-  if (more.pages.length === 0) return { claims: first.claims, claimSources: resolved.claimSources, costUsd: first.costUsd };
+  const more = await moreClaimPages({ resolved, env, read, focusedRead, readMs, patienceMs });
+  if (more.length === 0) return { claims: first.claims, claimSources: resolved.claimSources, costUsd: first.costUsd };
 
-  const retrySources = [...resolved.claimSources, ...more.pages];
+  const retrySources = [...resolved.claimSources, ...more];
   const retry = await extract(retrySources);
   const costUsd = first.costUsd + retry.costUsd;
   return retry.claims.length > first.claims.length
@@ -829,22 +966,141 @@ export async function extractProductClaims({ product, resolved, env, apiKey, mod
  * those searches found (testPagesToRead). Before this step the evidence was
  * the gather's results only: generic searches, and about 1 in 15 sources read
  * (the keyless reader answers most of the gather's read burst with HTTP 429).
- * It runs before the gather, so its reads do not meet that burst.
- * `search` and `read` are injectable for tests.
+ * `search` and `read` are injectable for tests. `readPage` (optional) is a
+ * shared page reader (evidenceReader). `readMs` (optional) is the read stage
+ * deadline: a page not read by then keeps its snippet.
  * Returns { sources, queries, reads, filled } (sources: reads first, then every result).
  */
-export async function findClaimTests({ claims, product, env, search, read }) {
+export async function findClaimTests({ claims, product, env, search, read, readPage, readMs = 0 }) {
   const termsFor = (claim) => claimTermsFor(claim?.text, product);
   const { queries, results } = await searchClaimTests({ claims, product, termsFor, env, search });
   const found = interleave(results);
   const picks = testPagesToRead(found, product);
-  const { pages, filled } = await readTestPages(picks, env, read);
-  return { sources: [...pages, ...found], queries, reads: picks.length, filled };
+  const stage = stageDeadline(readMs);
+  const started = Date.now();
+  try {
+    // A shared reader keeps running after the deadline (the gather may need
+    // the page), so the stage does not wait for it.
+    const graceMs = readPage ? 0 : undefined;
+    const { pages, filled } = await readTestPages(picks, env, read, { signal: stage?.signal, readPage, graceMs });
+    console.log(`[verify] test pages: ${picks.length} reads, ${filled} filled in ${Date.now() - started} ms${stage?.signal.aborted ? ' (read deadline reached)' : ''}`);
+    return { sources: [...pages, ...found], queries, reads: picks.length, filled };
+  } finally {
+    stage?.cancel();
+  }
+}
+
+// Facets of every verify gather: a buyable product where recency matters.
+const VERIFY_FACETS = Object.freeze({ is_buyable: true, sold_on_amazon: true, recency_sensitive: true });
+// Search providers of the verify gather: web search only. In six baseline
+// checks (2026-10-09) the RSS provider (six feed fetches per search) gave no
+// source about the product, and the video provider's results are video pages
+// that verify does not read.
+const VERIFY_GATHER_PROVIDERS = Object.freeze(['web']);
+
+// Step 4, GATHER independent evidence for the product (gatherParallel, without
+// notes: verify never reads them). Reads go through the shared `readPage`.
+function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, startGate, readGate }) {
+  return gatherParallel(product, config, apiKey, env, emit, VERIFY_FACETS, product, {}, {
+    withNotes: false,
+    startGate,
+    readGate,
+    plannerHardMs: budget.plannerMs,
+    pickReads: (sources) => evidencePagesToRead(sources, product),
+    read: (source) => readPage(source),
+    readMs: budget.gatherReadMs,
+    readGraceMs: 0,
+    providers: VERIFY_GATHER_PROVIDERS,
+  });
 }
 
 /**
- * Full Truth Audit orchestration: resolve → extractClaims → claim test pages →
- * gather → scoreEvidence → per-claim stance → verdict → overallVerdict.
+ * Steps 1 to 5 of runVerification: resolve the product's own pages, extract
+ * claims, read the claims' test pages, gather, and score the evidence pool.
+ * With budget.overlapGather (verifyBudget) the gather starts at once: its
+ * planner call runs during resolve and extract. Its searches wait until the
+ * claims are extracted (a check that stops at needs_url or has no claim
+ * spends no gather search), and its page reads wait until the test page
+ * reads are done. So the extract call and the test page reads, which the
+ * verdicts depend on most, never wait behind the gather's 60 searches and 50
+ * reads for a connection (a Cloudflare Worker invocation keeps few open at
+ * once). Without overlapGather, the gather runs after the test pages (the
+ * order before 2026-10-09). The test pages and the gather share one page
+ * reader, and reads still running when the evidence is in are stopped.
+ * `extractCallLLM` (optional) replaces callLLM for the extraction call
+ * (benchmarks/verify-product.mjs logs it).
+ * Returns { status: 'needs_url', resolved, costUsd } or { status: 'ok',
+ * resolved, claims, claimSources, tests, gathered, scoredEvidence, costUsd,
+ * marks: { startedAt, extractedAt, gatheredAt } }.
+ */
+export async function collectClaimsAndEvidence({ product, productUrl, config, apiKey, env, onEvent, callLLM, extractCallLLM }) {
+  const emit = onEvent || (() => {});
+  const budget = verifyBudget(config);
+  const startedAt = Date.now();
+  const evidenceReads = new AbortController();
+  const readPage = evidenceReader(env, { signal: evidenceReads.signal });
+  const gate = deferred();
+  const testsRead = deferred();
+  const startGather = () => gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, startGate: gate.promise, readGate: testsRead.promise });
+  const early = budget.overlapGather ? startGather() : null;
+  // Handled here so a gather that fails during resolve is not an unhandled
+  // rejection. It is still awaited below, where its error stops the check.
+  early?.catch(() => {});
+  try {
+    // 1. RESOLVE the product's own pages. No page and no pasted URL: stop
+    //    before the gather searches spend anything.
+    const resolved = await resolveClaimSources({ product, productUrl, env, readMs: budget.resolveReadMs, patienceMs: budget.claimPatienceMs });
+    if (resolved.claimSources.length === 0 && !productUrl) {
+      gate.resolve(false);
+      return { status: 'needs_url', resolved, costUsd: 0 };
+    }
+
+    // 2. EXTRACT CLAIMS from the resolved pages.
+    const extracted = await extractProductClaims({
+      product,
+      resolved,
+      env,
+      apiKey,
+      model: config.extractModel || config.synthModel,
+      callLLM: extractCallLLM || callLLM,
+      readMs: budget.resolveReadMs,
+      hedgeMs: budget.extractHedgeMs,
+      patienceMs: budget.claimPatienceMs,
+    });
+    const extractedAt = Date.now();
+    gate.resolve(extracted.claims.length > 0);
+
+    // 3. TEST PAGES and 4. GATHER.
+    const testsDone = findClaimTests({ claims: extracted.claims, product, env, readPage, readMs: budget.testReadMs });
+    testsDone.finally(() => testsRead.resolve(true)).catch(() => {});
+    const gatherDone = early ?? testsDone.then(() => startGather());
+    const [tests, gathered] = await Promise.all([testsDone, gatherDone]);
+    const gatheredAt = Date.now();
+
+    // 5. SCORE EVIDENCE
+    const scoredEvidence = scoreEvidence(evidencePool([...tests.sources, ...(gathered.sources || [])], product, productUrl));
+    return {
+      status: 'ok',
+      resolved,
+      claims: extracted.claims,
+      claimSources: extracted.claimSources,
+      tests,
+      gathered,
+      scoredEvidence,
+      costUsd: extracted.costUsd + (gathered.totalCostUsd || 0),
+      marks: { startedAt, extractedAt, gatheredAt },
+    };
+  } finally {
+    gate.resolve(false);
+    testsRead.resolve(true);
+    evidenceReads.abort();
+  }
+}
+
+/**
+ * Full Truth Audit orchestration: collectClaimsAndEvidence (resolve →
+ * extractClaims → claim test pages and gather → scoreEvidence) → per-claim
+ * stance → verdict → overallVerdict.
  *
  * `config` is an engine tier config (see `worker/lib/tiers.js`); the LLM
  * calls use `config.synthModel`. `env` carries the provider keys consumed by
@@ -857,61 +1113,23 @@ export async function findClaimTests({ claims, product, env, search, read }) {
  * claims, evidenceCount, costUsd }`.
  */
 export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM }) {
-  const emit = onEvent || (() => {});
-  let costUsd = 0;
-  const startedAt = Date.now();
-
-  // 1. RESOLVE the product's own pages. No page and no pasted URL: stop
-  //    before the gather spends anything.
-  const resolved = await resolveClaimSources({ product, productUrl, env });
-  if (resolved.claimSources.length === 0 && !productUrl) {
+  const collected = await collectClaimsAndEvidence({ product, productUrl, config, apiKey, env, onEvent, callLLM });
+  if (collected.status === 'needs_url') {
     return {
       status: 'needs_url',
       message: `Could not resolve "${product}"'s own product page. Paste the product page URL (Amazon/Best Buy/Walmart/manufacturer) to continue.`,
     };
   }
-
-  // 2. EXTRACT CLAIMS from the resolved pages.
-  const { claims, claimSources, costUsd: extractCost } = await extractProductClaims({
-    product,
-    resolved,
-    env,
-    apiKey,
-    model: config.extractModel || config.synthModel,
-    callLLM,
-  });
-  costUsd += extractCost;
-  const extractedAt = Date.now();
-
-  // 3. TEST PAGES: claim searches and reads of independent test pages.
-  const tests = await findClaimTests({ claims, product, env });
-
-  // 4. GATHER independent evidence.
-  const gathered = await gatherParallel(
-    product,
-    config,
-    apiKey,
-    env,
-    emit,
-    { is_buyable: true, sold_on_amazon: true, recency_sensitive: true },
-    product,
-    {},
-  );
-  costUsd += gathered.totalCostUsd || 0;
-  const gatheredAt = Date.now();
-
-  // 5. SCORE EVIDENCE
-  const scoredEvidence = scoreEvidence(evidencePool([...tests.sources, ...(gathered.sources || [])], product, productUrl));
+  const { claims, claimSources, scoredEvidence, marks } = collected;
 
   // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict.
   //    Claims run concurrently. A failed claim is unsubstantiated and the run
   //    goes on. Only when every claim failed is the first error rethrown.
   const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, env });
   const { claimVerdicts, costUsd: stanceCost } = collectClaimVerdicts(claims, judged);
-  costUsd += stanceCost;
   const judgedAt = Date.now();
   console.log(
-    `[verify] timing gather=${secondsSince(extractedAt, gatheredAt)} extract=${secondsSince(startedAt, extractedAt)} judge=${secondsSince(gatheredAt, judgedAt)} total=${secondsSince(startedAt, judgedAt)}`,
+    `[verify] timing gather=${secondsSince(marks.extractedAt, marks.gatheredAt)} extract=${secondsSince(marks.startedAt, marks.extractedAt)} judge=${secondsSince(marks.gatheredAt, judgedAt)} total=${secondsSince(marks.startedAt, judgedAt)}`,
   );
 
   // 7. OVERALL
@@ -925,6 +1143,6 @@ export async function runVerification({ product, productUrl, config, apiKey, env
     overall,
     claims: claimVerdicts,
     evidenceCount: scoredEvidence.length,
-    costUsd,
+    costUsd: collected.costUsd + stanceCost,
   };
 }

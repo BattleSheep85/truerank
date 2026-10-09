@@ -588,11 +588,12 @@ export async function runSearch(query, provider, env, recencySensitive) {
 
 // Read one page IN PLACE — enriches `source.content` with the full body (and
 // re-scores credibility). Safe to call concurrently on distinct source objects.
-export async function readPageInto(source, env) {
+// `opts.signal` (optional) stops the read at a caller deadline; the snippet stays.
+export async function readPageInto(source, env, opts = {}) {
   const state = { searchCount: 0, fetchCount: 0, sources: [source], notes: [] };
   const tc = { function: { name: 'read_page', arguments: JSON.stringify({ url: source.url }) } };
   try {
-    await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive: true });
+    await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive: true, signal: opts.signal });
   } catch (err) {
     // A read failure leaves the snippet content untouched.
     console.warn(`[readPageInto] ${source.url} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -610,6 +611,8 @@ export async function readPageInto(source, env) {
 //     // (restaurants, hiking, classical books) where a 3-year-old review is
 //     // still relevant.
 //     recencySensitive?: boolean,
+//     // Optional stop signal for read_page (a verify stage deadline).
+//     signal?: AbortSignal,
 //   }
 
 /** Returns [resultText, subrequestsUsed] */
@@ -631,7 +634,7 @@ export async function executeTool(
     case 'web_search':
       return executeSearch(args, state, config, ctx.env, ctx.recencySensitive ?? true);
     case 'read_page':
-      return executeReadPage(args, state, config, ctx.env);
+      return executeReadPage(args, state, config, ctx.env, ctx.signal);
     case 'note':
       return [executeNote(args, state), 0];
     default:
@@ -818,6 +821,7 @@ async function executeReadPage(
   state,
   config,
   env,
+  signal,
 ) {
   if (state.fetchCount >= config.maxFetches) {
     return ['Page-read budget exhausted. Use note() to record findings from snippets or stop.', 0];
@@ -827,7 +831,7 @@ async function executeReadPage(
   if (!url || !isFetchableUrl(url)) return ['Error: valid public HTTPS URL is required', 0];
 
   state.fetchCount++;
-  const content = await fetchPageContent(url, env?.JINA_API_KEY);
+  const content = await fetchPageContent(url, env?.JINA_API_KEY, signal ? { signal } : undefined);
 
   if (!content) {
     return [`Could not read ${url} — page may be paywalled, JS-only, or blocked. Use the snippet instead.`, 1];

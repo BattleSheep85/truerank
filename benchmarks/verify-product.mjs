@@ -37,6 +37,10 @@
 //     REPLAY pool) instead of the production one (evidencePool +
 //     rankClaimEvidence). With REPLAY it gives the A/B on pinned evidence.
 //
+//   VP_CONFIG_JSON='{"verifyOverlapGather":false}' node benchmarks/verify-product.mjs
+//     Bench-only override of the verify speed knobs (verify* keys of
+//     ENGINE_CONFIG, worker/lib/engine-config.js). Other keys are refused.
+//
 //   Bench-only model overrides (no effect when unset):
 //     VP_STANCE_MODEL=<id>        stance judge model (cfg.stanceModel)
 //     VP_STANCE_FALLBACK=<id>     fallback judge (cfg.stanceFallbackModel); empty = none
@@ -44,8 +48,7 @@
 //     VP_CLAIM_CONCURRENCY=<n>    claims judged at once (default CLAIM_JUDGE_CONCURRENCY)
 //     An anthropic/ override needs BENCH_ALLOW_ANTHROPIC=1 (owner bench exception).
 
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
-import { gatherParallel } from '../worker/engine/parallel-engine.js';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { callLLM } from '../worker/engine/llm.js';
 import { verdictForClaim, overallVerdict } from '../worker/lib/verdict.js';
 import { ENGINE_CONFIG } from '../worker/lib/engine-config.js';
@@ -54,11 +57,8 @@ import {
   VERDICT_OPTS,
   judgeClaims,
   CLAIM_JUDGE_CONCURRENCY,
-  resolveClaimSources,
-  extractProductClaims,
+  collectClaimsAndEvidence,
   evidencePool,
-  scoreEvidence,
-  findClaimTests,
 } from '../worker/engine/verify.js';
 import { claimCandidateReason } from '../worker/engine/verify-resolve.js';
 
@@ -139,6 +139,24 @@ function modelOverrides(env) {
   return out;
 }
 
+// Bench-only override of the verify speed knobs (VP_CONFIG_JSON).
+function verifyKnobOverrides(env) {
+  if (!env.VP_CONFIG_JSON) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(env.VP_CONFIG_JSON);
+  } catch {
+    console.error('VP_CONFIG_JSON is not valid JSON');
+    process.exit(1);
+  }
+  const bad = Object.keys(parsed ?? {}).filter((k) => !k.startsWith('verify') || !(k in ENGINE_CONFIG));
+  if (!parsed || typeof parsed !== 'object' || bad.length > 0) {
+    console.error(`VP_CONFIG_JSON may set only ENGINE_CONFIG verify* keys; refused: ${bad.join(', ')}`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
 function claimConcurrency(env) {
   if (env.VP_CLAIM_CONCURRENCY === undefined || env.VP_CLAIM_CONCURRENCY === '') return CLAIM_JUDGE_CONCURRENCY;
   const n = Number(env.VP_CLAIM_CONCURRENCY);
@@ -158,11 +176,13 @@ const cfg = Object.freeze({
   maxToolCalls: 90,
   measurementSeedQueries: true,
   ...modelOverrides(process.env),
+  ...verifyKnobOverrides(process.env),
 });
 const CLAIM_CONCURRENCY = claimConcurrency(process.env);
 const extractModel = cfg.extractModel || cfg.synthModel;
 const stanceModel = cfg.stanceModel || cfg.synthModel;
 console.log(`[models] extract=${extractModel} stance=${stanceModel} fallback=${cfg.stanceFallbackModel || 'none'} concurrency=${CLAIM_CONCURRENCY}`);
+console.log(`[verify-knobs] ${JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([k]) => k.startsWith('verify'))))}`);
 
 let totalCostUsd = 0;
 
@@ -220,31 +240,10 @@ async function extractCallLLM(...args) {
   return resp;
 }
 
-// ── 1. GATHER ─────────────────────────────────────────────────────────────────
-async function gather() {
-  process.stderr.write(`[gather] researching "${PRODUCT}"...\n`);
-  const r = await gatherParallel(
-    PRODUCT,
-    cfg,
-    LLM_KEY,
-    TOOL_ENV,
-    () => {},
-    { is_buyable: true, sold_on_amazon: true, recency_sensitive: true },
-    PRODUCT,
-    {},
-  );
-  totalCostUsd += r.totalCostUsd || 0;
-  const sources = r.sources || [];
-  process.stderr.write(`[gather] ${sources.length} sources, ${r.notes?.length || 0} notes\n`);
-  diag.providerCounts = countBy(sources, (s) => s.source);
-  diag.sources = sources.map((s) => summarizeSource(s));
-  process.stderr.write(`[gather] sources by provider: ${JSON.stringify(diag.providerCounts)}\n`);
-  return sources;
-}
-
-// ── 2+3. RESOLVE + EXTRACT CLAIMS ────────────────────────────────────────────
-// resolveClaimSources() and extractProductClaims() are the production steps of
-// runVerification in worker/engine/verify.js. This wrapper only logs.
+// ── 1-4. RESOLVE, EXTRACT, TEST PAGES, GATHER ─────────────────────────────────
+// collectClaimsAndEvidence() is steps 1 to 5 of runVerification in
+// worker/engine/verify.js (same stage overlap and deadlines). This harness
+// only logs what it returns.
 function logResolve(resolved) {
   process.stderr.write(`[resolve] queries: ${JSON.stringify(resolved.queries)}\n`);
   const ownSite = resolved.found
@@ -262,33 +261,22 @@ function logResolve(resolved) {
   };
 }
 
-async function resolveAndExtract() {
-  process.stderr.write('[resolve] finding the product\'s own pages...\n');
-  const resolved = await resolveClaimSources({ product: PRODUCT, productUrl: PRODUCT_URL, env: TOOL_ENV });
-  logResolve(resolved);
-  if (resolved.claimSources.length === 0 && !PRODUCT_URL) {
-    writeDiag();
-    console.log(`Could not resolve "${PRODUCT}"'s own product page. Re-run with PRODUCT_URL=<amazon/bestbuy/walmart/manufacturer url> to specify it.`);
-    process.exit(0);
-  }
-
-  process.stderr.write('[extract-claims] calling LLM...\n');
-  const { claims, claimSources, costUsd } = await extractProductClaims({
-    product: PRODUCT,
-    resolved,
-    env: TOOL_ENV,
-    apiKey: LLM_KEY,
-    model: extractModel,
-    callLLM: extractCallLLM,
-  });
-  totalCostUsd += costUsd;
+function logCollected({ claims, claimSources, tests, gathered, scoredEvidence }) {
   diag.claimSources = claimSources.map((c) => summarizeSource(c, 3000));
   for (const c of claimSources) process.stderr.write(`[resolve] claim source ${c.url} chars=${(c.content || '').length}\n`);
   process.stderr.write(`[resolve] ${claimSources.length} claim source(s)\n`);
   process.stderr.write(`[extract-claims] ${claims.length} claims\n`);
-  return claims;
+  for (const q of tests.queries) process.stderr.write(`[tests] query: ${q}\n`);
+  process.stderr.write(`[tests] ${tests.sources.length} results, ${tests.reads} test page reads, ${tests.filled} filled\n`);
+  diag.tests = { queries: tests.queries, reads: tests.reads, filled: tests.filled };
+  const sources = gathered.sources || [];
+  process.stderr.write(`[gather] ${sources.length} sources, ${gathered.notes?.length || 0} notes\n`);
+  diag.providerCounts = countBy(sources, (s) => s.source);
+  diag.sources = sources.map((s) => summarizeSource(s));
+  process.stderr.write(`[gather] sources by provider: ${JSON.stringify(diag.providerCounts)}\n`);
+  const full = scoredEvidence.filter((s) => (s.content || '').length >= 1500).length;
+  process.stderr.write(`[evidence] ${scoredEvidence.length} independent source(s) of ${tests.sources.length + sources.length}, ${full} with page text\n`);
 }
-
 
 // ── 5. STANCE + VERDICT per claim ──────────────────────────────────────────────
 // judgeClaims() in worker/engine/verify.js is step 6 of runVerification: per
@@ -329,8 +317,9 @@ async function judgeAll(claims, scoredEvidence) {
     env: TOOL_ENV,
     concurrency: CLAIM_CONCURRENCY,
   });
-  const failed = results.find((r) => r && 'error' in r);
-  if (failed) throw failed.error;
+  // Same rule as collectClaimVerdicts in worker/engine/verify.js: a failed
+  // claim is unsubstantiated (failedClaimResult); only all failed stops the run.
+  if (results.length > 0 && results.every((r) => r && 'error' in r)) throw results[0].error;
   return results.map((r, i) => {
     totalCostUsd += r.costUsd;
     return { claim: claims[i], verdict: r.verdict, evidence: r.evidence, judgeModel: r.judgeModel };
@@ -398,27 +387,35 @@ async function loadClaimsAndEvidence() {
     return { claims: replayInput.claims, scoredEvidence };
   }
 
-  // Same order as runVerification: resolve and extract, then gather.
-  const claims = await resolveAndExtract();
-  timing.extractedAt = Date.now();
-  if (claims.length === 0) {
+  // The production steps 1 to 5 (runVerification's collectClaimsAndEvidence).
+  process.stderr.write(`[verify] resolving, extracting, and gathering "${PRODUCT}"...\n`);
+  const collected = await collectClaimsAndEvidence({
+    product: PRODUCT,
+    productUrl: PRODUCT_URL,
+    config: cfg,
+    apiKey: LLM_KEY,
+    env: TOOL_ENV,
+    onEvent: () => {},
+    callLLM,
+    extractCallLLM,
+  });
+  logResolve(collected.resolved);
+  if (collected.status === 'needs_url') {
     writeDiag();
+    console.log(`Could not resolve "${PRODUCT}"'s own product page. Re-run with PRODUCT_URL=<amazon/bestbuy/walmart/manufacturer url> to specify it.`);
+    process.exit(0);
+  }
+  totalCostUsd += collected.costUsd;
+  timing.startedAt = collected.marks.startedAt;
+  timing.extractedAt = collected.marks.extractedAt;
+  timing.gatheredAt = collected.marks.gatheredAt;
+  logCollected(collected);
+  writeDiag();
+  if (collected.claims.length === 0) {
     console.error('[extract-claims] no claims extracted — cannot proceed');
     process.exit(1);
   }
-  // Claim test searches and test page reads, as runVerification runs them.
-  const tests = await findClaimTests({ claims, product: PRODUCT, env: TOOL_ENV });
-  for (const q of tests.queries) process.stderr.write(`[tests] query: ${q}\n`);
-  process.stderr.write(`[tests] ${tests.sources.length} results, ${tests.reads} test page reads, ${tests.filled} filled\n`);
-  diag.tests = { queries: tests.queries, reads: tests.reads, filled: tests.filled };
-  const sources = await gather();
-  timing.gatheredAt = Date.now();
-  const evidence = evidencePool([...tests.sources, ...sources], PRODUCT, PRODUCT_URL);
-  const full = evidence.filter((s) => (s.content || '').length >= 1500).length;
-  process.stderr.write(`[evidence] ${evidence.length} independent source(s) of ${tests.sources.length + sources.length}, ${full} with page text\n`);
-
-  writeDiag();
-  return { claims, scoredEvidence: scoreEvidence(evidence) };
+  return { claims: collected.claims, scoredEvidence: collected.scoredEvidence };
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────

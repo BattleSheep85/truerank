@@ -1,4 +1,5 @@
 import { isFetchableUrl } from './url-guard.js';
+import { anySignal } from './deadline.js';
 
 const JINA_TIMEOUT_MS = 8000;
 const DIRECT_TIMEOUT_MS = 8000;
@@ -86,20 +87,26 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * `opts.fetchImpl`/`opts.sleepImpl` are injectable for tests (default to the
  * global fetch and a real timer-based delay); they do not change the public
  * two-arg call sites used throughout the codebase.
+ *
+ * `opts.signal` (optional) is the caller's stop signal, for example a verify
+ * stage deadline (worker/lib/deadline.js). When it aborts, the read in
+ * progress stops and no retry or direct fallback starts: the call returns ''.
  */
 export async function fetchPageContent(url, apiKey, opts = {}) {
   if (!isFetchableUrl(url)) return '';
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleepImpl = opts.sleepImpl ?? defaultSleep;
+  const stop = opts.signal;
   const started = Date.now();
 
   let sendKey = Boolean(apiKey) && !isKeyCoolingDown();
 
   for (let attempt = 0; attempt <= JINA_MAX_RETRIES; attempt++) {
+    if (stop?.aborted) return '';
     const headers = buildJinaHeaders(sendKey ? apiKey : null);
     try {
       const response = await fetchImpl(`https://r.jina.ai/${url}`, {
-        signal: AbortSignal.timeout(JINA_TIMEOUT_MS),
+        signal: anySignal([AbortSignal.timeout(JINA_TIMEOUT_MS), stop]),
         headers,
       });
 
@@ -120,37 +127,42 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
           await sleepImpl(backoffMs(attempt + 1));
           continue;
         }
-        return await fetchDirect(url, fetchImpl);
+        return await fetchDirect(url, fetchImpl, stop);
       }
 
       const text = await response.text();
       // Jina sometimes returns boilerplate for blocked/empty pages
-      if (text.length < 100) return await fetchDirect(url, fetchImpl);
+      if (text.length < 100) return await fetchDirect(url, fetchImpl, stop);
       return text.slice(0, MAX_CONTENT_LENGTH);
     } catch (err) {
+      if (stop?.aborted) {
+        console.log(`[jina] stopped ${url} (attempt ${attempt + 1}): the caller's deadline was reached`);
+        return '';
+      }
       console.log(`[jina] ERROR ${url} (attempt ${attempt + 1}): ${err instanceof Error ? err.message : String(err)}`);
       const canRetry = attempt < JINA_MAX_RETRIES && Date.now() - started < JINA_RETRY_BUDGET_MS;
       if (canRetry) {
         await sleepImpl(backoffMs(attempt + 1));
         continue;
       }
-      return await fetchDirect(url, fetchImpl);
+      return await fetchDirect(url, fetchImpl, stop);
     }
   }
   // Unreachable in practice (the loop always returns), but keep the contract
   // explicit: never throw, always resolve to a string.
-  return await fetchDirect(url, fetchImpl);
+  return await fetchDirect(url, fetchImpl, stop);
 }
 
 /**
  * Direct fallback: fetch the raw page with browser-like headers and extract
- * readable text without any DOM library. Returns '' on any failure; never throws.
+ * readable text without any DOM library. Returns '' on any failure, or when
+ * the caller's `stop` signal has aborted; never throws.
  */
-async function fetchDirect(url, fetchImpl = fetch) {
-  if (!isFetchableUrl(url)) return '';
+async function fetchDirect(url, fetchImpl = fetch, stop = undefined) {
+  if (!isFetchableUrl(url) || stop?.aborted) return '';
   try {
     const response = await fetchImpl(url, {
-      signal: AbortSignal.timeout(DIRECT_TIMEOUT_MS),
+      signal: anySignal([AbortSignal.timeout(DIRECT_TIMEOUT_MS), stop]),
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +

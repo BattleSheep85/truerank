@@ -13,6 +13,7 @@
 import { runSearch, readPageInto } from './tools.js';
 import { isManufacturerDomain } from '../lib/credibility.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
+import { afterAbort, anySignal, delay, runPoolUntil, POOL_GRACE_MS } from '../lib/deadline.js';
 
 const TOKEN_RE = /[a-z0-9]+/g;
 const DIGIT_RE = /\d/;
@@ -484,14 +485,15 @@ const FOCUSED_READ_HEADERS = Object.freeze({
 /**
  * Page text from the fallback read, or '' on any failure. Never throws.
  * With a Jina key the read uses it (paid tier: faster, no free rate cap).
+ * `opts.signal` (optional) stops the read at a caller deadline.
  */
-export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '') {
-  if (!isFetchableUrl(url)) return '';
+export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '', opts = {}) {
+  if (!isFetchableUrl(url) || opts.signal?.aborted) return '';
   const headers = apiKey ? { ...FOCUSED_READ_HEADERS, Authorization: `Bearer ${apiKey}` } : FOCUSED_READ_HEADERS;
   try {
     const response = await fetchImpl(`https://r.jina.ai/${url}`, {
       headers,
-      signal: AbortSignal.timeout(FOCUSED_READ_TIMEOUT_MS),
+      signal: anySignal([AbortSignal.timeout(FOCUSED_READ_TIMEOUT_MS), opts.signal]),
     });
     if (!response.ok) {
       console.log(`[verify-resolve] focused read HTTP ${response.status} for ${url}`);
@@ -504,44 +506,210 @@ export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '') {
   }
 }
 
-// One claim page: the shared reader first, then the fallback read when the
-// shared read is not usable. Fills a copy, so the candidate never changes.
-async function readClaimPage(candidate, env, read, focusedRead) {
-  const copy = { ...candidate };
-  await read(copy, env);
-  if (isUsableClaimPage(copy.content)) return copy;
-  const focused = await focusedRead(copy.url, undefined, env?.JINA_API_KEY || '');
-  const problem = claimPageProblem(focused);
-  if (!problem) return { ...copy, content: focused };
-  console.log(`[verify-resolve] focused read ${problem} (${focused.length} chars) for ${copy.url}`);
-  return copy;
+// When the focused read is usable first, readClaimPage waits this long for
+// the shared read: its text is the one claim extraction was tuned on.
+export const SHARED_READ_WAIT_MS = 2000;
+
+// The claim page of two page reads ({ page, via }): the shared read when it
+// is usable; else the focused read when it is usable; else the shared read
+// (its text gives the reject reason). A usable focused read that comes first
+// waits at most waitMs for the shared read.
+function preferShared(shared, focused, waitMs) {
+  return new Promise((resolve) => {
+    let sharedResult = null;
+    let focusedResult = null;
+    let timer = null;
+    const finish = (result) => {
+      if (timer !== null) clearTimeout(timer);
+      resolve(result);
+    };
+    const decide = () => {
+      if (sharedResult && isUsableClaimPage(sharedResult.page.content)) return finish(sharedResult);
+      const focusedUsable = focusedResult && isUsableClaimPage(focusedResult.page.content);
+      if (sharedResult && focusedUsable) return finish(focusedResult);
+      if (sharedResult && focusedResult) return finish(sharedResult);
+      if (focusedUsable && timer === null) timer = setTimeout(() => finish(focusedResult), waitMs);
+      return undefined;
+    };
+    shared.then((result) => {
+      sharedResult = result;
+      decide();
+    });
+    focused.then((result) => {
+      focusedResult = result;
+      decide();
+    });
+  });
+}
+
+// One claim page: the shared reader and the focused read at the same time
+// (preferShared picks the text); the other read stops. Before, the focused
+// read started only after the shared read failed, so a slow product page
+// cost both waits in series. Fills a copy, so the candidate never changes.
+async function readClaimPage(candidate, env, read, focusedRead, signal, sharedWaitMs = SHARED_READ_WAIT_MS) {
+  const started = Date.now();
+  const loser = new AbortController();
+  const stop = anySignal([signal, loser.signal]);
+  const shared = Promise.resolve()
+    .then(async () => {
+      const copy = { ...candidate };
+      await read(copy, env, { signal: stop });
+      return copy;
+    })
+    .catch(() => ({ ...candidate }))
+    .then((page) => ({ page, via: 'shared read' }));
+  const focused = Promise.resolve()
+    .then(() => focusedRead(candidate.url, undefined, env?.JINA_API_KEY || '', { signal: stop }))
+    .then((text) => ({ ...candidate, content: String(text ?? '') }))
+    .catch(() => ({ ...candidate, content: '' }))
+    .then((page) => ({ page, via: 'focused read' }));
+  const { page, via } = await preferShared(shared, focused, sharedWaitMs);
+  loser.abort();
+  const problem = claimPageProblem(page.content);
+  const chars = String(page.content ?? '').length;
+  console.log(`[verify-resolve] claim page ${problem ?? `usable via ${via}`} in ${Date.now() - started} ms (${chars} chars) ${candidate.url}`);
+  return page;
+}
+
+// The candidates to look at from `start`: each candidate that is already
+// usable, and each one that needs a read, until maxReads reads or until
+// `wanted` candidates are usable without a read.
+function claimReadWindow(list, start, wanted, maxReads) {
+  const window = [];
+  let reads = 0;
+  let known = 0;
+  let index = start;
+  for (; index < list.length && known < wanted; index += 1) {
+    const usable = isUsableClaimPage(list[index].content);
+    if (!usable && reads >= maxReads) break;
+    if (usable) known += 1;
+    else reads += 1;
+    window.push({ candidate: list[index], needsRead: !usable });
+  }
+  return { window, reads, nextIndex: index };
+}
+
+// Waits for a promise, or until graceMs after signal aborts (then null).
+function untilStopped(promise, signal, graceMs = POOL_GRACE_MS) {
+  if (!signal) return promise;
+  const stop = afterAbort(signal, graceMs);
+  return Promise.race([promise, stop.promise.then(() => null)]).finally(stop.cancel);
+}
+
+// True when a settled read (a page, not null) is usable.
+function isUsableRead(page) {
+  return page !== null && isUsableClaimPage(page.content);
+}
+
+// True when the claim pages are known: the first `wanted` usable pages in
+// candidate order, with every read before them done, or every read done.
+function claimPagesKnown(done, wanted) {
+  let usable = 0;
+  for (const page of done) {
+    if (usable >= wanted) return true;
+    if (page === null) return false;
+    if (isUsableClaimPage(page.content)) usable += 1;
+  }
+  return true;
+}
+
+const STOPPED = Symbol('stopped');
+const OUT_OF_PATIENCE = Symbol('out-of-patience');
+
+// Waits until claimPagesKnown, or until `signal` aborts (plus graceMs). Once
+// `wanted` reads are usable in any order, it waits at most patienceMs more
+// for slower reads of better ranked candidates (0 = no limit). `done[i]` is
+// the page of read i, or null while it runs; `tracked[i]` settles after
+// done[i] is set.
+async function settleClaimReads({ done, tracked, wanted, signal, patienceMs, graceMs }) {
+  const stop = afterAbort(signal, graceMs);
+  let patience = null;
+  try {
+    while (!claimPagesKnown(done, wanted)) {
+      const running = tracked.filter((_, i) => done[i] === null);
+      if (!patience && patienceMs > 0 && done.filter(isUsableRead).length >= wanted) patience = delay(patienceMs);
+      const waits = [Promise.race(running), stop.promise.then(() => STOPPED)];
+      if (patience) waits.push(patience.promise.then(() => OUT_OF_PATIENCE));
+      const why = await Promise.race(waits);
+      if (why === STOPPED || why === OUT_OF_PATIENCE) return;
+    }
+  } finally {
+    stop.cancel();
+    patience?.cancel();
+  }
+}
+
+// The first `wanted` usable pages among the done reads, in candidate order,
+// and the reads done without a usable page. A read still running is neither.
+function pickClaimPages(done, wanted) {
+  const picked = [];
+  const rejected = [];
+  done.forEach((page, i) => {
+    if (page === null) return;
+    if (!isUsableClaimPage(page.content)) rejected.push(i);
+    else if (picked.length < wanted) picked.push(i);
+  });
+  return { picked, rejected };
+}
+
+function rejectedRow(page) {
+  return { url: page.url, chars: String(page.content ?? '').length, reason: claimPageProblem(page.content) };
 }
 
 /**
- * Reads candidates from `start` until `wanted` usable pages or `maxReads`
- * reads. A candidate that is already usable needs no read. A page that stays
- * unusable is skipped with its reason (see claimPageProblem).
- * Returns { pages, rejected: [{ url, chars, reason }], readsUsed, nextIndex }.
+ * Reads the candidates from `start` at the same time (claimReadWindow: at
+ * most `maxReads` reads; a candidate that is already usable needs no read)
+ * and keeps the first `wanted` usable pages in candidate order. Each read
+ * runs the shared reader and the focused read at once and keeps the shared
+ * text when it is usable (a usable focused text waits at most sharedWaitMs
+ * for it). It returns as soon as those pages are known, without waiting for
+ * the reads after them. When `wanted` pages are usable but a better ranked
+ * candidate is still being read, it waits at most `patienceMs` for that
+ * read (0 = until it ends), then takes the usable pages it has. A page that stays unusable is
+ * skipped with its reason (see claimPageProblem). `signal` (optional) is the
+ * stage deadline: a read still running then stops and counts as unusable.
+ * Returns { pages, rejected: [{ url, chars, reason }], readsUsed, nextIndex,
+ * spares } — spares: a promise of { pages, rejected } for the window's other
+ * candidates, usable pages in candidate order (the extraction retry uses them).
  */
 export async function readClaimPages(candidates, env, opts = {}) {
-  const { wanted, maxReads, start = 0, read = readPageInto, focusedRead = readFocusedPage } = opts;
+  const {
+    wanted,
+    maxReads,
+    start = 0,
+    read = readPageInto,
+    focusedRead = readFocusedPage,
+    signal,
+    patienceMs = 0,
+    graceMs = POOL_GRACE_MS,
+    sharedWaitMs = SHARED_READ_WAIT_MS,
+  } = opts;
   const list = Array.isArray(candidates) ? candidates : [];
-  const pages = [];
-  const rejected = [];
-  let readsUsed = 0;
-  let index = start;
-  for (; index < list.length && pages.length < wanted; index += 1) {
-    let page = list[index];
-    if (!isUsableClaimPage(page.content)) {
-      if (readsUsed >= maxReads) break;
-      readsUsed += 1;
-      page = await readClaimPage(page, env, read, focusedRead);
-    }
-    const problem = claimPageProblem(page.content);
-    if (problem) rejected.push({ url: page.url, chars: String(page.content ?? '').length, reason: problem });
-    else pages.push(page);
-  }
-  return { pages, rejected, readsUsed, nextIndex: index };
+  const { window, reads, nextIndex } = claimReadWindow(list, start, wanted, maxReads);
+  const pending = window.map(({ candidate, needsRead }) =>
+    (needsRead ? readClaimPage(candidate, env, read, focusedRead, signal, sharedWaitMs) : Promise.resolve(candidate)));
+  const done = new Array(pending.length).fill(null);
+  const tracked = pending.map((p, i) => p.then((page) => {
+    done[i] = page;
+  }));
+
+  await settleClaimReads({ done, tracked, wanted, signal, patienceMs, graceMs });
+  const snapshot = [...done];
+  const { picked, rejected } = pickClaimPages(snapshot, wanted);
+  const settledElsewhere = new Set([...picked, ...rejected]);
+  const others = window.map((_, i) => i).filter((i) => !settledElsewhere.has(i));
+  const spares = Promise.all(others.map((i) => untilStopped(pending[i], signal, graceMs).then((page) => page ?? window[i].candidate)))
+    .then((pages) => ({
+      pages: pages.filter((page) => isUsableClaimPage(page.content)),
+      rejected: pages.filter((page) => !isUsableClaimPage(page.content)).map(rejectedRow),
+    }));
+  return {
+    pages: picked.map((i) => snapshot[i]),
+    rejected: rejected.map((i) => rejectedRow(snapshot[i])),
+    readsUsed: reads,
+    nextIndex,
+    spares,
+  };
 }
 
 // ── Evidence: claim searches and test page reads ─────────────────────────────
@@ -557,8 +725,10 @@ const NUMBER_ONLY_RE = /^\d+$/;
 export const MAX_TEST_PAGE_READS = 8;
 // Reads at the same time. The keyless reader allows about 20 reads a minute.
 const TEST_READ_CONCURRENCY = 2;
+// With a Jina key (paid tier, no free rate cap) every test page is read at once.
+const KEYED_TEST_READ_CONCURRENCY = MAX_TEST_PAGE_READS;
 // Host labels whose reads hold no test text: video and social pages.
-const NO_READ_LABELS = new Set(['youtube', 'youtu', 'tiktok', 'instagram', 'facebook', 'x', 'twitter', 'pinterest', 'threads']);
+export const NO_READ_LABELS = new Set(['youtube', 'youtu', 'tiktok', 'instagram', 'facebook', 'x', 'twitter', 'pinterest', 'threads']);
 // A url or title with one of these words is a test or review page.
 const TEST_PAGE_RE = /\breviews?\b|\btested\b|\btests?\b|\bhands[- ]on\b|\bmeasure/i;
 
@@ -614,41 +784,102 @@ export function testPagesToRead(sources, product, max = MAX_TEST_PAGE_READS) {
   return picks.sort((a, b) => a.rank - b.rank || a.index - b.index).slice(0, max).map((p) => p.source);
 }
 
-// Runs fn over items, at most `limit` at the same time. Keeps the item order.
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  const lane = async () => {
-    while (next < items.length) {
-      const i = next;
-      next += 1;
-      results[i] = await fn(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
-  return results;
+// Gather page reads per product check, and the credibility score a page
+// needs for a read (the gather's own limits, worker/engine/parallel-engine.js).
+export const MAX_GATHER_READS = 50;
+const GATHER_READ_MIN_SCORE = 45;
+
+/**
+ * The gather's page reads for a product check, best first, at most `max`:
+ * snippet-only pages that can be independent evidence (not the maker's or a
+ * retailer's site, not video or social pages, not titled for another model
+ * of the line), one per page, with a credibility score of at least
+ * `minScore`. Pages whose url, title, or snippet names this product come
+ * first, then the others; each group by credibility score. Before this,
+ * the gather read the most credible pages of any topic first (RSS items
+ * about other products), and a stage deadline cut the useful reads.
+ * Does not change the input.
+ */
+export function evidencePagesToRead(sources, product, { max = MAX_GATHER_READS, minScore = GATHER_READ_MIN_SCORE } = {}) {
+  const seen = new Set();
+  const picks = [];
+  for (const [index, source] of (Array.isArray(sources) ? sources : []).entries()) {
+    const key = evidenceKey(source?.url);
+    if (!source?.url || seen.has(key) || String(source.content ?? '').length >= THIN_EVIDENCE_CHARS) continue;
+    const score = source.credibility?.score ?? 0;
+    if (score < minScore || ownPageKind(source.url, product) || NO_READ_LABELS.has(hostLabel(source.url))) continue;
+    if (namesOtherModel(source, product)) continue;
+    seen.add(key);
+    picks.push({ source, rank: aboutProduct(source, product) ? 0 : 1, score, index });
+  }
+  return picks
+    .sort((a, b) => a.rank - b.rank || b.score - a.score || a.index - b.index)
+    .slice(0, Math.max(0, max))
+    .map((p) => p.source);
 }
 
 /**
- * Full reads of test pages, TEST_READ_CONCURRENCY at a time. Each read fills
- * a copy. A read that gives a block page or no more text than the snippet
- * keeps the snippet source. Returns { pages, filled } (filled: reads that
- * gave page text). Does not change the input.
+ * One read per evidence page for a whole product check: the test page reads
+ * and the gather reads share it, so a page both find is read once. Returns
+ * readPage(source): a promise of a filled copy of `source`, or `source` when
+ * the read gave no more text (readEvidencePage). `signal` (optional) stops
+ * every read still running (the check calls it when the evidence is in).
  */
-export async function readTestPages(picks, env, read = readPageInto) {
+export function evidenceReader(env, { read = readPageInto, signal } = {}) {
+  const reads = new Map();
+  return (source) => {
+    const key = evidenceKey(source?.url);
+    if (!reads.has(key)) reads.set(key, { first: source, page: readEvidencePage(source, env, read, signal) });
+    const { first, page } = reads.get(key);
+    return page.then((filled) => {
+      if (filled === first) return source;
+      if (source === first) return filled;
+      return { ...source, content: filled.content, credibility: filled.credibility ?? source.credibility };
+    });
+  };
+}
+
+/** Test page reads at the same time: all of them with a Jina key, else TEST_READ_CONCURRENCY. */
+export function testReadConcurrency(env) {
+  return env?.JINA_API_KEY ? KEYED_TEST_READ_CONCURRENCY : TEST_READ_CONCURRENCY;
+}
+
+/**
+ * One evidence page read into a copy. A read that fails, gives a block page,
+ * or gives no more text than the snippet keeps the snippet source (the same
+ * object). `signal` (optional) stops the read at a stage deadline.
+ */
+export async function readEvidencePage(source, env, read = readPageInto, signal = undefined) {
+  const copy = { ...source };
+  try {
+    await read(copy, env, { signal });
+  } catch (err) {
+    // One failed read never stops the run: the snippet stays.
+    console.log(`[verify-resolve] page read failed for ${source.url}: ${err instanceof Error ? err.message : String(err)}`);
+    return source;
+  }
+  const text = String(copy.content ?? '');
+  return text.length > String(source.content ?? '').length && !isBlockPage(text) ? copy : source;
+}
+
+/**
+ * Full reads of test pages, testReadConcurrency(env) at a time. Each read
+ * fills a copy (readEvidencePage, or opts.readPage when given, see
+ * evidenceReader). `opts.signal` (optional) is the stage deadline: no read
+ * starts after it, and a page not read by then keeps its snippet.
+ * `opts.graceMs`: how long to wait after the deadline for running reads
+ * (see runPoolUntil). Returns { pages, filled } (filled: reads that gave
+ * page text). Does not change the input.
+ */
+export async function readTestPages(picks, env, read = readPageInto, opts = {}) {
+  const { signal, concurrency = testReadConcurrency(env), readPage, graceMs } = opts;
   const list = Array.isArray(picks) ? picks : [];
-  const pages = await mapLimit(list, TEST_READ_CONCURRENCY, async (source) => {
-    const copy = { ...source };
-    try {
-      await read(copy, env);
-    } catch (err) {
-      // One failed read never stops the run: the snippet stays.
-      console.log(`[verify-resolve] test page read failed for ${source.url}: ${err instanceof Error ? err.message : String(err)}`);
-      return source;
-    }
-    const text = String(copy.content ?? '');
-    return text.length > String(source.content ?? '').length && !isBlockPage(text) ? copy : source;
-  });
+  const readOne = readPage ?? ((source) => readEvidencePage(source, env, read, signal));
+  const pages = await runPoolUntil(
+    list.map((source) => () => readOne(source)),
+    concurrency,
+    { signal, graceMs, onMissing: (i) => list[i], onError: (_err, i) => list[i] },
+  );
   return { pages, filled: pages.filter((page, i) => page !== list[i]).length };
 }
 

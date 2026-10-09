@@ -12,6 +12,7 @@ import * as toolsModule from '../../worker/engine/tools.js';
 import * as llmModule from '../../worker/engine/llm.js';
 import * as rerankModule from '../../worker/engine/verify-rerank.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
+import { runVerifySpeedTests } from './verify-speed.test.js';
 
 const {
   isMarketingEcho,
@@ -318,6 +319,9 @@ export async function runVerifyTests() {
 
   // ── reranked claim evidence (ENGINE_CONFIG.evidenceRerank) ───────────────
   await runRerankEvidenceTests({ eq, ok, report });
+
+  // ── verify speed: stage deadlines, parallel reads, hedged calls ───────────
+  await runVerifySpeedTests({ eq, ok, report });
 
   return report;
 }

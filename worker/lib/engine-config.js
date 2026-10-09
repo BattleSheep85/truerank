@@ -108,6 +108,37 @@ export const ENGINE_CONFIG = {
   plannerContextMode: 'append',
   plannerContextMaxChars: 600_000,
   plannerContextKeepTail: 6,
+  // ── verify (Truth Audit) speed, 2026-10-09 ──────────────────────────────
+  // Stage deadlines of a product check (worker/engine/verify.js verifyBudget),
+  // in ms; 0 turns one off. A stage that reaches its deadline goes on with the
+  // page text that arrived; a page not read keeps its search snippet.
+  // OFF by default: the ship rule needed a 6-product median under 60 s and a
+  // median decided share not below the baseline (54%) in one clean round.
+  // Measured with resolve 15_000, test 12_000, gather 15_000, planner 25_000,
+  // stance 25_000, patience 3_000: 50.4 s / 50% (round 3), 67.6 s / 58%
+  // (round 4, three products on Tavily after Brave ran out of credit, and a
+  // slow extract model); baseline 80.3 s / 54%. Set those values to turn the
+  // deadlines on after a clean re-measure (benchmarks/verify-product.mjs,
+  // VP_CONFIG_JSON).
+  verifyResolveReadMs: 0, // the product's own pages (all candidate reads at once)
+  verifyTestReadMs: 0, // the claims' test pages
+  verifyGatherReadMs: 0, // the gather's page reads
+  verifyPlannerMs: 0, // the gather's planner call (fixed aspects on a timeout)
+  verifyStanceCallMs: 0, // each stance call (a capped fallback keeps the primary verdict)
+  // When `wanted` claim pages are usable but a better ranked candidate is still
+  // being read, wait at most this long for it. 0 = wait for it.
+  verifyClaimPatienceMs: 0,
+  // When the primary stance call (a fast model, a few seconds as a rule) has
+  // no verdict after this many ms, the fallback judge starts, and the first
+  // decided verdict wins (never fewer decided claims). 0 = off.
+  verifyHedgeMs: 10_000,
+  // When the extract call (one call, 1 to 4 s as a rule) has no reply after
+  // this many ms, a second request goes out; the first reply wins. 0 = off.
+  verifyExtractHedgeMs: 5_000,
+  // true starts the gather with the check: its planner call overlaps resolve
+  // and extract, its searches wait for the claims, and its reads wait for the
+  // test page reads. false runs it after the test pages.
+  verifyOverlapGather: true,
   maxConcurrency: 6, // parallel sub-researchers on the CF queue consumer (6 = validated memory-safe; bumping to 12 gave no latency gain — bottleneck is the agent loop + synth, not gather)
   reportSections: ['summary', 'products', 'comparison', 'categories', 'pitfalls', 'buyerGuide', 'methodology'],
 };

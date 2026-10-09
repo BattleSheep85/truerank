@@ -18,6 +18,7 @@ import { validateResearchResult } from './validate.js';
 import { fossLeadersFor } from '../lib/foss-leaders.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
+import { deadlineSignal, runPoolUntil } from '../lib/deadline.js';
 
 const PER_ASPECT_QUERIES = 5;
 // Provider rotation across the flattened search queries (cycled for source
@@ -51,6 +52,28 @@ SELF-HOSTED / OPEN-SOURCE COVERAGE (critical — do not skip): if the query is a
 
 Output ONLY JSON: {"aspects":[{"title":"<short>","queries":["q1","q2",...]}]}.`;
 
+// A planner call that fails within this many ms (for example an upstream 429
+// "temporarily rate-limited") is tried once more after DECOMPOSE_RETRY_DELAY_MS.
+// A slower failure (a timeout) and a reply without usable aspects are not
+// tried again: the fixed aspects below apply at once.
+const DECOMPOSE_RETRY_WINDOW_MS = 10_000;
+const DECOMPOSE_RETRY_DELAY_MS = 1500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One planner call: { aspects, cost }. aspects is [] when the reply has fewer
+// than two usable aspects. Throws on a failed call.
+async function planAspects(key, plannerModel, messages, nAspects, plannerOpts) {
+  const resp = await callLLM(key, plannerModel, messages, { ...plannerOpts });
+  const cost = Number.isFinite(resp.usage?.cost) ? resp.usage.cost : 0;
+  const raw = resp.choices?.[0]?.message?.content ?? '';
+  // parseFencedJson returns null (never throws) on unparseable content.
+  const parsed = parseFencedJson(raw);
+  const aspects = Array.isArray(parsed?.aspects)
+    ? parsed.aspects.filter((a) => a && a.title && Array.isArray(a.queries) && a.queries.length).slice(0, nAspects)
+    : [];
+  return { aspects: aspects.length >= 2 ? aspects : [], cost };
+}
+
 async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}) {
   const clarBlock = clarifications && Object.keys(clarifications).length > 0
     ? `\nUSER CONSTRAINTS (mandatory — bias every aspect and every search query to surface options satisfying these):\n${Object.entries(clarifications).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`
@@ -60,19 +83,20 @@ async function decompose(query, key, plannerModel, nAspects, perAspect, plannerO
     { role: 'user', content: `Query: "${query}"${clarBlock}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
   ];
   let cost = 0;
-  try {
-    const resp = await callLLM(key, plannerModel, messages, { ...plannerOpts });
-    if (Number.isFinite(resp.usage?.cost)) cost = resp.usage.cost;
-    const raw = resp.choices?.[0]?.message?.content ?? '';
-    // parseFencedJson returns null (never throws) on unparseable content; the
-    // following `.aspects` property read on a null value throws and is caught
-    // by this same try/catch, so the deterministic fallback below still runs.
-    const parsed = parseFencedJson(raw);
-    const aspects = Array.isArray(parsed.aspects)
-      ? parsed.aspects.filter((a) => a && a.title && Array.isArray(a.queries) && a.queries.length).slice(0, nAspects)
-      : [];
-    if (aspects.length >= 2) return { aspects, cost };
-  } catch { /* fall through to deterministic fallback */ }
+  const started = Date.now();
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const planned = await planAspects(key, plannerModel, messages, nAspects, plannerOpts);
+      cost += planned.cost;
+      if (planned.aspects.length > 0) return { aspects: planned.aspects, cost };
+      break;
+    } catch (err) {
+      console.log(`[parallel] planner call failed (attempt ${attempt}): ${err instanceof Error ? err.message : String(err)}`);
+      if (attempt === 2 || Date.now() - started > DECOMPOSE_RETRY_WINDOW_MS) break;
+      await sleep(DECOMPOSE_RETRY_DELAY_MS);
+    }
+  }
+  console.log('[parallel] planner gave no aspects, using the fixed aspects');
   return {
     cost,
     aspects: [
@@ -107,12 +131,54 @@ async function extractNotes(query, batch, key, plannerModel, plannerOpts = {}) {
   } catch { return { notes: [], cost: 0 }; }
 }
 
+// The default read picks: the most credible pages first.
+function credibleReadPicks(sources) {
+  return [...sources]
+    .filter((s) => (s.credibility?.score ?? 0) >= READ_MIN_SCORE)
+    .sort((a, b) => (b.credibility?.score ?? 0) - (a.credibility?.score ?? 0))
+    .slice(0, MAX_READ);
+}
+
+// The default read: fills the source in place (readPageInto) and returns it.
+function readInPlace(env) {
+  return async (source, signal) => {
+    await readPageInto(source, env, { signal });
+    return source;
+  };
+}
+
 // ── Gather only (no synth) ──────────────────────────────────────────────────
 // The rich parallel gatherer: decompose → parallel search burst → read → extract notes.
 // Returns RAW {sources, notes, totalCostUsd}. The honest synth runs separately (CF-side in
 // handleComplete, or in runParallelEngine below for the legacy/bench path) so the off-CF
 // worker can never synthesize on its own.
-export async function gatherParallel(query, config, openrouterKey, env, onEvent, facets, topicalCategory, clarifications) {
+//
+// `opts` (all optional; the defaults keep the behavior above). The verify path
+// (worker/engine/verify.js) sets them:
+//   withNotes  false skips the note extraction calls (verify never uses notes).
+//   startGate  a promise: the search burst waits for it, and a false value
+//              stops the gather after the planner call (no search spent).
+//   readGate   a promise: the read burst waits for it (its value is not used).
+//   plannerHardMs  caps the planner call; on a timeout the fixed aspects apply.
+//   pickReads(sources)  the pages to read, best first (default: most credible).
+//   read(source, signal)  reads one page, resolves to the filled source (a
+//              copy or the same object). Default: readPageInto in place.
+//   readMs     the read stage deadline: no read starts after it, and a page
+//              not read by then keeps its snippet. 0 = no deadline.
+//   readGraceMs  wait after the deadline for running reads (runPoolUntil).
+//   providers  the search provider rotation (default PROVIDERS).
+export async function gatherParallel(query, config, openrouterKey, env, onEvent, facets, topicalCategory, clarifications, opts = {}) {
+  const {
+    withNotes = true,
+    startGate = null,
+    readGate = null,
+    plannerHardMs = 0,
+    pickReads = credibleReadPicks,
+    read = null,
+    readMs = 0,
+    readGraceMs,
+    providers = PROVIDERS,
+  } = opts;
   const recency = facets?.recency_sensitive ?? true;
   const toolEnv = env;
   let totalCostUsd = 0;
@@ -121,10 +187,15 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   const nAspects = clamp(Math.round(target / PER_ASPECT_QUERIES), 4, 16);
   // OpenRouter speed knobs for the planner-model calls (decompose + note extraction).
   const plannerOpts = { reasoning: config.plannerReasoning, provider: config.plannerProvider };
+  const decomposeOpts = plannerHardMs > 0 ? { ...plannerOpts, hardMsOverride: plannerHardMs } : plannerOpts;
 
   await emit(onEvent, 'status', `Planning ${nAspects} research angles...`);
-  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, plannerOpts, clarifications || {});
+  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, decomposeOpts, clarifications || {});
   totalCostUsd += dc;
+  if (startGate && !(await startGate)) {
+    console.log('[parallel] stopped before the search burst (start gate closed)');
+    return { sources: [], notes: [], totalCostUsd };
+  }
 
   // Guaranteed coverage for category-leading FOSS/self-hosted projects that
   // commercial listicles ignore (e.g. Immich for photo backup). The decompose
@@ -161,7 +232,7 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   const tasks = [];
   for (const a of aspects) {
     (a.queries || []).slice(0, PER_ASPECT_QUERIES).forEach((q, i) => {
-      tasks.push({ q: typeof q === 'string' ? q : q.q, provider: PROVIDERS[i % PROVIDERS.length] });
+      tasks.push({ q: typeof q === 'string' ? q : q.q, provider: providers[i % providers.length] });
     });
   }
   await emit(onEvent, 'status', `Searching ${tasks.length} queries across ${aspects.length} angles in parallel...`);
@@ -181,21 +252,40 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   await emit(onEvent, 'status', `Gathered ${sources.length} sources. Reading the most credible pages...`);
 
   // 3. Parallel read of the top credible sources (full text → better notes + scoring).
-  const toRead = [...sources]
-    .filter((s) => (s.credibility?.score ?? 0) >= READ_MIN_SCORE)
-    .sort((a, b) => (b.credibility?.score ?? 0) - (a.credibility?.score ?? 0))
-    .slice(0, MAX_READ);
-  await runPool(toRead.map((s) => () => readPageInto(s, toolEnv)), READ_CONCURRENCY);
+  if (readGate) await readGate;
+  const toRead = pickReads(sources);
+  const readOne = read ?? readInPlace(toolEnv);
+  const stage = readMs > 0 ? deadlineSignal(readMs) : null;
+  const readStarted = Date.now();
+  let filled;
+  try {
+    filled = await runPoolUntil(toRead.map((s) => async () => (await readOne(s, stage?.signal)) ?? s), READ_CONCURRENCY, {
+      signal: stage?.signal,
+      graceMs: readGraceMs,
+      onMissing: (i) => toRead[i],
+      onError: (_err, i) => toRead[i],
+    });
+  } finally {
+    stage?.cancel();
+  }
+  const readCount = filled.filter((s, i) => s !== toRead[i] || (s.content?.length ?? 0) > 300).length;
+  console.log(`[parallel] read ${toRead.length} pages in ${Date.now() - readStarted} ms, ${readCount} with text${stage?.signal.aborted ? ' (read deadline reached)' : ''}`);
+  const filledByOriginal = new Map(toRead.map((s, i) => [s, filled[i]]));
+  const gathered = sources.map((s) => filledByOriginal.get(s) ?? s);
+  if (!withNotes) {
+    console.log(`[parallel] ${aspects.length} aspects, ${tasks.length} searches, ${gathered.length} sources, no notes`);
+    return { sources: gathered, notes: [], totalCostUsd };
+  }
 
   // 4. Batched finding extraction from the pages that actually returned body text.
-  const readOk = toRead.filter((s) => (s.content?.length ?? 0) > 300 && (s.credibility?.score ?? 0) >= READ_MIN_SCORE);
+  const readOk = filled.filter((s) => (s.content?.length ?? 0) > 300 && (s.credibility?.score ?? 0) >= READ_MIN_SCORE);
   await emit(onEvent, 'status', `Extracting findings from ${readOk.length} pages...`);
   const noteRes = await runPool(chunk(readOk, NOTE_BATCH).map((b) => () => extractNotes(query, b, openrouterKey, config.plannerModel, plannerOpts)), 8);
   const notes = [];
   for (const r of noteRes) { if (!r) continue; totalCostUsd += r.cost || 0; for (const n of r.notes) notes.push(n); }
-  console.log(`[parallel] ${aspects.length} aspects, ${tasks.length} searches, ${sources.length} sources, ${readOk.length} read, ${notes.length} notes`);
+  console.log(`[parallel] ${aspects.length} aspects, ${tasks.length} searches, ${gathered.length} sources, ${readOk.length} read, ${notes.length} notes`);
 
-  return { sources, notes, totalCostUsd };
+  return { sources: gathered, notes, totalCostUsd };
 }
 
 // ── Legacy / benchmark path: gather + the kimi LLM synth ──────────────────────
