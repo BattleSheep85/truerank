@@ -134,9 +134,10 @@ async function serperSearch(query, apiKey, opts = {}) {
 // (The DuckDuckGo HTML scraper is blocked from Cloudflare edge IPs, so it can't be the
 // real fallback.) Same result shape as serperSearch; returns null on auth/quota failure
 // so the caller can degrade further (to DDG as a last resort).
-// Brave's free plan allows 1 request per second. Space this isolate's calls
-// BRAVE_MIN_GAP_MS apart so parallel searches queue instead of failing with 429.
-export const BRAVE_MIN_GAP_MS = 1100;
+// The paid Brave plan allows 50 requests per second. Space this isolate's calls
+// BRAVE_MIN_GAP_MS apart (40 per second) so parallel bursts stay under the cap.
+// Other isolates share the key, so a 429 still gets one retry below.
+export const BRAVE_MIN_GAP_MS = 25;
 let braveNextSlot = 0;
 
 // Exported so image-resolver.js paces Brave Image Search calls on the same slot.
@@ -198,6 +199,75 @@ async function braveSearch(query, apiKey, opts = {}) {
 // list, [] for no hits or a transient error, or null when Brave is unavailable.
 export async function braveWebSearch(query, apiKey, opts = {}) {
   return braveSearch(query, apiKey, opts);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exa Search API — https://exa.ai (POST https://api.exa.ai/search)
+// A web fallback after Brave and a selectable provider. Type 'instant' costs
+// $4 per 1,000 calls; the 2026-10-09 bench (benchmarks/bench-search-exa.mjs)
+// found 'fast' no better for Frank's queries. Highlights add no cost and give
+// a page excerpt as the content. Same contract as braveSearch: null when no
+// key, cooling down, or unavailable; [] for no hits or a transient error.
+// ─────────────────────────────────────────────────────────────────────────────
+const EXA_TIMEOUT_MS = 10000;
+const EXA_CONTENT_CHARS = 1000;
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+function exaRowContent(r) {
+  const highlights = Array.isArray(r.highlights) ? r.highlights.join('\n') : '';
+  const text = highlights || (typeof r.text === 'string' ? r.text : '') || (typeof r.summary === 'string' ? r.summary : '');
+  return text.slice(0, EXA_CONTENT_CHARS);
+}
+
+export async function exaSearch(query, apiKey, opts = {}) {
+  if (!apiKey) return null;
+  if (isProviderCoolingDown('exa')) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXA_TIMEOUT_MS);
+  try {
+    const body = {
+      query,
+      numResults: 10,
+      type: 'instant',
+      contents: { highlights: { maxCharacters: EXA_CONTENT_CHARS } },
+    };
+    // One-year recency, matches brave/tavily. Date.now() runs at call time.
+    if (opts.timeRange === 'y') body.startPublishedDate = new Date(Date.now() - ONE_YEAR_MS).toISOString();
+    const response = await fetch('https://api.exa.ai/search', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.log(`[exa] HTTP ${response.status} q="${query}" body=${text.slice(0, 150)}`);
+      return failedResponseResult('exa', response.status, text);
+    }
+    const data = await response.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+    const label = opts.sourceLabel ?? 'web';
+    console.log(`[exa] q="${query}" → ${results.length}`);
+    return results.filter((r) => typeof r?.url === 'string').map((r) => {
+      let publishedAt;
+      if (r.publishedDate) {
+        const ms = Date.parse(r.publishedDate);
+        if (!Number.isNaN(ms)) publishedAt = Math.floor(ms / 1000);
+      }
+      return {
+        url: r.url,
+        title: r.title ?? '',
+        content: exaRowContent(r),
+        source: label,
+        publishedAt,
+      };
+    });
+  } catch (err) {
+    console.log(`[exa] ERROR q="${query}": ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -450,8 +520,8 @@ export const AGENT_TOOLS = [
           query: { type: 'string', description: 'Search query. Be specific — include product names, model numbers, years.' },
           provider: {
             type: 'string',
-            enum: ['web', 'news', 'video', 'hackernews', 'duckduckgo', 'tavily', 'searxng', 'rss'],
-            description: 'Search provider. web=general web, news=recent articles, video=YouTube reviews, hackernews=tech discussions, duckduckgo=alternative web results, tavily=LLM-optimized web search (clean snippets), searxng=self-hosted metasearch aggregating google/bing/mojeek (free, broad), rss=expert review sites (Wirecutter/RTINGS/etc).',
+            enum: ['web', 'news', 'video', 'hackernews', 'duckduckgo', 'tavily', 'exa', 'searxng', 'rss'],
+            description: 'Search provider. web=general web, news=recent articles, video=YouTube reviews, hackernews=tech discussions, duckduckgo=alternative web results, tavily=LLM-optimized web search (clean snippets), exa=neural web search (finds expert reviews the web provider misses), searxng=self-hosted metasearch aggregating google/bing/mojeek (free, broad), rss=expert review sites (Wirecutter/RTINGS/etc).',
           },
         },
         required: ['query'],
@@ -588,6 +658,7 @@ async function executeSearch(
   const serperApiKey = env?.SERPER_API_KEY;
   const braveApiKey = env?.BRAVE_API_KEY;
   const tavilyApiKey = env?.TAVILY_API_KEY;
+  const exaApiKey = env?.EXA_API_KEY;
   const searxngUrl = env?.SEARXNG_URL;
   const searxngGate = env?.LITELLM_GATE_TOKEN;
 
@@ -604,14 +675,16 @@ async function executeSearch(
   const tr = recencySensitive ? 'y' : undefined;
   // serperSearch returns null when the provider is unavailable (no key, or
   // auth/quota rejection). The fallback chain is SearXNG (self-hosted, free, no quota,
-  // reachable on the blackbox engine host) -> Brave (CF-reachable) -> Tavily (LLM-tuned,
-  // keyed). DuckDuckGo is CAPTCHA-blocked from datacenter IPs and returns empty results,
+  // reachable on the blackbox engine host) -> Brave (CF-reachable) -> Exa (neural,
+  // keyed) -> Tavily (LLM-tuned, keyed). DuckDuckGo is CAPTCHA-blocked from datacenter IPs and returns empty results,
   // so it is removed from active fallbacks.
   const webFallback = async (q) => {
     const sx = searxngUrl ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate }) : null;
     if (sx !== null) return sx;
     const brave = braveApiKey ? await braveSearch(q, braveApiKey, { timeRange: tr }) : null;
     if (brave !== null) return brave;
+    const exa = exaApiKey ? await exaSearch(q, exaApiKey, { timeRange: tr }) : null;
+    if (exa !== null) return exa;
     const tavily = tavilyApiKey ? await tavilySearch(q, tavilyApiKey, { timeRange: tr }) : null;
     if (tavily !== null) return tavily;
     return [];
@@ -650,6 +723,14 @@ async function executeSearch(
       // through the standard web chain (SearXNG / Brave) when Tavily is unavailable.
       const tav = tavilyApiKey ? await tavilySearch(query, tavilyApiKey, { timeRange: tr }) : null;
       results = tav === null ? await webFallback(query) : tav;
+      subs = 1;
+      break;
+    }
+    case 'exa': {
+      // Exa as an explicitly-selectable provider. Falls back through the
+      // standard web chain when Exa is unavailable.
+      const ex = await exaSearch(query, exaApiKey, { timeRange: tr });
+      results = ex === null ? await webFallback(query) : ex;
       subs = 1;
       break;
     }
