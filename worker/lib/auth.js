@@ -201,6 +201,7 @@ export async function getUserSearches(db, userId, limit = 50) {
          FROM user_searches us
          LEFT JOIN research r ON r.id = us.research_id
          WHERE us.user_id = ?1
+           AND r.retired_at IS NULL
          ORDER BY us.created_at DESC
          LIMIT ?2`
     ).bind(userId, limit).all();

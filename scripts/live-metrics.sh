@@ -3,7 +3,7 @@
 # Usage: scripts/live-metrics.sh [SINCE] [UNTIL]
 #   SINCE / UNTIL: dates or datetimes SQLite understands (UTC), e.g. 2026-10-08 or
 #   "2026-10-08 18:00". Defaults: SINCE = 7 days ago, UNTIL = now.
-# Needs CLOUDFLARE_API_TOKEN in the environment (for example from .cf-token).
+# Needs CLOUDFLARE_API_TOKEN in the environment (BWS key FRANK_CLOUDFLARE_API_TOKEN).
 # Prints one row per run kind: runs, complete, failed, needs_input, mean seconds
 # and stored cost of complete runs, and for product checks the share of claims
 # that got a decision (verified, partially-verified, or contradicted).

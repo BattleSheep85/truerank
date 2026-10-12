@@ -4,7 +4,7 @@
 // junk names (platforms/fragments/merges that survived extraction). Re-runnable: run it before
 // and after any engine change to see the corpus move. Zero npm deps; reads prod D1 via wrangler.
 //
-//   CLOUDFLARE_API_TOKEN=$(cat .cf-token) node scripts/quality-monitor.mjs [--json] [--worst N]
+//   bws-exec FRANK_CLOUDFLARE_API_TOKEN -- sh -c 'CLOUDFLARE_API_TOKEN="$FRANK_CLOUDFLARE_API_TOKEN" node scripts/quality-monitor.mjs' [--json] [--worst N]
 //
 // Exit code is non-zero when the corpus health score drops below THRESHOLD, so CI/cron can gate.
 import { execSync } from 'node:child_process';

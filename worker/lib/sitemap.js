@@ -223,7 +223,7 @@ export async function generateOgImage(slug, env) {
   const row = await env.DB.prepare(
     `SELECT r.query, r.category, r.summary,
        (SELECT COUNT(*) FROM products WHERE products.research_id = r.id) AS product_count
-     FROM research r WHERE r.slug = ?`
+     FROM research r WHERE r.slug = ? AND r.retired_at IS NULL`
   ).bind(slug).first();
 
   if (!row) {

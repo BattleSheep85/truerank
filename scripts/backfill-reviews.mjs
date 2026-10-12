@@ -6,7 +6,7 @@
 // claimNextPendingJob stops the blackbox claiming once spend hits the cap, so this can never
 // overspend — worst case it processes fewer than requested.
 //
-//   CLOUDFLARE_API_TOKEN=$(cat .cf-token) node scripts/backfill-reviews.mjs [--limit=N] [--batch=5] [--dry-run]
+//   bws-exec FRANK_CLOUDFLARE_API_TOKEN -- sh -c 'CLOUDFLARE_API_TOKEN="$FRANK_CLOUDFLARE_API_TOKEN" node scripts/backfill-reviews.mjs' [--limit=N] [--batch=5] [--dry-run]
 //
 // Targets = complete reviews that are THIN (<=3 products) OR carry a junk name. Resumable: each
 // run re-queries the current targets, so re-running picks up whatever still needs work.

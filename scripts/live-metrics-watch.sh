@@ -5,8 +5,9 @@
 # notification plus a line in alerts.log when a threshold is crossed:
 #   failed runs > 0, product-check decided share < 30%, mean product check
 #   > 300 s, OpenRouter key headroom < $5, SearXNG answering without the gate.
-# Secrets come from .cf-token (Cloudflare) and BWS (OpenRouter provisioning
-# key); none are printed or written to the log.
+# Secrets: CLOUDFLARE_API_TOKEN from the environment if set, otherwise read
+# from BWS key FRANK_CLOUDFLARE_API_TOKEN; the OpenRouter provisioning key
+# comes from BWS. None are printed or written to the log.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,10 +21,16 @@ ALERTS=()
 cd "$REPO" || exit 1
 set -a
 # shellcheck disable=SC1091
-. <(grep -v '^#' .cf-token)
-# shellcheck disable=SC1091
 . "$HOME/.config/environment.d/bws.conf"
 set +a
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  CLOUDFLARE_API_TOKEN=$(bws secret list 2>/dev/null | jq -r '.[] | select(.key=="FRANK_CLOUDFLARE_API_TOKEN") | .value')
+  export CLOUDFLARE_API_TOKEN
+fi
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "live-metrics-watch: CLOUDFLARE_API_TOKEN is not set and BWS key FRANK_CLOUDFLARE_API_TOKEN could not be read." >&2
+  exit 1
+fi
 
 {
   echo "=== $(date -u '+%F %T') UTC ==="

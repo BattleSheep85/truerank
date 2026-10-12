@@ -19,7 +19,8 @@ export async function handleGetReport(reportId, env) {
     if (!row) {
         row = await getResearchBySlug(env.DB, reportId);
     }
-    if (!row) {
+    // A retired report answers like a missing one (worker/lib/retired.js).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 

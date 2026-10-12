@@ -7,7 +7,9 @@
 //   node scripts/backfill-images.mjs            # full run
 //   node scripts/backfill-images.mjs --limit 20 # trial batch
 //
-// Needs .cf-token (CLOUDFLARE_API_TOKEN) and .dev.vars (SERPER_API_KEY).
+// Needs CLOUDFLARE_API_TOKEN in the environment and .dev.vars (SERPER_API_KEY):
+//   bws-exec FRANK_CLOUDFLARE_API_TOKEN -- sh -c \
+//     'CLOUDFLARE_API_TOKEN="$FRANK_CLOUDFLARE_API_TOKEN" node scripts/backfill-images.mjs'
 // Cost: 1 Serper credit per missing product (~750 ≈ well under $1).
 
 import { readFileSync } from 'node:fs';
@@ -33,10 +35,14 @@ function readEnvFile(path) {
 process.on('uncaughtException', (e) => console.error('uncaught:', e?.message || e));
 process.on('unhandledRejection', (e) => console.error('unhandled:', e?.message || e));
 
-const cfToken = readEnvFile('.cf-token').CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
+const cfToken = process.env.CLOUDFLARE_API_TOKEN;
 const serperKey = readEnvFile('.dev.vars').SERPER_API_KEY || process.env.SERPER_API_KEY;
-if (!cfToken || !serperKey) {
-  console.error('need CLOUDFLARE_API_TOKEN (.cf-token) and SERPER_API_KEY (.dev.vars)');
+if (!cfToken) {
+  console.error('need CLOUDFLARE_API_TOKEN in the environment: run under bws-exec with BWS key FRANK_CLOUDFLARE_API_TOKEN (see the header)');
+  process.exit(1);
+}
+if (!serperKey) {
+  console.error('need SERPER_API_KEY (.dev.vars)');
   process.exit(1);
 }
 

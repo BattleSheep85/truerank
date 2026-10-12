@@ -49,6 +49,7 @@ import { runSafetyTests } from '../test/unit/safety.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
 import { runListingRegressionTests } from '../test/unit/listing-regressions.test.js';
 import { runVerifyFormOriginTests } from '../test/unit/verify-form-origin.test.js';
+import { runRetiredReportsTests } from '../test/unit/retired-reports.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -96,6 +97,7 @@ const suites = [
   ['safety', runSafetyTests],
   ['listing-regressions', runListingRegressionTests], // async suite (awaited below)
   ['verify-form-origin', runVerifyFormOriginTests], // async suite (awaited below)
+  ['retired-reports', runRetiredReportsTests], // async suite (awaited below)
 ];
 
 let failed = 0;
