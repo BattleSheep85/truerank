@@ -9,6 +9,7 @@ import { jsonEmbed, productLayoutBoot } from '../lib/list-layout-boot.js';
 import { BTN_PRIMARY, isNonProductCategory, sourceRel, sourceLabel } from './research-primitives.js';
 import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel } from './research-cards.js';
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
+import { mailEnabled } from '../lib/mailer.js';
 import { buildResearchSeo } from './research-jsonld.js';
 
 // Find up to 5 sibling research pages that share canonical tokens. Used to build
@@ -380,7 +381,7 @@ ${isLiveReport ? `<div class="notify-footer mt-8 border-t border-line pt-6">
   // refuses to execute.
   const pageBehaviorHtml = pageBehaviorScript();
   const activityFeedHtml = activityFeedScript(slug);
-  const subscribeHtml = subscribeScript(entry.id);
+  const subscribeHtml = subscribeScript(entry.id, { mailEnabled: mailEnabled(env) });
   const chatHtml = chatScript(slug);
   const extra = pageBehaviorHtml + subscribeHtml + (isLiveReport ? chatHtml : '') + (showProcessingHero ? activityFeedHtml : '') + (hasProducts ? productLayoutBoot() : '');
   // Canonical is emitted by layout() from layoutMeta.canonical — don't add a

@@ -21,7 +21,7 @@ const OG_IMAGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 
 <text x="180" y="496" font-family="system-ui,sans-serif" font-size="22" font-weight="600" fill="#fff" text-anchor="middle">Try it free</text>
 </svg>`;
 
-// Newest completed research timestamp — shared lastmod signal for home, browse,
+// Newest completed or retired research timestamp — shared lastmod signal for home, browse,
 // sitemap, and feed. The SELECT MAX + EXISTS subquery cost scales with the
 // research table; KV-cache for 60s so cold home/browse requests don't re-run
 // the query on every cache-miss burst.
@@ -33,10 +33,14 @@ export async function getLatestResearchLastmod(env, cacheVersion) {
     const n = parseInt(cached, 10);
     if (n > 0) return n;
   }
+  // Retiring a row removes its URL from the listings, so the newest retired_at
+  // counts too: otherwise conditional GETs keep answering 304 with the old list.
   const row = await env.DB.prepare(
-    `SELECT MAX(COALESCE(research.completed_at, research.created_at)) AS lm
-     FROM research
-     WHERE ${publicResearchFilter('research')}`
+    `SELECT MAX(
+       COALESCE((SELECT MAX(COALESCE(research.completed_at, research.created_at))
+                 FROM research WHERE ${publicResearchFilter('research')}), 0),
+       COALESCE((SELECT MAX(retired_at) FROM research WHERE retired_at IS NOT NULL), 0)
+     ) AS lm`
   ).first();
   const lm = row?.lm && row.lm > 0 ? row.lm : undefined;
   if (lm) await env.KV.put(key, String(lm), { expirationTtl: LASTMOD_CACHE_TTL });

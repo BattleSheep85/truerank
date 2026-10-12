@@ -30,6 +30,16 @@ const DAY_SECONDS = 86400;
 /** Saved verdicts younger than this many days answer a new submission. 0 turns reuse off. */
 export const VERIFY_REUSE_MAX_AGE_DAYS = 30;
 
+const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
+const JSON_CONTENT_TYPE = 'application/json';
+const UNSUPPORTED_TYPE_MESSAGE = 'Send the request as JSON (Content-Type: application/json) or from the verify form.';
+const OPAQUE_ORIGIN = 'null';
+const SAME_ORIGIN_FETCH_SITES = new Set(['same-origin', 'none']);
+const CROSS_SITE_FORM_MESSAGE = 'This form can only be sent from the Frank website. Open the verify page and try again.';
+const FORM_FIELDS = Object.freeze(['product', 'productUrl', 'reportId']);
+// Same slug shape the /verify/:slug page route accepts (worker/index.js).
+const SLUG_PATTERN = /^[a-z0-9-]+$/;
+
 const LINK_BLOCKED_MESSAGE = 'Frank cannot check that link. Paste the address of a public product page.';
 const NAME_REQUIRED_MESSAGE = 'That link does not include the product name. Copy the full address from the product page, or type the product name.';
 
@@ -43,16 +53,99 @@ const NAME_REQUIRED_MESSAGE = 'That link does not include the product name. Copy
  *   the user-supplied product URL, then re-enqueues.
  */
 export async function handleStartVerify(request, env) {
+    const mediaType = mediaTypeOf(request);
+    const isForm = mediaType === FORM_CONTENT_TYPE;
+    if (!isForm && mediaType !== JSON_CONTENT_TYPE) {
+        return jsonResponse({ error: UNSUPPORTED_TYPE_MESSAGE }, 415);
+    }
+    if (isForm && !isSameOriginForm(request)) {
+        console.warn(`[verify] cross-site form post rejected. origin: ${formOriginOf(request)}`);
+        return jsonResponse({ error: CROSS_SITE_FORM_MESSAGE }, 403);
+    }
+    const parsed = isForm ? await readFormBody(request) : await readJsonBody(request);
+    if (parsed.error) return parsed.error;
+    const res = await startVerify(request, env, parsed.body);
+    return isForm ? formAnswer(res) : res;
+}
+
+// Media type without parameters (for example "; charset=utf-8"), lower case.
+// JSON is required for scripts: application/json is not a CORS-simple type,
+// so a cross-site page cannot send it without a preflight. A no-JavaScript
+// <form> post sends application/x-www-form-urlencoded.
+function mediaTypeOf(request) {
+    return (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+}
+
+// CSRF guard for form posts. A plain HTML form is a "simple" request, so any
+// site could auto-submit one and spend paid runs from a visitor's browser.
+// Browsers send Sec-Fetch-Site; older ones fall back to Origin, then Referer.
+// Fails closed: a form post with none of the three is refused.
+function isSameOriginForm(request) {
+    const fetchSite = request.headers.get('Sec-Fetch-Site');
+    if (fetchSite) return SAME_ORIGIN_FETCH_SITES.has(fetchSite.toLowerCase());
+    const source = formOriginOf(request);
+    if (source === null) return false;
+    const sourceOrigin = originOf(source);
+    return sourceOrigin !== null && sourceOrigin === originOf(request.url);
+}
+
+// The Origin header, else the Referer header, else null.
+function formOriginOf(request) {
+    return request.headers.get('Origin') ?? request.headers.get('Referer');
+}
+
+// Scheme, host, and port of an absolute URL, or null when it does not parse
+// or has an opaque origin ("null" origins included).
+function originOf(value) {
+    try {
+        const origin = new URL(value).origin;
+        return origin === OPAQUE_ORIGIN ? null : origin;
+    } catch {
+        return null;
+    }
+}
+
+async function readJsonBody(request) {
     let body;
     try {
         body = await request.json();
     } catch {
-        return jsonResponse({ error: 'Invalid JSON body' }, 400);
+        return { error: jsonResponse({ error: 'Invalid JSON body' }, 400) };
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        return jsonResponse({ error: 'Invalid JSON body' }, 400);
+        return { error: jsonResponse({ error: 'Invalid JSON body' }, 400) };
     }
+    return { body };
+}
 
+// Form fields map onto the JSON body shape, so both paths share one set of rules.
+async function readFormBody(request) {
+    let form;
+    try {
+        form = new URLSearchParams(await request.text());
+    } catch (err) {
+        console.error(`[verify] form body read failed: ${err?.message || err}`);
+        return { error: jsonResponse({ error: 'Invalid form body' }, 400) };
+    }
+    const body = Object.fromEntries(
+        FORM_FIELDS.filter((name) => form.has(name)).map((name) => [name, form.get(name)]),
+    );
+    return { body };
+}
+
+// A form post that started (or reused) a check goes to the page that shows it.
+// Errors keep the JSON answer.
+async function formAnswer(res) {
+    if (!res.ok) return res;
+    const data = await res.json();
+    if (typeof data?.slug !== 'string' || !SLUG_PATTERN.test(data.slug)) {
+        console.error('[verify] form post answer has no usable slug');
+        return jsonResponse({ error: 'Could not open the verification page — please retry' }, 500);
+    }
+    return new Response(null, { status: 303, headers: { Location: `/verify/${data.slug}` } });
+}
+
+async function startVerify(request, env, body) {
     const raw = typeof body.product === 'string' ? body.product.trim() : '';
     const rawError = validateRawInput(raw);
     if (rawError) return rawError;

@@ -47,6 +47,8 @@ import { runClaudeCodeJudgeTests } from '../benchmarks/tests/claude-code-judge.t
 import { runUrlGuardTests } from '../test/unit/url-guard.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
+import { runListingRegressionTests } from '../test/unit/listing-regressions.test.js';
+import { runVerifyFormOriginTests } from '../test/unit/verify-form-origin.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -92,6 +94,8 @@ const suites = [
   ['claude-code-judge', runClaudeCodeJudgeTests],
   ['url-guard', runUrlGuardTests],
   ['safety', runSafetyTests],
+  ['listing-regressions', runListingRegressionTests], // async suite (awaited below)
+  ['verify-form-origin', runVerifyFormOriginTests], // async suite (awaited below)
 ];
 
 let failed = 0;

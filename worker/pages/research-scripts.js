@@ -151,7 +151,12 @@ document.addEventListener('DOMContentLoaded',function(){
 // Email capture: wires whichever #notify-form is on the page (the compact box
 // on processing pages, or the footer form on completed pages) to POST
 // /api/subscribe. researchId is the report id so we can notify on re-research.
-export function subscribeScript(researchId) {
+// mailEnabled false (the default, matching the fail-closed mailer) drops the
+// inbox promise: no confirmation mail goes out while mail is off.
+const SAVED_MAIL_ON = 'Check your inbox and click the link to confirm.';
+const SAVED_MAIL_OFF = 'Thanks, your email is saved.';
+export function subscribeScript(researchId, { mailEnabled = false } = {}) {
+  const savedMessage = mailEnabled ? SAVED_MAIL_ON : SAVED_MAIL_OFF;
   return `<script nonce="__CSP_NONCE__">
 (function(){
   function wire(){
@@ -171,7 +176,7 @@ export function subscribeScript(researchId) {
         body:JSON.stringify({email:email,researchId:researchId})
       }).then(function(r){var ct=r.headers.get('content-type')||'';if(ct.indexOf('application/json')===-1){throw new Error('non-json')}return r.json()}).then(function(d){
         if(d&&d.ok){
-          if(msg)msg.textContent='Check your inbox and click the link to confirm.';
+          if(msg)msg.textContent=${JSON.stringify(savedMessage)};
           form.style.display='none';
         }else{
           if(msg)msg.textContent='That email looks off. Try again?';

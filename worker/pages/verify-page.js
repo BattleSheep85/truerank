@@ -36,7 +36,7 @@ export function renderVerifyEntryPage(prefillProduct = '') {
 <h1 class="mt-3 font-serif text-h1 font-semibold text-ink">Verify a product&rsquo;s claims</h1>
 <p class="mt-3 max-w-xl text-body text-ink-2">Paste a product link or type its name. We check what it claims about itself against independent sources &mdash; specs, reviews, warranty terms &mdash; and score how well the claims hold up.</p>
 
-<form id="verify-form" class="verify-form mt-8 border border-line bg-surface-1">
+<form id="verify-form" action="/api/verify" method="post" class="verify-form mt-8 border border-line bg-surface-1">
 <div class="flex flex-col gap-0 sm:flex-row">
 <label for="verify-product" class="sr-only">Product link or name</label>
 <input type="text" id="verify-product" name="product" required minlength="3" maxlength="${MAX_PREFILL_LENGTH}" placeholder="Paste a product link or type its name" value="${escapeHtml(prefill)}" class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 focus:bg-surface-2 sm:border-b-0 sm:border-r">

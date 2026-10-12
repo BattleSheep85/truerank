@@ -186,9 +186,15 @@ export function publicResearchFilter(alias) {
              OR ${alias}.facets LIKE '%"is_comparative":true%')
       )
     )
-    AND LENGTH(${alias}.query) >= 10 AND ${alias}.query LIKE '% %'
-    AND ${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'
+    AND ${junkQueryFilter(alias)}
     AND ${alias}.retired_at IS NULL`;
+}
+
+// Junk-name gate shared by every public listing: drops test runs and short or
+// single-word queries. Alias is never user-provided; callers pass a literal string.
+export function junkQueryFilter(alias) {
+  return `LENGTH(${alias}.query) >= 10 AND ${alias}.query LIKE '% %'
+    AND ${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'`;
 }
 
 export function canonicalizeQuery(query, clarifications) {
