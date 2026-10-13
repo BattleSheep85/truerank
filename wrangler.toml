@@ -145,3 +145,8 @@ period = 60
 # TRUERANK_SMTP_USER  — full Hostinger mailbox address (also the From address)
 # TRUERANK_SMTP_PASSWORD — mailbox password. Without BOTH, every send is a
 #                      logged no-op, so local dev and CI can never send mail.
+# BRAVE_API_KEY       — Brave Search, the production web search provider
+# JINA_API_KEY        — optional; lifts Jina Reader's free rate cap for read_page
+# GSC_SA_KEY          — Google Search Console service account key
+# METRICS_TOKEN       — bearer token for /metrics (503 until it is set)
+# WORKER_SECRET       — gates /api/internal/* and internal worker requests

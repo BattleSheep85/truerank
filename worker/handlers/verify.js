@@ -179,7 +179,7 @@ function validateRawInput(raw) {
 function readBodyProductUrl(value) {
     if (value == null || value === '') return { url: null };
     if (typeof value !== 'string' || !isFetchableUrl(value)) {
-        return { error: jsonResponse({ error: 'productUrl must be a valid http(s) URL' }, 400) };
+        return { error: jsonResponse({ error: 'productUrl must be a valid public https URL' }, 400) };
     }
     return { url: String(value).trim() };
 }

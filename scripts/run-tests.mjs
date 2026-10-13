@@ -50,6 +50,7 @@ import { runConsentTests } from '../test/unit/consent.test.js';
 import { runListingRegressionTests } from '../test/unit/listing-regressions.test.js';
 import { runVerifyFormOriginTests } from '../test/unit/verify-form-origin.test.js';
 import { runRetiredReportsTests } from '../test/unit/retired-reports.test.js';
+import { runRound4RegressionTests } from '../test/unit/round4-regressions.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -98,6 +99,7 @@ const suites = [
   ['listing-regressions', runListingRegressionTests], // async suite (awaited below)
   ['verify-form-origin', runVerifyFormOriginTests], // async suite (awaited below)
   ['retired-reports', runRetiredReportsTests], // async suite (awaited below)
+  ['round4-regressions', runRound4RegressionTests], // async suite (awaited below)
 ];
 
 let failed = 0;

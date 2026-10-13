@@ -21,14 +21,14 @@ Last updated: 2026-10-06
 ### UX
 - [ ] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check.
 - [ ] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request.
-- [ ] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)".
+- [x] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)".
 
 ### API
-- [ ] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge.
-- [ ] LOW (API): name keys ignore symbols, so "Galaxy S24+" and "Galaxy S24" share a key. Non-Amazon short links (bit.ly) get URL keys although the owner can retarget them.
+- [x] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge.
+- [x] LOW (API): name keys ignore symbols, so "Galaxy S24+" and "Galaxy S24" share a key. Non-Amazon short links (bit.ly) get URL keys although the owner can retarget them.
 
 ### Reliability
-- [ ] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line.
+- [x] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line.
 
 ## 2026-08-26: whole-project review board audit
 
@@ -567,22 +567,22 @@ They stay as they are. This section does not repeat their detail.
       a pipeline module. It is not a cycle (orchestrator.js does not import
       keywords.js). monthKey belongs in worker/lib/utils.js. Move it when
       convenient.
-- [ ] LOW (observability): worker/engine/extract/recall-supplement.js no
+- [x] LOW (observability): worker/engine/extract/recall-supplement.js no
       longer logs its "skipped" diagnostic when the model returns JSON it
       cannot parse. The shared parser now returns null instead of throwing,
       so the catch block that used to log the message never runs. The value
       returned to the caller is unchanged.
-- [ ] LOW (docs): the trailing "Secrets" comment block in wrangler.toml
+- [x] LOW (docs): the trailing "Secrets" comment block in wrangler.toml
       lists 3 of the 7 secrets set on the deployed worker. Missing from the
       comment: BRAVE_API_KEY, JINA_API_KEY, GSC_SA_KEY, METRICS_TOKEN,
       WORKER_SECRET.
-- [ ] LOW (cleanup): worker/routes/pages.js still carries a comment above
+- [x] LOW (cleanup): worker/routes/pages.js still carries a comment above
       the clarifying-questions interstitial that predates the tier removal
       ("Tier: default 'full'. Only 'full' submissions get the
       clarifying-questions grill below; instant (if ever wired) skips it
       for speed."). The code line it once described is gone. worker/index.js
       carries no such comment. Its split already removed it.
-- [ ] LOW (quality): worker/engine/parallel-engine.js decompose() still does
+- [x] LOW (quality): worker/engine/parallel-engine.js decompose() still does
       not receive classifier facets. This path now only runs for /verify
       claim extraction, not for ranking (the ranking path moved to
       worker/engine/engine.js when the blackbox worker retired 2026-07-22,

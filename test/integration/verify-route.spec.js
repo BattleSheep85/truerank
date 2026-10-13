@@ -537,7 +537,7 @@ describe('review fixes: saved-verdict key and status score', () => {
     for (const [i, url] of ['https://10.0.0.5/item', 'https://localhost/item', 'http://maker.example/item'].entries()) {
       const res = await handleStartVerify(post({ product: 'Private Url Widget', productUrl: url }, `203.0.113.${125 + i}`), testEnv);
       expect(res.status).toBe(400);
-      expect((await res.json()).error).toBe('productUrl must be a valid http(s) URL');
+      expect((await res.json()).error).toBe('productUrl must be a valid public https URL');
     }
     expect(await researchCount()).toBe(before);
 

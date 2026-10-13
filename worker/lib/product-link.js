@@ -37,12 +37,26 @@ const AMAZON_DOMAINS = Object.freeze(new Set([
 ]));
 const AMAZON_SUBDOMAINS = Object.freeze(new Set(['www', 'smile', 'm']));
 // Query parameters that track the visit and never identify the product.
-const TRACKING_PARAM_RE = /^(?:utm_.*|ref|fbclid|gclid)$/i;
+const TRACKING_PARAM_RE = /^(?:utm_.*|fbclid|gclid)$/i;
+// 'ref' tracks the visit on most shops but is the product id on some. It
+// stays only when no other parameter is left to tell products apart.
+const REF_PARAM_RE = /^ref$/i;
+// Words of a generic page segment (product_info.php, product-detail). A
+// segment made only of these names no product, so the query must stay.
+const GENERIC_SLUG_WORDS = Object.freeze(new Set([
+  'product', 'products', 'info', 'detail', 'details', 'item', 'items', 'view', 'page', 'show', 'index',
+]));
 const SHORT_LINK_HOSTS = new Set(['a.co', 'amzn.to', 'amzn.eu', 'amzn.asia']);
+// General short-link services. The owner can point the link at another page
+// at any time, so the link never identifies the product: only a name keys it.
+const RETARGETABLE_SHORT_HOSTS = Object.freeze(new Set([
+  'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd', 'buff.ly', 'rebrand.ly', 'cutt.ly',
+]));
 const ASIN_RE = /\/(?:dp|gp\/product|gp\/aw\/d)\/([a-z0-9]{10})(?=[/?#]|$)/i;
 // One word: a run of letters, numbers, and their marks (Devanagari vowel
 // signs, for example) in any script. A CJK run with no spaces is one word.
-const NAME_TOKEN_RE = /[\p{L}\p{N}\p{M}]+/gu;
+// Trailing '+' signs stay on the word, because they name a model (Galaxy S24+).
+const NAME_TOKEN_RE = /[\p{L}\p{N}\p{M}]+\+*/gu;
 const ALNUM_RE = /[\p{L}\p{N}]/gu;
 const LETTER_RE = /\p{L}/u;
 const TWO_LETTERS_RE = /\p{L}{2}/u;
@@ -124,11 +138,15 @@ function amazonName(pathname) {
   return slugToName(segments[dpIndex - 1], '-');
 }
 
-// Other hosts: the longest segment that reads as words and is not an ID.
+function isGenericSlug(words) {
+  return words.every((w) => GENERIC_SLUG_WORDS.has(w.toLowerCase()));
+}
+
+// Other hosts: the longest segment that reads as words and is not an ID or a generic page name.
 function longestSlugName(pathname) {
   const named = pathSegments(pathname)
     .map((segment) => ({ segment, name: slugToName(segment, /[-_]/) }))
-    .filter(({ name }) => name && !isIdLike(name.split(' ')));
+    .filter(({ name }) => name && !isIdLike(name.split(' ')) && !isGenericSlug(name.split(' ')));
   if (named.length === 0) return null;
   const best = named.reduce((a, b) => (b.segment.length > a.segment.length ? b : a));
   return best.name;
@@ -142,8 +160,9 @@ function isAmazonHost(host) {
 
 // '?' + the non-tracking params sorted by name, or '' when none are left.
 function productQuery(searchParams) {
-  const kept = [...searchParams]
-    .filter(([name]) => !TRACKING_PARAM_RE.test(name))
+  const untracked = [...searchParams].filter(([name]) => !TRACKING_PARAM_RE.test(name));
+  const others = untracked.filter(([name]) => !REF_PARAM_RE.test(name));
+  const kept = (others.length > 0 ? others : untracked)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return kept.length > 0 ? `?${new URLSearchParams(kept)}` : '';
 }
@@ -190,7 +209,8 @@ function linkParts(link) {
   }
   // Short links, and Amazon pages with no ASIN: the path does not identify
   // the product, so only a name can make a key.
-  if (SHORT_LINK_HOSTS.has(host) || amazon) {
+  const shortHost = SHORT_LINK_HOSTS.has(host) || RETARGETABLE_SHORT_HOSTS.has(host.replace(/^www\./, ''));
+  if (shortHost || amazon) {
     return { name: null, url: link.href, pageKey: null, nameKeyOnly: true };
   }
   // A path with a name slug identifies the product, so the query goes. A path

@@ -52,6 +52,20 @@ SELF-HOSTED / OPEN-SOURCE COVERAGE (critical — do not skip): if the query is a
 
 Output ONLY JSON: {"aspects":[{"title":"<short>","queries":["q1","q2",...]}]}.`;
 
+// Plan hints for facets whose subject is not a product with specs. A buyable
+// product needs none: DECOMPOSE_SYSTEM is product-shaped already.
+const FACET_PLAN_HINTS = Object.freeze({
+  needs_location: 'LOCATION: keep every aspect inside the named area; target addresses, hours, and local review sites (Yelp, Google Maps, TripAdvisor).',
+  is_experience: 'EXPERIENCE/PLACE: plan aspects for firsthand reports, best season, cost, crowds, and tips, not specs or model numbers.',
+  is_service: 'SERVICE: plan aspects for named providers, service area, pricing model, credentials, and customer reviews, not specs or model numbers.',
+  is_content: 'CONTENT/MEDIA: plan aspects for platform, creator, critical reception, and pricing model.',
+});
+
+function facetPlanBlock(facets) {
+  const hints = Object.keys(FACET_PLAN_HINTS).filter((k) => facets?.[k]).map((k) => `- ${FACET_PLAN_HINTS[k]}`);
+  return hints.length > 0 ? `\nQUERY TYPE (shape the aspects and queries for this):\n${hints.join('\n')}\n` : '';
+}
+
 // A planner call that fails within this many ms (for example an upstream 429
 // "temporarily rate-limited") is tried once more after DECOMPOSE_RETRY_DELAY_MS.
 // A slower failure (a timeout) and a reply without usable aspects are not
@@ -74,13 +88,13 @@ async function planAspects(key, plannerModel, messages, nAspects, plannerOpts) {
   return { aspects: aspects.length >= 2 ? aspects : [], cost };
 }
 
-async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}) {
+async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}, facets = null) {
   const clarBlock = clarifications && Object.keys(clarifications).length > 0
     ? `\nUSER CONSTRAINTS (mandatory — bias every aspect and every search query to surface options satisfying these):\n${Object.entries(clarifications).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`
     : '';
   const messages = [
     { role: 'system', content: DECOMPOSE_SYSTEM },
-    { role: 'user', content: `Query: "${query}"${clarBlock}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
+    { role: 'user', content: `Query: "${query}"${clarBlock}${facetPlanBlock(facets)}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
   ];
   let cost = 0;
   const started = Date.now();
@@ -190,7 +204,7 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   const decomposeOpts = plannerHardMs > 0 ? { ...plannerOpts, hardMsOverride: plannerHardMs } : plannerOpts;
 
   await emit(onEvent, 'status', `Planning ${nAspects} research angles...`);
-  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, decomposeOpts, clarifications || {});
+  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, decomposeOpts, clarifications || {}, facets);
   totalCostUsd += dc;
   if (startGate && !(await startGate)) {
     console.log('[parallel] stopped before the search burst (start gate closed)');

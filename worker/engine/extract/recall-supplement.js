@@ -42,6 +42,10 @@ Return JSON {"missing": [name, ...]}, at most 12.`,
       responseFormat: { type: 'json_schema', json_schema: { name: 'recall', strict: true, schema: SCHEMA } },
     });
     const raw = parseFencedJson(r.choices?.[0]?.message?.content);
+    if (raw === null) {
+      console.log('[recall-supplement] skipped: model reply is not valid JSON');
+      return [];
+    }
     const out = Array.isArray(raw?.missing) ? raw.missing : [];
     return out.map((s) => String(s || '').trim()).filter((s) => s.length >= 3).slice(0, 12);
   } catch (e) { console.log('[recall-supplement] skipped:', e?.message); return []; }

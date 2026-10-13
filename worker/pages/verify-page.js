@@ -743,18 +743,26 @@ function reportDescription(product, overall) {
 }
 
 // Old or malformed rows can hold non-array evidence ({}, "abc", [null]).
-// Return a new claim whose evidence lists hold only plain objects.
-function evidenceList(value) {
-    return Array.isArray(value)
-        ? value.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
-        : [];
+// Return a new claim whose evidence lists hold only plain objects. A missing
+// list is normal (old rows); anything else that is dropped is logged.
+function evidenceList(value, field, claimId) {
+    if (value == null) return [];
+    if (!Array.isArray(value)) {
+        console.warn(`[verify-page] dropped malformed ${field} evidence (not a list)`, { claimId, type: typeof value });
+        return [];
+    }
+    const kept = value.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+    if (kept.length < value.length) {
+        console.warn(`[verify-page] dropped ${value.length - kept.length} malformed ${field} evidence item(s)`, { claimId });
+    }
+    return kept;
 }
 
 function normalizeClaim(claim) {
     return {
         ...claim,
-        supporting: evidenceList(claim.supporting),
-        contradicting: evidenceList(claim.contradicting),
+        supporting: evidenceList(claim.supporting, 'supporting', claim.id),
+        contradicting: evidenceList(claim.contradicting, 'contradicting', claim.id),
     };
 }
 
