@@ -288,7 +288,7 @@ function runReReviewKeyTests(eq, ok) {
     keyOf(`${twentyWords} w20 https://www.ebay.com/itm/123456789012`), null);
 
   ok('re-review: url key keeps path case, case variants differ',
-    keyOf('Anker Nano Charger https://bit.ly/3AbCxYz') !== keyOf('Anker Nano Charger https://bit.ly/3abcxyz'));
+    keyOf('Anker Nano Charger https://shop.example/p/3AbCxYz') !== keyOf('Anker Nano Charger https://shop.example/p/3abcxyz'));
 
   eq('isNameKey name key', isNameKey('verify:name:1000xm6 sony wh'), true);
   eq('isNameKey asin key with a name part', isNameKey('verify:asin:B0F3PT1VBL|name:1000xm6 sony wh'), false);
