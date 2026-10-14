@@ -77,13 +77,14 @@ const devVars = loadDevVars();
 const OPENROUTER_API_KEY = devVars.OPENROUTER_API_KEY;
 const SERPER_API_KEY = devVars.SERPER_API_KEY;
 const JINA_API_KEY = devVars.JINA_API_KEY;
-// Search and read keys, as the worker env carries them. Brave and Tavily are
-// the web fallbacks when Serper fails. Never logged.
+// Search and read keys, as the worker env carries them. Brave, Exa, and Tavily
+// are the web fallbacks when Serper fails (same order as tools.js). Never logged.
 const TOOL_ENV = Object.freeze({
   SERPER_API_KEY,
   JINA_API_KEY,
   BRAVE_API_KEY: devVars.BRAVE_API_KEY,
   TAVILY_API_KEY: devVars.TAVILY_API_KEY,
+  EXA_API_KEY: devVars.EXA_API_KEY,
 });
 
 // REPLAY mode never gathers, so it only needs the OpenRouter key (for the
