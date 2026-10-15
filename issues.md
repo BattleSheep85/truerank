@@ -10,6 +10,7 @@ Last updated: 2026-10-15
 ### Testing
 - [x] MEDIUM (Testing): the new plugin has no per-test storage isolation (the old isolatedStorage is gone), so D1 and KV state leaked between tests and 7 tests failed. test/integration/email-flows.spec.js, handlers.spec.js, internal.spec.js. Fixed 2026-10-15: each file clears the tables and KV keys it writes in a beforeEach. New specs that write D1 or KV must reset their own state.
 - [x] MEDIUM (Testing, cost): index.spec.js "POST /api/classify" sent a real request to the LLM classifier with the live dev keys and timed out in about 2 of 5 runs. test/integration/index.spec.js. Fixed 2026-10-15: the test stubs the OpenRouter reply, as classifier.spec.js does.
+- [x] MEDIUM (Testing): 5 affiliate integration tests failed on any checkout without the gitignored .dev.vars, because worker/lib/ip-hash.js needs a salt and fails closed, so no click row was written. test/integration/affiliate.spec.js, affiliate-global-gate.spec.js, vitest.config.js. Fixed 2026-10-15 (CP-694): vitest.config.js sets a fixed test IP_HASH_SALT.
 - [ ] LOW (Testing): vitest 5 turns on fsModuleCache by default, and @cloudflare/vitest-plugin 1.4.2 cannot read that cache inside workerd. vitest.config.js sets `fsModuleCache: false`. Remove it when a plugin release fixes this.
 
 ## 2026-10-06: refocus run (spec docs/refocus-2026-10/spec.md, plan docs/refocus-2026-10/plan.md)

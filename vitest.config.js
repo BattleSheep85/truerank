@@ -24,6 +24,9 @@ export default defineConfig({
           MAIL_ENABLED: 'false',
           TRUERANK_SMTP_USER: '',
           TRUERANK_SMTP_PASSWORD: '',
+          // Fixed test salt: worker/lib/ip-hash.js fails closed without one,
+          // and .dev.vars (gitignored) is not on CI or a fresh checkout.
+          IP_HASH_SALT: 'integration-test-salt',
         },
       },
     }),
