@@ -46,6 +46,8 @@ import { runNoAnthropicOnOpenRouterTests } from '../benchmarks/tests/no-anthropi
 import { runClaudeCodeJudgeTests } from '../benchmarks/tests/claude-code-judge.test.mjs';
 import { runUrlGuardTests } from '../test/unit/url-guard.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
+import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
+import { runViewCounterTests } from '../test/unit/view-counter.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
 
 const suites = [
@@ -92,6 +94,8 @@ const suites = [
   ['claude-code-judge', runClaudeCodeJudgeTests],
   ['url-guard', runUrlGuardTests],
   ['safety', runSafetyTests],
+  ['spend-gate', runSpendGateTests],
+  ['view-counter', runViewCounterTests],
 ];
 
 let failed = 0;

@@ -33,9 +33,6 @@ SYNTH_ENGINE = "extract"
 EXTERNAL_WORKER_ENABLED = "false"
 # Public half of the Basic Auth wall; DEV_AUTH_PASS is a secret.
 DEV_AUTH_USER = "dev"
-RATE_LIMIT_MAX = "20"
-RATE_LIMIT_WINDOW_SECONDS = "3600"
-CACHE_TTL_SECONDS = "86400"
 # Small independent budget so dev runs can't eat the prod allowance.
 MONTHLY_BUDGET_USD = "10"
 # No programmatic-SEO flywheel on dev.
