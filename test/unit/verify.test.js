@@ -153,6 +153,9 @@ export async function runVerifyTests() {
     for (const text of TESTABLE_TEXTS) {
       eq(`isTestableClaim: testable spec claim → true (${JSON.stringify(text)})`, testable({ type: 'spec', text }), true);
     }
+    // Regression: "extended coverage" without "plan"/"program" is a product spec.
+    eq('isTestableClaim: extended coverage router claim stays testable', testable({ type: 'spec', text: 'Wi-Fi 7 mesh with extended coverage up to 2,500 sq ft' }), true);
+    eq('isTestableClaim: extended protection plan → false', testable({ type: 'spec', text: 'Add a 3-year extended protection plan' }), false);
     ok(
       'CLAIM_EXTRACTION_SYSTEM: schema restricts type to spec|marketing (no warranty|support)',
       verifyModule.CLAIM_EXTRACTION_SYSTEM.includes('"type":"spec|marketing"')
