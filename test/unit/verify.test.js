@@ -18,6 +18,7 @@ const {
   isMarketingEcho,
   spanHasGenuineTestLanguage,
   spanShowsFirstHand,
+  isTestableClaim,
   applyStanceBackstops,
   buildClaimEvidence,
   topEvidenceForClaim,
@@ -96,6 +97,62 @@ export async function runVerifyTests() {
     for (const span of NOT_FIRST_HAND_SPANS) {
       eq(`spanShowsFirstHand: spec, second-hand, or invalid span → false (${JSON.stringify(span)})`, firstHand(span), false);
     }
+  }
+
+  // ── isTestableClaim ──────────────────────────────────────────────────────
+  // Commercial terms and the maker's own lab conditions are not testable by
+  // an independent review. A missing export records one failed assertion per
+  // case, not a crash.
+  {
+    const testable = (claim) => (typeof isTestableClaim === 'function'
+      ? isTestableClaim(claim)
+      : 'worker/engine/verify.js does not export isTestableClaim()');
+    const UNTESTABLE = [
+      { type: 'spec', text: 'The WH-1000XM6 is priced at $459.99 MSRP.' },
+      { type: 'marketing', text: 'The K2 Combo is priced at $549.00 (sale price $399.00).' },
+      { type: 'warranty', text: 'Warranty is a limited 3-year warranty with next business day response.' },
+      { type: 'spec', text: 'The product is covered by a 1-year warranty.' },
+      { type: 'support', text: 'Purchases include a 14-day return and refund policy.' },
+      { type: 'spec', text: 'A 3-month complimentary trial of Audible Premium Plus is offered with purchase.' },
+      { type: 'spec', text: 'Battery playtime was tested at 25°C in an Anker laboratory using default settings.' },
+      null,
+      {},
+      { type: 'spec', text: '' },
+    ];
+    const TESTABLE_TEXTS = [
+      'Offers up to 10 hours of playtime per charge and 50 hours total with the charging case.',
+      'Rated IPX4 water resistant.',
+      'The K2 has a net weight of 18.3 kg.',
+      'Silent Mode operates at around 45 dB.',
+      'The WH-1000XM6 is available in Black, Midnight Blue, and Platinum Silver.',
+      'Color gamut covers 99.3% DCI-P3 and 149% sRGB.',
+    ];
+    for (const claim of UNTESTABLE) {
+      eq(`isTestableClaim: commercial term, maker test, or invalid claim → false (${JSON.stringify(claim)})`, testable(claim), false);
+    }
+    for (const text of TESTABLE_TEXTS) {
+      eq(`isTestableClaim: testable spec claim → true (${JSON.stringify(text)})`, testable({ type: 'spec', text }), true);
+    }
+  }
+
+  // ── extractClaims drops untestable claims ────────────────────────────────
+  {
+    const content = JSON.stringify({ claims: [
+      { text: 'Rated IPX4 water resistant.', type: 'spec' },
+      { text: 'The WH-1000XM6 is priced at $459.99 MSRP.', type: 'spec' },
+      { text: 'Purchases include a 14-day return policy.', type: 'support' },
+    ] });
+    let texts;
+    try {
+      const out = await verifyModule.extractClaims({
+        product: 'Sony WH-1000XM6', claimText: 'spec page', apiKey: 'k', model: 'm',
+        callLLM: async () => fakeReply(content),
+      });
+      texts = out.claims.map((c) => c.text);
+    } catch (err) {
+      texts = `extractClaims threw: ${err.message}`;
+    }
+    eq('extractClaims: drops price and return-policy claims, keeps the testable spec', texts, ['Rated IPX4 water resistant.']);
   }
 
   // ── applyStanceBackstops ─────────────────────────────────────────────────

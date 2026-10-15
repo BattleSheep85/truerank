@@ -59,6 +59,7 @@ import {
   CLAIM_JUDGE_CONCURRENCY,
   collectClaimsAndEvidence,
   evidencePool,
+  isTestableClaim,
 } from '../worker/engine/verify.js';
 import { claimCandidateReason } from '../worker/engine/verify-resolve.js';
 
@@ -385,7 +386,10 @@ async function loadClaimsAndEvidence() {
     // The production pool filter (evidencePool) also applies to pinned evidence.
     const scoredEvidence = LEGACY_SELECTION ? replayInput.evidence : evidencePool(replayInput.evidence, PRODUCT, PRODUCT_URL);
     process.stderr.write(`[replay] ${scoredEvidence.length} evidence after the pool filter (legacy=${LEGACY_SELECTION})\n`);
-    return { claims: replayInput.claims, scoredEvidence };
+    // The production extract filter also applies to pinned claims.
+    const claims = replayInput.claims.filter(isTestableClaim);
+    process.stderr.write(`[replay] dropped ${replayInput.claims.length - claims.length} untestable claim(s)\n`);
+    return { claims, scoredEvidence };
   }
 
   // The production steps 1 to 5 (runVerification's collectClaimsAndEvidence).
