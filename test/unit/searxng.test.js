@@ -285,9 +285,58 @@ async function testSearchSuccess(m, t) {
   t.ok('logs: gate token never printed', !printed.includes(GATE_TOKEN));
 }
 
+// Review fix round regressions (findings 1 to 6).
+function testRelevanceRegressions(m, t) {
+  t.eq('regression: model-only query keeps matching result',
+    m.isRelevant({ url: 'https://x.example/a', title: 'Roborock S8 review', content: '' }, m.queryTokens('S8 review')), true);
+  t.eq('regression: 4k is not a model token', m.queryTokens('best 4k tv').modelTokens, []);
+  for (const unit of ['2nd', '6ft', '65in', '1tb', '120hz']) {
+    t.eq(`regression: ${unit} is not a model token`, m.queryTokens(`best ${unit} tv`).modelTokens, []);
+  }
+  t.ok('regression: pure number is not a term', !m.queryTokens('best tv 2026').terms.includes('2026'));
+  t.eq('regression: 4k query keeps a 4K TV result',
+    m.isRelevant({ url: 'https://x.example/tv', title: 'Best 4K TVs of the year', content: '' }, m.queryTokens('best 4k tv')), true);
+  const blog = (publishedDate) => vacuumResult('https://randomblog-xyz.net/best-robot-vacuum', { publishedDate });
+  t.ok('regression: future publishedDate gets no fresh bonus',
+    ranksAbove(soloScore(m, blog('2026-03-01T00:00:00Z')), soloScore(m, blog('9999-01-01T00:00:00Z'))));
+}
+
+function testUrlRegressions(m, t) {
+  t.eq('regression: www. host with empty rest is null', m.normalizeResultUrl('https://www./evil.example/x'), null);
+  t.eq('regression: trailing dot stripped from host', m.normalizeResultUrl('https://Example.com./a'), 'https://example.com/a');
+  t.eq('regression: url over 2048 chars is null', m.normalizeResultUrl(`https://example.com/${'a'.repeat(3000)}`), null);
+  const started = Date.now();
+  m.normalizeResultUrl(`https://example.com/a${'/'.repeat(5000)}b`);
+  t.ok('regression: 5000 inner slashes return within 50 ms', Date.now() - started < 50);
+  t.eq('regression: userinfo host spoof dropped', m.normalizeResultUrl('https://rtings.com@evil.example/x'), 'https://evil.example/x');
+  t.eq('regression: credentials dropped', m.normalizeResultUrl('https://user:pass@example.com/x'), 'https://example.com/x');
+  const slashUrl = `https://example.com/a${'/'.repeat(2000)}b`;
+  const slashStart = Date.now();
+  const slashOut = m.normalizeResultUrl(slashUrl);
+  t.ok('regression: 2000 inner slashes under the length cap return a string within 50 ms',
+    typeof slashOut === 'string' && Date.now() - slashStart < 50);
+  t.eq('regression: 6qt is not a model token', m.queryTokens('best 6qt air fryer').modelTokens, []);
+}
+
+async function testGateControlChars(m, t) {
+  const badToken = 'ab\ncd';
+  let calls = [];
+  const printed = await withCapturedLogs(async () => {
+    await withFakeFetch(() => jsonResponse({ results: USABLE_FOUR }), async (c) => {
+      await m.searxngSearch(VACUUM_QUERY, BASE_URL, { gateToken: badToken });
+      calls = c;
+    });
+  });
+  t.eq('regression: control-char token sends no gate header', gateHeader(calls[0]), null);
+  t.ok('regression: control-char token not logged', !printed.includes(badToken) && !printed.includes('cd'));
+  t.ok('regression: invalid gate token logged by message', printed.includes('[searxng] gate token has invalid characters, header omitted'));
+}
+
 const SYNC_GROUPS = [
   testConstants, testNormalizeResultUrl, testQueryTokens, testIsRelevant,
   testRankFiltering, testRankDedupe, testRankOrdering, testRankShapeAndCap, testRankImmutability,
+  // Every group is awaited, so the async regression group can sit here.
+  testRelevanceRegressions, testUrlRegressions, testGateControlChars,
 ];
 const ASYNC_GROUPS = [testSearchRequest, testSearchNulls, testSearchSuccess];
 

@@ -26,6 +26,13 @@ const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'ref', 'ref_src', 'srsltid',
 const TRACKING_PREFIX = 'utm_';
 const REDDIT_ALIAS = /^(old|new|m|np)\.reddit\.com$/;
 const MIN_TERM_LENGTH = 3;
+// Longer inputs are junk and only cost parse time.
+const MAX_URL_LENGTH = 2048;
+const PURE_NUMBER = /^\d+$/;
+// Ordinals and units ("2nd", "4k", "65in", "1tb", "120hz") are not model numbers.
+const UNIT_TOKEN = /^\d+(st|nd|rd|th|k|ft|in|inch|gb|tb|mb|mm|cm|hz|ghz|w|v|mah|p|x|qt|lb|lbs|oz|mp|kg|ml)$/;
+// Control characters cannot go in an HTTP header value.
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 const STOPWORDS = new Set([
   'best', 'review', 'reviews', 'reddit', 'top', 'vs', 'the', 'and', 'for', 'with',
   'test', 'tests', 'specs', 'buy', 'buying', 'guide', 'which', 'what', 'are', 'you',
@@ -42,9 +49,25 @@ const FRESH_BONUS = 4;
 const FRESH_WINDOW_MS = 18 * 30.44 * 24 * 60 * 60 * 1000;
 const MS_PER_SECOND = 1000;
 
+// Lowercase host without "www." or one trailing dot, reddit aliases mapped to
+// reddit.com. Empty string when nothing is left.
+function canonicalHost(hostname) {
+  const noWww = hostname.toLowerCase().replace(/^www\./, '');
+  if (!noWww) return '';
+  const host = noWww.endsWith('.') ? noWww.slice(0, -1) : noWww;
+  return REDDIT_ALIAS.test(host) ? 'reddit.com' : host;
+}
+
+// Path without trailing slashes, "/" for the root. Linear scan, no regex.
+function trimTrailingSlashes(path) {
+  let end = path.length;
+  while (end > 1 && path[end - 1] === '/') end--;
+  return path.slice(0, end) || '/';
+}
+
 // Canonical https URL with tracking noise removed, or null when unusable.
 export function normalizeResultUrl(url) {
-  if (typeof url !== 'string') return null;
+  if (typeof url !== 'string' || url.length > MAX_URL_LENGTH) return null;
   let parsed;
   try {
     parsed = new URL(url.trim());
@@ -52,15 +75,22 @@ export function normalizeResultUrl(url) {
     return null;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-  const lower = parsed.hostname.toLowerCase().replace(/^www\./, '');
-  const host = REDDIT_ALIAS.test(lower) ? 'reddit.com' : lower;
+  const host = canonicalHost(parsed.hostname);
+  if (!host) return null;
   const params = [...parsed.searchParams].filter(
     ([key]) => !TRACKING_PARAMS.has(key) && !key.startsWith(TRACKING_PREFIX),
   );
-  const query = params.length ? `?${new URLSearchParams(params).toString()}` : '';
-  const path = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '') || '/';
-  const port = parsed.port ? `:${parsed.port}` : '';
-  return `https://${host}${port}${path}${query}`;
+  // Edit a parsed copy so the host stays in the host slot.
+  const out = new URL(parsed.href);
+  out.protocol = 'https:';
+  out.hostname = host;
+  // Drop userinfo: credentials leak, and "rtings.com@evil.example" reads as the wrong host.
+  out.username = '';
+  out.password = '';
+  out.pathname = trimTrailingSlashes(parsed.pathname);
+  out.search = new URLSearchParams(params).toString();
+  out.hash = '';
+  return out.href;
 }
 
 const alnum = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -73,10 +103,12 @@ export function queryTokens(query) {
     .toLowerCase();
   const words = cleaned.split(/\s+/).filter(Boolean);
   const modelTokens = [...new Set(
-    words.filter((w) => /[a-z]/.test(w) && /\d/.test(w)).map(alnum).filter(Boolean),
+    words.filter((w) => /[a-z]/.test(w) && /\d/.test(w)).map(alnum)
+      .filter((w) => w && !UNIT_TOKEN.test(w)),
   )];
   const terms = [...new Set(
-    cleaned.split(/[^a-z0-9]+/).filter((w) => w.length >= MIN_TERM_LENGTH && !STOPWORDS.has(w)),
+    cleaned.split(/[^a-z0-9]+/).filter((w) => w.length >= MIN_TERM_LENGTH && !STOPWORDS.has(w)
+      && !PURE_NUMBER.test(w) && !UNIT_TOKEN.test(w)),
   )];
   return { terms, modelTokens };
 }
@@ -88,7 +120,7 @@ export function isRelevant(result, tokens) {
   const { terms = [], modelTokens = [] } = tokens ?? {};
   if (terms.length === 0 && modelTokens.length === 0) return true;
   const haystack = `${result?.title ?? ''} ${result?.url ?? ''} ${result?.content ?? ''}`.toLowerCase();
-  if (!terms.some((t) => termFound(t, haystack))) return false;
+  if (terms.length > 0 && !terms.some((t) => termFound(t, haystack))) return false;
   if (modelTokens.length === 0) return true;
   const flat = alnum(haystack);
   return modelTokens.some((m) => flat.includes(m));
@@ -143,7 +175,8 @@ function mergeDuplicates(raw) {
 }
 
 function isFresh(item, nowMs) {
-  if (item.publishedMs !== undefined && nowMs - item.publishedMs <= FRESH_WINDOW_MS) return true;
+  const age = item.publishedMs === undefined ? NaN : nowMs - item.publishedMs;
+  if (age >= 0 && age <= FRESH_WINDOW_MS) return true;
   const year = new Date(nowMs).getUTCFullYear();
   const years = new RegExp(`(^|\\D)(${year}|${year - 1})(\\D|$)`);
   return years.test(`${item.title} ${item.url}`);
@@ -175,10 +208,16 @@ export function rankResults(raw, query, nowMs) {
     }));
 }
 
-// Gate header object for fetch, or {} when the token is missing or blank.
+// Gate header object for fetch, or {} when the token is missing, blank, or
+// holds a control character (which fetch would reject or a proxy could split).
 function edgeGateHeader(rawToken) {
   const token = typeof rawToken === 'string' ? rawToken.trim() : '';
-  return token ? { [EDGE_GATE_HEADER]: token } : {};
+  if (!token) return {};
+  if (CONTROL_CHARS.test(token)) {
+    console.log('[searxng] gate token has invalid characters, header omitted');
+    return {};
+  }
+  return { [EDGE_GATE_HEADER]: token };
 }
 
 function buildSearchUrl(query, baseUrl, opts) {

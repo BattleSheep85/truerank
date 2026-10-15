@@ -622,8 +622,10 @@ async function executeSearch(
   // reachable on the blackbox engine host) -> Brave (CF-reachable) -> Exa (neural,
   // keyed) -> Tavily (LLM-tuned, keyed). DuckDuckGo is CAPTCHA-blocked from datacenter IPs and returns empty results,
   // so it is removed from active fallbacks.
-  const webFallback = async (q) => {
-    const sx = searxngUrl ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate }) : null;
+  // skipSearxng: the 'searxng' provider already asked SearXNG, so a second
+  // call would only repeat the same weak or failed answer.
+  const webFallback = async (q, { skipSearxng = false } = {}) => {
+    const sx = searxngUrl && !skipSearxng ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate }) : null;
     if (sx !== null) return sx;
     const brave = braveApiKey ? await braveSearch(q, braveApiKey, { timeRange: tr }) : null;
     if (brave !== null) return brave;
@@ -679,12 +681,12 @@ async function executeSearch(
       break;
     }
     case 'searxng': {
-      // Self-hosted metasearch (free, broad). Falls back through the web chain
-      // (Brave / Tavily) when the SearXNG instance is unreachable.
+      // Self-hosted metasearch (free, broad). Falls back to Serper, then the web
+      // chain without SearXNG (Brave / Exa / Tavily), when SearXNG fails or is weak.
       const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate }) : null;
       if (sx !== null) { results = sx; subs = 1; break; }
       const serp = await serperSearch(query, serperApiKey, { sourceLabel: 'web', timeRange: tr });
-      results = serp === null ? await webFallback(query) : serp;
+      results = serp === null ? await webFallback(query, { skipSearxng: true }) : serp;
       subs = 1;
       break;
     }
