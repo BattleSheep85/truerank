@@ -18,7 +18,7 @@ and produces honest comparison reports. Monetized via affiliate links (Amazon As
   - **Stance (verify judge)**: `xiaomi/mimo-v2.6-flash`, with `minimax/minimax-m3` as second opinion for claims mimo leaves unsubstantiated (216 graded claims, two graders: 77 vs 69 correct for minimax alone). Claims are judged 12 at a time.
   - Bench tools: `benchmarks/judge-bench.mjs`, `judge-grade.mjs`, `judge-cascade-score.mjs`, `extract-bench.mjs`, `bench-planner-cost.mjs`, `synth-gold-*.mjs`.
   - **One engine config for every run (2026-06-16):** one model set and about 50 searches of deep research for every run. `worker/lib/engine-config.js` exports a single `ENGINE_CONFIG`. There is no tier selector. Rationale and data: `benchmarks/engine-llm-bench-2026-06.md`.
-- **Search**: Brave Search API (primary in production since 2026-10-08; paid plan since 2026-10-09, 50 requests/s, so `tools.js` paces calls 25 ms apart and retries one 429), Exa (`exaSearch`, type `instant`, $4 per 1,000; web fallback after Brave and the selectable `exa` provider, not primary: the 2026-10-09 bench `benchmarks/bench-search-exa.mjs` found 32 review domains vs Brave's 40 over 16 evidence queries, though it adds 17 domains Brave misses), HN Algolia (free), RSS expert feeds. Serper was removed from production on 2026-10-08 (owner decision): the code still calls it first when `SERPER_API_KEY` is set and skips it otherwise; the Amazon ASIN and product-image resolvers (`asin-resolver.js`, `image-resolver.js`) need Serper and do nothing without it. SearXNG (self-hosted on Blackbox, reachable at `litellm.wafflemedia.net/search` behind the X-Edge-Gate header) was tried and removed: from the home IP only Bing answers, and its results ignore model names. Tavily is configured locally only (pay-as-you-go nearly used). Provider quality benchmark: `benchmarks/bench-providers.mjs`.
+- **Search**: self-hosted SearXNG (primary since 2026-10-15, CP-593; Blackbox stack `searxng`, public at `https://litellm.wafflemedia.net/search` behind the X-Edge-Gate header). The instance loads ten free engines that answer from the home IP (duckduckgo web, gmx, yahoo, yandex, swisscows, neosearch, zapmeta, s1search, yep, keenable; settings in the blackbox repo `stacks/searxng/settings.yml`). `worker/engine/searxng.js` normalizes and merges URLs, drops blocked and off-topic results, reranks (expert, community, fresh, multi-engine first), never sends `time_range` (SearXNG skips engines without date filters), and returns null on an error or fewer than 3 usable results, so Brave, then Exa, then Tavily answer. Benchmark `benchmarks/bench-searxng.mjs` (2026-10-14, 96 queries): SearXNG 7.1 good sources per query, 65% recall of the Serper-era corpus, 55 evidence domains over 16 queries, Reddit in the top 10 for 100% of Reddit queries, 0% failures, p95 1.3 s on the LAN; Exa 2.5, 43%, 29, 0%, 0%; recorded Brave 40 evidence domains. Plan and gate: `docs/searxng-2026-10/plan.md`. Brave Search API (paid, paced 25 ms apart, retries one 429) and Exa (`exaSearch`, type `instant`, $4 per 1,000, also the selectable `exa` provider) are the fallbacks. HN Algolia (free), RSS expert feeds. Serper was removed from production on 2026-10-08 (owner decision): the code still calls it first when `SERPER_API_KEY` is set and skips it otherwise; the Amazon ASIN and product-image resolvers (`asin-resolver.js`, `image-resolver.js`) need Serper and do nothing without it. Tavily is configured locally only. Older provider benchmark: `benchmarks/bench-providers.mjs`.
 - **Cost governor**: `MONTHLY_BUDGET_USD` (default 60): each run increments a
   KV `cost:YYYY-MM` counter; `POST /api/research` returns 503 once the month's
   spend hits the cap. Per-run cost persists to `research.cost_usd`.
@@ -52,7 +52,7 @@ zero-dependency rule is unchanged: do NOT add a dependency that ships to the wor
 - `/worker/`: Cloudflare Worker source (plain JS)
 - `/worker/engine/`: Ported research engine: `engine.js` (agent loop + synthesis
   orchestration), `llm.js` (OpenRouter streaming/non-streaming + context pruning),
-  `tools.js` (web_search/read_page/note; Serper + HN + DDG + RSS providers),
+  `tools.js` (web_search/read_page/note; SearXNG + Brave + Exa + HN + RSS providers), `searxng.js` (SearXNG client, cleanup and rerank),
   `prompts.js` (agent + synthesis prompts), `validate.js` (result sanitization),
   `opening-book.js` (deterministic template searches), `recall-gather.js` (post-planner
   recall searches for unevidenced category leaders)
@@ -83,11 +83,12 @@ Research runs operate with a 50-search budget (`ENGINE_CONFIG.maxSearches = 50`)
 - OPENROUTER_API_KEY: paid OpenRouter key (classifier/planner/synth models)
 - SERPER_API_KEY: removed from production 2026-10-08; optional (search falls back to Brave; ASIN and image resolvers stay off without it)
 - WORKER_SECRET: authentication secret gating /api/internal/* and internal worker requests
-- BRAVE_API_KEY: Brave Search, the production web search provider (free plan, paced 1.1 s apart)
+- BRAVE_API_KEY: Brave Search, the first web fallback after SearXNG (paid plan, paced 25 ms apart)
 - TAVILY_API_KEY: optional; Tavily LLM-tuned web search (selectable provider + fallback)
 - EXA_API_KEY: optional; Exa neural web search (selectable `exa` provider + web fallback after Brave; free tier $10/month)
-- SEARXNG_URL: not set in production (removed 2026-10-08, poor Bing-only results). When set,
-  the `searxng` provider leads the web chain and sends `X-Edge-Gate` from LITELLM_GATE_TOKEN.
+- SEARXNG_URL: `https://litellm.wafflemedia.net` in production (set 2026-10-15, CP-593). The `searxng`
+  provider leads the web chain and sends `X-Edge-Gate` from LITELLM_GATE_TOKEN (BWS LITELLM_EDGE_GATE).
+  Rollback: `wrangler secret delete SEARXNG_URL` (search falls back to Brave).
 - JINA_API_KEY: optional; lifts Jina Reader's free rate cap for `read_page`
 - AMAZON_ASSOCIATE_TAG: optional; `AMAZON_AFFILIATE_TAG` ([vars]) is the default tag
 

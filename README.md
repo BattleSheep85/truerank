@@ -9,7 +9,7 @@ Honest product research. We search real reviews across the web (expert review si
 ## What it does
 
 1. You type a product query (e.g. "best NAS for home media server")
-2. A research engine runs ~50 web/news searches (Serper + SearXNG + HN Algolia + RSS feeds) and reads the strongest sources
+2. A research engine runs ~50 web/news searches (self-hosted SearXNG + HN Algolia + RSS feeds, with Brave and Exa as fallbacks) and reads the strongest sources
 3. Sources are scored for credibility (hands-on vs listicle vs affiliate-conflict) and an honest synthesis ranks the products with sourced pros/cons
 4. You get a ranked comparison with trust signals, pros/cons traceable to sources, and links to buy
 
@@ -27,7 +27,7 @@ Honest product research. We search real reviews across the web (expert review si
 | AI - synthesis | `minimax/minimax-m3` via OpenRouter | paid |
 | AI - extract (claims) | `anthropic/claude-haiku-4.5` via OpenRouter | paid |
 | AI - stance judge | `minimax/minimax-m3` via OpenRouter | paid |
-| Search | Serper.dev (primary) + SearXNG + Brave/Tavily (fallback) + HN Algolia + RSS | mostly free |
+| Search | self-hosted SearXNG (primary) + Brave/Exa (fallback) + HN Algolia + RSS | mostly free |
 
 AI cost is governed by `MONTHLY_BUDGET_USD` (default $60): each run increments a KV cost counter and `/api/research` returns 503 once the month's spend hits the cap.
 

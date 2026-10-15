@@ -2504,3 +2504,14 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 - [x] LOW: `escapeHtml()` duplicated. (Fixed: shared `js/render.js`.)
 - [x] LOW: D1 source/product inserts were sequential. (Fixed: concurrent via Promise.all.)
+
+## 2026-10-14: SearXNG cutover (CP-593, plan docs/searxng-2026-10/plan.md)
+
+### Search
+- [x] HIGH: SearXNG gave off-topic, Bing-only results, so frank paid Brave and Exa for every search. (Fixed: ten working engines on Blackbox, `worker/engine/searxng.js` cleanup and rerank, weak answers fall back to Brave. Bench: 7.1 good sources per query vs Exa 2.5.)
+- [ ] MEDIUM: The Amazon ASIN and product-image resolvers still need Serper and do nothing without it. Move them to SearXNG `site:amazon.com` searches. worker/lib/asin-resolver.js, worker/lib/image-resolver.js
+- [ ] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js
+- [ ] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Brave. worker/engine/searxng.js
+- [ ] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl
+- [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
+- [ ] LOW (test): One full `npx vitest run` failed one test in four runs (not reproduced, workerd "Can't read from request stream after response has been sent" in the log). test/integration/
