@@ -332,11 +332,49 @@ async function testGateControlChars(m, t) {
   t.ok('regression: invalid gate token logged by message', printed.includes('[searxng] gate token has invalid characters, header omitted'));
 }
 
+// searxngSiteSearch: raw site: answers for the ASIN resolver, no cleanup.
+async function siteCall(m, respond, opts = {}) {
+  let result, calls = [];
+  await withFakeFetch(respond, async (c) => {
+    result = await m.searxngSiteSearch('site:amazon.com "Synology DS224"', BASE_URL, opts);
+    calls = c;
+  });
+  return { result, calls };
+}
+
+async function testSiteSearch(m, t) {
+  const raw = [
+    { url: 'https://www.amazon.com/Synology-DS224/dp/B0ABCDEFGH/ref=x?utm_source=a', title: 'Synology DS224+ NAS', content: 'c' },
+    { url: 'https://www.merriam-webster.com/dictionary/best', title: 'Best Definition & Meaning' },
+    { title: 'no url entry' },
+    { url: 42, title: 'non-string url' },
+  ];
+  const mapped = await siteCall(m, () => jsonResponse({ results: raw }), { gateToken: `  ${GATE_TOKEN}\n`, timeRange: 'y' });
+  t.eq('site: raw results mapped to {url,title} in order, no filter, no rewrite', mapped.result, [
+    { url: 'https://www.amazon.com/Synology-DS224/dp/B0ABCDEFGH/ref=x?utm_source=a', title: 'Synology DS224+ NAS' },
+    { url: 'https://www.merriam-webster.com/dictionary/best', title: 'Best Definition & Meaning' },
+  ]);
+  const url = new URL(mapped.calls[0]?.url ?? 'https://invalid.test/');
+  t.eq('site: request path', `${url.origin}${url.pathname}`, `${BASE_URL}/search`);
+  t.eq('site: q param', url.searchParams.get('q'), 'site:amazon.com "Synology DS224"');
+  t.eq('site: format=json', url.searchParams.get('format'), 'json');
+  t.eq('site: no time_range', url.searchParams.has('time_range'), false);
+  t.eq('site: gate header trimmed', gateHeader(mapped.calls[0]), GATE_TOKEN);
+  const one = await siteCall(m, () => jsonResponse({ results: [raw[1]] }), { gateToken: '   ' });
+  t.eq('site: 1-result off-topic answer kept', one.result, [{ url: raw[1].url, title: raw[1].title }]);
+  t.eq('site: blank token sends no gate header', gateHeader(one.calls[0]), null);
+  t.eq('site: zero results is []', (await siteCall(m, () => jsonResponse({ results: [] }))).result, []);
+  t.eq('site: HTTP 500 is null', (await siteCall(m, () => new Response('boom', { status: 500 }))).result, null);
+  t.eq('site: thrown fetch is null', (await siteCall(m, () => { throw new TypeError('network down'); })).result, null);
+  t.eq('site: invalid JSON is null', (await siteCall(m, () => new Response('not json', { status: 200 }))).result, null);
+}
+
 const SYNC_GROUPS = [
   testConstants, testNormalizeResultUrl, testQueryTokens, testIsRelevant,
   testRankFiltering, testRankDedupe, testRankOrdering, testRankShapeAndCap, testRankImmutability,
   // Every group is awaited, so the async regression group can sit here.
   testRelevanceRegressions, testUrlRegressions, testGateControlChars,
+  testSiteSearch,
 ];
 const ASYNC_GROUPS = [testSearchRequest, testSearchNulls, testSearchSuccess];
 

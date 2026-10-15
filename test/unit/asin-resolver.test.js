@@ -106,6 +106,53 @@ export async function runAsinResolverTests() {
     eq('both keys: ASIN from Serper', out[0].productUrl, 'https://www.amazon.com/dp/B0SERPER01');
   });
 
+  // ── SearXNG site: search when Serper has no key (Brave answers 402 in production) ──
+  const SEARXNG = 'https://searx.example.test';
+  const GATE = 'gate-token';
+  const AMAZON_Q = 'site:amazon.com "Synology DS224"';
+  const searxCalls = (calls) => calls.filter((c) => c.url.startsWith(`${SEARXNG}/search`));
+  const braveCalls = (calls) => calls.filter((c) => new URL(c.url).host === 'api.search.brave.com');
+  const searxAmazonHit = { results: [{ url: 'https://www.amazon.com/Synology-DS224/dp/B0SEARXNG1/ref=x', title: 'Synology DS224+ NAS' }] };
+
+  await withFakeFetch(() => jsonResponse(searxAmazonHit), async (calls) => {
+    const out = await resolveAsins({ SEARXNG_URL: SEARXNG, LITELLM_GATE_TOKEN: GATE, AMAZON_AFFILIATE_TAG: 'tag-20' }, [PRODUCT]);
+    eq('searxng only: one request', calls.length, 1);
+    const u = new URL(calls[0]?.url ?? 'https://invalid.test/');
+    eq('searxng only: hits the SearXNG search endpoint', `${u.origin}${u.pathname}`, `${SEARXNG}/search`);
+    eq('searxng only: same site: query shape as Serper', u.searchParams.get('q'), AMAZON_Q);
+    eq('searxng only: sends the X-Edge-Gate header', new Headers(calls[0]?.init?.headers).get('x-edge-gate'), GATE);
+    eq('searxng only: ASIN set from /dp/ result', out[0].productUrl, 'https://www.amazon.com/dp/B0SEARXNG1');
+    ok('searxng only: affiliate tag applied', String(out[0].affiliateUrl).includes('tag=tag-20'));
+    eq('searxng only: input product not mutated', PRODUCT.productUrl, '');
+  });
+
+  await withFakeFetch(() => jsonResponse({
+    organic: [{ link: 'https://www.amazon.com/dp/B0SERPER01', title: 'Synology DS224+ NAS' }],
+  }), async (calls) => {
+    const out = await resolveAsins({ SERPER_API_KEY: 'serper-key', SEARXNG_URL: SEARXNG, LITELLM_GATE_TOKEN: GATE }, [PRODUCT]);
+    eq('serper + searxng: Serper only', calls.map((c) => new URL(c.url).host), ['google.serper.dev']);
+    eq('serper + searxng: ASIN from Serper', out[0].productUrl, 'https://www.amazon.com/dp/B0SERPER01');
+  });
+
+  await withFakeFetch((url) => (url.startsWith(SEARXNG)
+    ? new Response('boom', { status: 500 })
+    : jsonResponse({ web: { results: [{ url: 'https://www.amazon.com/dp/B0BRAVE001', title: 'Synology DS224+ NAS' }] } })),
+  async (calls) => {
+    const out = await resolveAsins({ SEARXNG_URL: SEARXNG, BRAVE_API_KEY: 'brave-key' }, [PRODUCT]);
+    eq('searxng 500: SearXNG asked first', searxCalls(calls).map((c) => new URL(c.url).searchParams.get('q'))[0], AMAZON_Q);
+    eq('searxng 500: same query retried on Brave once',
+      braveCalls(calls).filter((c) => new URL(c.url).searchParams.get('q') === AMAZON_Q).length, 1);
+    eq('searxng 500: ASIN from the Brave retry', out[0].productUrl, 'https://www.amazon.com/dp/B0BRAVE001');
+  });
+
+  await withFakeFetch(() => jsonResponse({ results: [] }), async (calls) => {
+    await resolveAsins({ SEARXNG_URL: SEARXNG }, [PRODUCT]);
+    const queries = searxCalls(calls).map((c) => new URL(c.url).searchParams.get('q'));
+    ok('searxng only: no Amazon hit runs the retailer fallback',
+      queries.some((q) => RETAILER_FALLBACKS.some((r) => q === `site:${r.host} "Synology DS224"`)));
+    eq('searxng only: no Brave key means no Brave request', braveCalls(calls).length, 0);
+  });
+
   await withFakeFetch(() => { throw new Error('fetch must not be called'); }, async (calls) => {
     const out = await resolveAsins({}, [PRODUCT]);
     eq('no keys: no request', calls.length, 0);

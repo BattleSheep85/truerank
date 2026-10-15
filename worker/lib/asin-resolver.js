@@ -13,10 +13,11 @@
  * fetches, run sequentially. This keeps us well under the Workers subrequest
  * limit and the Serper free-tier quota.
  *
- * Brave fallback: with no SERPER_API_KEY but a BRAVE_API_KEY, the Amazon site:
- * query goes through the engine's paced Brave client instead. The retailer
- * fallback stays Serper-only: Brave's free plan is 1 request/s and 2,000/month,
- * so 3 queries per product would triple the paced wall-clock and quota spend.
+ * Provider order: Serper when SERPER_API_KEY is set; else the self-hosted
+ * SearXNG when SEARXNG_URL is set (free, so the retailer fallback runs too; a
+ * query SearXNG fails on retries once on Brave when BRAVE_API_KEY is set); else
+ * Brave alone. Brave-only skips the retailer fallback: its paid plan bills per
+ * query, so 3 queries per product would triple the spend.
  *
  * Contract: NEVER throws. No key / quota / network error / no confident match
  * leaves the product unchanged (immutable — original object is returned as-is).
@@ -24,6 +25,7 @@
 
 import { buildAffiliateUrl } from './affiliate-links.js';
 import { braveWebSearch } from '../engine/tools.js';
+import { searxngSiteSearch } from '../engine/searxng.js';
 
 // Cap on how many products we spend a Serper query on per run. Reports carry
 // 4-8 products; 8 covers every card so each quoted product links to its exact
@@ -148,14 +150,23 @@ function productSubject(product) {
     : name).replace(/"/g, '');
 }
 
-// Serper when its key is set (unchanged behavior), else Brave, else null.
-// `siteSearch(host, subject)` resolves to [{ link, title }] (Serper organic shape).
+// Serper when its key is set (unchanged behavior), else SearXNG, else Brave,
+// else null. `siteSearch(host, subject)` resolves to [{ link, title }] (Serper
+// organic shape).
 function searchProviderFromEnv(env) {
   const serperKey = env?.SERPER_API_KEY;
   if (serperKey) {
     return { retailerFallback: true, siteSearch: (host, subject) => serperSiteSearch(host, subject, serperKey) };
   }
   const braveKey = env?.BRAVE_API_KEY;
+  const searxngUrl = env?.SEARXNG_URL;
+  if (searxngUrl) {
+    const gateToken = env?.LITELLM_GATE_TOKEN;
+    return {
+      retailerFallback: true,
+      siteSearch: (host, subject) => searxngThenBrave(host, subject, { searxngUrl, gateToken, braveKey }),
+    };
+  }
   if (braveKey) {
     return { retailerFallback: false, siteSearch: (host, subject) => braveSiteSearch(host, subject, braveKey) };
   }
@@ -172,6 +183,14 @@ async function braveSiteSearch(host, subject, apiKey) {
   const results = await braveWebSearch(siteQuery(host, subject), apiKey);
   if (!Array.isArray(results)) return [];
   return results.map((r) => ({ link: r?.url, title: r?.title }));
+}
+
+// SearXNG site: results mapped to the Serper organic shape. A failed query
+// (null) retries once on Brave when a Brave key is set; otherwise no candidates.
+async function searxngThenBrave(host, subject, { searxngUrl, gateToken, braveKey }) {
+  const results = await searxngSiteSearch(siteQuery(host, subject), searxngUrl, { gateToken });
+  if (results === null) return braveKey ? braveSiteSearch(host, subject, braveKey) : [];
+  return results.map((r) => ({ link: r.url, title: r.title }));
 }
 
 async function serperSiteSearch(host, subject, apiKey) {

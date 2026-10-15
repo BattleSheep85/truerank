@@ -2509,7 +2509,8 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 ### Search
 - [x] HIGH: SearXNG gave off-topic, Bing-only results, so frank paid Brave and Exa for every search. (Fixed: ten working engines on Blackbox, `worker/engine/searxng.js` cleanup and rerank, weak answers fall back to Brave. Bench: 7.1 good sources per query vs Exa 2.5.)
-- [ ] MEDIUM: The Amazon ASIN and product-image resolvers still need Serper and do nothing without it. Move them to SearXNG `site:amazon.com` searches. worker/lib/asin-resolver.js, worker/lib/image-resolver.js
+- [x] HIGH: Production Brave answers HTTP 402 (out of credit) and Serper has no key, so the Amazon ASIN resolver found no product pages and affiliate links fell back to search links. (Fixed: the resolver uses SearXNG site: searches when SEARXNG_URL is set, Brave only as a per-query backup. worker/lib/asin-resolver.js)
+- [ ] MEDIUM (OPS): Production Brave is out of credit (HTTP 402 on 2026-10-14). Web search no longer needs it, but the product-image resolver still uses Serper or Brave only, so product images do not resolve. Top up Brave or move images to a SearXNG image engine. worker/lib/image-resolver.js
 - [ ] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js
 - [ ] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Brave. worker/engine/searxng.js
 - [ ] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl

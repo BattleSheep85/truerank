@@ -228,11 +228,9 @@ function buildSearchUrl(query, baseUrl, opts) {
   return `${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`;
 }
 
-// Cleaned, reranked results, or null so the caller falls through to the next
-// provider (not configured, HTTP error, network error, timeout, bad JSON, or
-// fewer than SEARXNG_MIN_USABLE usable results).
-export async function searxngSearch(query, baseUrl, opts = {}) {
-  if (!baseUrl) return null;
+// Parsed SearXNG JSON, or null on HTTP error, network error, timeout, or bad
+// JSON. Shared by searxngSearch and searxngSiteSearch.
+async function fetchSearxngJson(query, baseUrl, opts) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARXNG_TIMEOUT_MS);
   try {
@@ -244,17 +242,40 @@ export async function searxngSearch(query, baseUrl, opts = {}) {
       console.log(`[searxng] HTTP ${response.status} q="${query}"`);
       return null;
     }
-    const data = await response.json();
-    const raw = Array.isArray(data?.results) ? data.results : [];
-    const ranked = rankResults(raw, query, Date.now());
-    console.log(`[searxng] q="${query}" → raw ${raw.length}, kept ${ranked.length}`);
-    if (ranked.length < SEARXNG_MIN_USABLE) return null;
-    const label = opts.sourceLabel ?? 'web';
-    return ranked.map((r) => ({ url: r.url, title: r.title, content: r.content, source: label, publishedAt: r.publishedAt }));
+    return await response.json();
   } catch (err) {
     console.log(`[searxng] ERROR q="${query}": ${err instanceof Error ? err.message : String(err)}`);
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+const resultsOf = (data) => (Array.isArray(data?.results) ? data.results : []);
+
+// Cleaned, reranked results, or null so the caller falls through to the next
+// provider (not configured, HTTP error, network error, timeout, bad JSON, or
+// fewer than SEARXNG_MIN_USABLE usable results).
+export async function searxngSearch(query, baseUrl, opts = {}) {
+  if (!baseUrl) return null;
+  const data = await fetchSearxngJson(query, baseUrl, opts);
+  if (data === null) return null;
+  const raw = resultsOf(data);
+  const ranked = rankResults(raw, query, Date.now());
+  console.log(`[searxng] q="${query}" → raw ${raw.length}, kept ${ranked.length}`);
+  if (ranked.length < SEARXNG_MIN_USABLE) return null;
+  const label = opts.sourceLabel ?? 'web';
+  return ranked.map((r) => ({ url: r.url, title: r.title, content: r.content, source: label, publishedAt: r.publishedAt }));
+}
+
+// Raw site: search answers for the ASIN resolver: SearXNG order, {url, title}
+// only, no cleanup (the resolver checks URL patterns and titles itself).
+// [] for zero results, null on any failure.
+export async function searxngSiteSearch(query, baseUrl, opts = {}) {
+  if (!baseUrl) return null;
+  const data = await fetchSearxngJson(query, baseUrl, opts);
+  if (data === null) return null;
+  return resultsOf(data)
+    .filter((r) => typeof r?.url === 'string')
+    .map((r) => ({ url: r.url, title: typeof r.title === 'string' ? r.title : '' }));
 }
