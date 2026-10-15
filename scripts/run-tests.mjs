@@ -25,6 +25,7 @@ import { runVerdictTests } from '../test/unit/verdict.test.js';
 import { runVerifyTests } from '../test/unit/verify.test.js';
 import { runVerificationRenderTests } from '../test/unit/verification-render.test.js';
 import { runJinaTests } from '../test/unit/jina.test.js';
+import { runSearxngTests } from '../test/unit/searxng.test.js';
 import { runIpHashTests } from '../test/unit/ip-hash.test.js';
 import { runQuotaTests } from '../test/unit/quota.test.js';
 import { runConstraintsTests } from '../test/unit/constraints.test.js';
@@ -69,6 +70,7 @@ const suites = [
   ['verify', runVerifyTests],
   ['verification-render', runVerificationRenderTests],
   ['jina', runJinaTests], // async suite (awaited below)
+  ['searxng', runSearxngTests], // async suite (awaited below)
   ['ip-hash', runIpHashTests], // async suite (awaited below)
   ['quota', runQuotaTests], // async suite (awaited below)
   ['constraints', runConstraintsTests],

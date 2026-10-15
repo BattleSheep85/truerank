@@ -4,6 +4,7 @@ import { fetchPageContent } from '../lib/jina.js';
 import { scoreSource, extractAmazonProductUrls } from '../lib/credibility.js';
 import { fetchYoutubeDescription, isYouTube } from '../lib/youtube.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
+import { searxngSearch } from './searxng.js';
 
 // ─── Provider primitives (Serper + HN Algolia) ───────────────────────────────
 // NOTE: Do NOT evaluate `new Date()` at module load. Cloudflare Workers freeze
@@ -329,71 +330,11 @@ async function tavilySearch(query, apiKey, opts = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SearXNG metasearch — self-hosted on blackbox (http://192.168.5.10:8095), tuned
-// to a curated engine set (google + bing + duckduckgo + brave + wikipedia). Free, no
-// quota, no key. Aggregates several indexes per call → high source breadth at $0,
-// which the provider benchmark showed matches paid providers on credibility.
-// Reads env.SEARXNG_URL (the LAN URL, or https://litellm.wafflemedia.net from the
-// CF edge). Returns null when the instance is unreachable, gated (403), or not
-// configured so the caller falls through to the next provider.
+// SearXNG metasearch: self-hosted on blackbox, aggregates ten free engines. Free,
+// no quota, no key. The client in ./searxng.js cleans and reranks the answer and
+// returns null when the instance is unreachable, gated (403), not configured, or
+// the answer is weak, so the caller falls through to the next provider.
 // ─────────────────────────────────────────────────────────────────────────────
-// SearXNG aggregates several engines per call, so it needs more headroom than a
-// single-API provider — give it a dedicated ceiling above the shared TIMEOUT_MS.
-const SEARXNG_TIMEOUT_MS = 11000;
-// The public SearXNG (litellm.wafflemedia.net/search) sits behind the same
-// BunkerWeb header gate as LiteLLM: env.LITELLM_GATE_TOKEN in X-Edge-Gate.
-// Never log the token.
-const EDGE_GATE_HEADER = 'X-Edge-Gate';
-
-// Gate header object for fetch, or {} when the token is missing or blank.
-function edgeGateHeader(rawToken) {
-  const token = typeof rawToken === 'string' ? rawToken.trim() : '';
-  return token ? { [EDGE_GATE_HEADER]: token } : {};
-}
-
-async function searxngSearch(query, baseUrl, opts = {}) {
-  if (!baseUrl) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SEARXNG_TIMEOUT_MS);
-  try {
-    const params = new URLSearchParams({ q: query, format: 'json' });
-    if (opts.topic === 'news') params.set('categories', 'news');
-    if (opts.timeRange === 'y') params.set('time_range', 'year');
-    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json', ...edgeGateHeader(opts.gateToken) },
-    });
-    if (!response.ok) {
-      console.log(`[searxng] HTTP ${response.status} q="${query}"`);
-      return null; // unreachable/blocked → let the caller degrade to another provider
-    }
-    const data = await response.json();
-    const results = data?.results ?? [];
-    const label = opts.sourceLabel ?? 'web';
-    console.log(`[searxng] q="${query}" → ${results.length}`);
-    // SearXNG merges many engines; cap to the top slice so one query can't flood
-    // the source pool. Results arrive pre-ranked by SearXNG's score.
-    return results.slice(0, 15).map((r) => {
-      let publishedAt;
-      if (r.publishedDate) {
-        const ms = Date.parse(r.publishedDate);
-        if (!Number.isNaN(ms)) publishedAt = Math.floor(ms / 1000);
-      }
-      return {
-        url: r.url,
-        title: r.title,
-        content: r.content ?? '',
-        source: label,
-        publishedAt,
-      };
-    });
-  } catch (err) {
-    console.log(`[searxng] ERROR q="${query}": ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Serper.dev Video Search — https://serper.dev/videos
@@ -521,7 +462,7 @@ export const AGENT_TOOLS = [
           provider: {
             type: 'string',
             enum: ['web', 'news', 'video', 'hackernews', 'duckduckgo', 'tavily', 'exa', 'searxng', 'rss'],
-            description: 'Search provider. web=general web, news=recent articles, video=YouTube reviews, hackernews=tech discussions, duckduckgo=alternative web results, tavily=LLM-optimized web search (clean snippets), exa=neural web search (finds expert reviews the web provider misses), searxng=self-hosted metasearch aggregating google/bing/mojeek (free, broad), rss=expert review sites (Wirecutter/RTINGS/etc).',
+            description: 'Search provider. web=general web, news=recent articles, video=YouTube reviews, hackernews=tech discussions, duckduckgo=alternative web results, tavily=LLM-optimized web search (clean snippets), exa=neural web search (finds expert reviews the web provider misses), searxng=self-hosted metasearch aggregating ten free engines (free, broad), rss=expert review sites (Wirecutter/RTINGS/etc).',
           },
         },
         required: ['query'],

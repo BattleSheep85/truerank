@@ -8,7 +8,13 @@ import { runSearch } from '../../worker/engine/tools.js';
 const BASE_URL = 'https://searx.example.test';
 const TOKEN = 'ab'.repeat(32);
 const GATE_HEADER = 'x-edge-gate';
-const BODY = { results: [{ url: 'https://rtings.com/nas', title: 'NAS review', content: 'c' }] };
+const BODY = {
+  results: [
+    { url: 'https://rtings.com/nas', title: 'NAS review', content: 'c' },
+    { url: 'https://reddit.com/r/homelab/comments/x1/best_nas', title: 'Best NAS for a homelab?', content: 'c' },
+    { url: 'https://smallnetbuilder.com/nas-review', title: 'NAS review roundup', content: 'c' },
+  ],
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
