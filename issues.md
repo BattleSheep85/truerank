@@ -2514,4 +2514,4 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Brave. worker/engine/searxng.js
 - [ ] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl
 - [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
-- [ ] LOW (test): One full `npx vitest run` failed one test in four runs (not reproduced, workerd "Can't read from request stream after response has been sent" in the log). test/integration/
+- [ ] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js
