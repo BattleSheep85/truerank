@@ -1,6 +1,16 @@
 # Issues
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
+
+## 2026-10-15: dev tool advisories (CP-689)
+
+### Security
+- [x] CRITICAL (Security, dev tools): vitest 3.2 (arbitrary file read via @vitest/mocker) and tinypool (prototype pollution to RCE), plus 12 HIGH in @cloudflare/vitest-pool-workers 0.9, wrangler, miniflare, and their deps. Dev-only, but they ran on agentbox with live keys. package.json, package-lock.json. Fixed 2026-10-15: vitest 5.0.4, @vitest/coverage-istanbul 5.0.4, and @cloudflare/vitest-plugin 1.4.2 (the renamed successor of the deprecated vitest-pool-workers; it brings wrangler 4.151.0 and miniflare 5.20261012.0-beta). `npm audit` now finds 0 vulnerabilities, so no HIGH item remains.
+
+### Testing
+- [x] MEDIUM (Testing): the new plugin has no per-test storage isolation (the old isolatedStorage is gone), so D1 and KV state leaked between tests and 7 tests failed. test/integration/email-flows.spec.js, handlers.spec.js, internal.spec.js. Fixed 2026-10-15: each file clears the tables and KV keys it writes in a beforeEach. New specs that write D1 or KV must reset their own state.
+- [x] MEDIUM (Testing, cost): index.spec.js "POST /api/classify" sent a real request to the LLM classifier with the live dev keys and timed out in about 2 of 5 runs. test/integration/index.spec.js. Fixed 2026-10-15: the test stubs the OpenRouter reply, as classifier.spec.js does.
+- [ ] LOW (Testing): vitest 5 turns on fsModuleCache by default, and @cloudflare/vitest-plugin 1.4.2 cannot read that cache inside workerd. vitest.config.js sets `fsModuleCache: false`. Remove it when a plugin release fixes this.
 
 ## 2026-10-06: refocus run (spec docs/refocus-2026-10/spec.md, plan docs/refocus-2026-10/plan.md)
 
