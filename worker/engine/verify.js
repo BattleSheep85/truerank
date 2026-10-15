@@ -436,10 +436,39 @@ export function spanHasGenuineTestLanguage(span) {
   return SPAN_TEST_LANGUAGE.some((re) => re.test(text));
 }
 
+// Wider than SPAN_TEST_LANGUAGE: any sign that the quoted span reports the
+// source's own test, measurement, or use (first person, an observed result,
+// or a stretch of use), as opposed to a restated spec line such as
+// "MSRP: $459.99". Non-global regexes, so .test() keeps no lastIndex state.
+const SPAN_FIRST_PERSON = /\b(?:i|we|my|our|me)\b/i;
+const SPAN_OBSERVATION = [
+  /\b(?:tested|testing|tests|measured|measuring|clocked|lasted|survived|scored|scoring|hit|covered|recorded|benchmarked)\b/i,
+  /\b(?:in use|in practice|real-world|hands-on)\b/i,
+  /\b(?:over|across|after|for) (?:\d+|a|one|two|three|four|several|a few) (?:day|days|week|weeks|month|months)\b/i,
+];
+// Second-hand reports ("According to RTINGS", "SoundGuys measured") quote
+// someone else's test, so they never count as the source's own. The name
+// match is case-sensitive on purpose: only a capitalized name counts.
+const SPAN_SECOND_HAND = [
+  /\baccording to\b/i,
+  /\breportedly\b/i,
+  /\b(?!(?:I|We|Our|My|In|The|It|This|They)\b)[A-Z][\w'’-]*\s+(?:measured|tested|clocked|found|reports|reported)\b/,
+];
+
+export function spanShowsFirstHand(span) {
+  if (typeof span !== 'string' || span.length === 0) return false;
+  if (SPAN_SECOND_HAND.some((re) => re.test(span))) return false;
+  return spanHasGenuineTestLanguage(span)
+    || SPAN_FIRST_PERSON.test(span)
+    || SPAN_OBSERVATION.some((re) => re.test(span));
+}
+
 /**
  * Applies the deterministic backstops to a single stance verdict. Only ever
  * forces stance -> 'neutral'; never changes an already-neutral/contradict
- * stance to support, and never touches genuine hands-on testimony.
+ * stance to support, and never touches genuine hands-on testimony. The last
+ * rule drops support whose span does not show the source's own test,
+ * measurement, or use (`spanShowsFirstHand`), e.g. a restated spec line.
  */
 export function applyStanceBackstops({ stance, span, tags }, claimText) {
   if (stance !== 'support') return stance; // backstops only strip unearned support
@@ -454,6 +483,10 @@ export function applyStanceBackstops({ stance, span, tags }, claimText) {
   if (isMarketingEcho(span, claimText) && !spanHasGenuineTestLanguage(span)) {
     return 'neutral';
   }
+
+  // First-hand check: a spec-sheet restatement ("MSRP: $459.99") is not
+  // independent verification, even from a source tagged hands-on.
+  if (!spanShowsFirstHand(span)) return 'neutral';
 
   return stance;
 }
@@ -481,7 +514,8 @@ export function buildClaimEvidence(claim, scoredEvidence, stanceRows) {
     const claimText = (claim && claim.text) || '';
     // FIX 2: deterministic backstop — the LLM's stance is authoritative
     // EXCEPT it can never grant unearned 'support' from a manufacturer/
-    // sponsored source or a marketing-echo span; this can only downgrade
+    // sponsored source, a marketing-echo span, or a span with no first-hand
+    // test, measurement, or use (spanShowsFirstHand); this can only downgrade
     // to neutral, never upgrade.
     const stance = applyStanceBackstops(
       { stance: row.stance, span: row.span, tags: s.tags },

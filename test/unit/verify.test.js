@@ -17,6 +17,7 @@ import { runVerifySpeedTests } from './verify-speed.test.js';
 const {
   isMarketingEcho,
   spanHasGenuineTestLanguage,
+  spanShowsFirstHand,
   applyStanceBackstops,
   buildClaimEvidence,
   topEvidenceForClaim,
@@ -65,6 +66,38 @@ export async function runVerifyTests() {
     eq('spanHasGenuineTestLanguage: plain spec restatement → false', spanHasGenuineTestLanguage('Ultra Long 50H Playtime'), false);
   }
 
+  // ── spanShowsFirstHand ───────────────────────────────────────────────────
+  // A missing export records one failed assertion per case, not a crash.
+  {
+    const firstHand = (span) => (typeof spanShowsFirstHand === 'function'
+      ? spanShowsFirstHand(span)
+      : 'worker/engine/verify.js does not export spanShowsFirstHand()');
+    const FIRST_HAND_SPANS = [
+      'In our tests, we calculated the total color coverage of the monitor at 100% of the sRGB gamut, and 99% of the DCI-P3 gamut.',
+      'At 60% volume with ANC off, I measured 9.2 hours per charge, close to the rated 10 hours.',
+      'The AW3423DWF covered 100% of the sRGB color gamut, 98.4% of Adobe RGB, and 99% of DCI-P3',
+      'Multipoint handled MacBook and iPhone pairing cleanly across four weeks.',
+      'Drop testing showed the Flip 7 survives 1 meter drops onto concrete without damage.',
+    ];
+    const NOT_FIRST_HAND_SPANS = [
+      'HDR Certification | DisplayHDR True Black 400',
+      "Dell's AW3423 series includes a 3-year warranty with burn-in protection",
+      'MSRP: $459.99',
+      "soundcore's app adds HearID Sound 2.0, 22 EQ presets, and firmware updates.",
+      '',
+      null,
+      42,
+      "SoundGuys measured 37 hours and 14 minutes with ANC, beating Sony's 30-hour claim.",
+      'According to RTINGS, the battery lasted 31 hours.',
+    ];
+    for (const span of FIRST_HAND_SPANS) {
+      eq(`spanShowsFirstHand: first-hand span → true (${JSON.stringify(span)})`, firstHand(span), true);
+    }
+    for (const span of NOT_FIRST_HAND_SPANS) {
+      eq(`spanShowsFirstHand: spec, second-hand, or invalid span → false (${JSON.stringify(span)})`, firstHand(span), false);
+    }
+  }
+
   // ── applyStanceBackstops ─────────────────────────────────────────────────
   {
     eq(
@@ -96,6 +129,44 @@ export async function runVerifyTests() {
       'applyStanceBackstops: never touches an existing contradict',
       applyStanceBackstops({ stance: 'contradict', span: 'we measured only 6h', tags: ['manufacturer'] }, 'battery lasts 10.5h'),
       'contradict',
+    );
+    eq(
+      'applyStanceBackstops: hands-on tag with a spec-sheet span (no first-hand language) → neutral',
+      applyStanceBackstops({ stance: 'support', span: 'Dimensions 40.4 x 43.6 x 54.5 cm', tags: ['hands-on'] }, 'measures 40.4 x 43.6 x 54.5 cm'),
+      'neutral',
+    );
+    eq(
+      'applyStanceBackstops: first-person measurement span → stays support',
+      applyStanceBackstops({ stance: 'support', span: 'I measured 9.2 hours per charge', tags: [] }, 'battery lasts 9 hours'),
+      'support',
+    );
+    eq(
+      'applyStanceBackstops: contradict with a spec-sheet span stays contradict',
+      applyStanceBackstops({ stance: 'contradict', span: 'MSRP: $499', tags: [] }, 'costs $459.99'),
+      'contradict',
+    );
+    eq(
+      'applyStanceBackstops: support with an empty span → neutral',
+      applyStanceBackstops({ stance: 'support', span: '', tags: [] }, 'costs $459.99'),
+      'neutral',
+    );
+  }
+
+  // ── buildClaimEvidence: first-hand backstop ──────────────────────────────
+  {
+    const claim = { id: 'c2', text: 'battery lasts 31 hours and costs $459.99', type: 'spec' };
+    const scoredEvidence = [
+      { url: 'https://shop.example/listing', title: 'Listing', content: '...', credibility: 60, independence: 60, tags: [] },
+      { url: 'https://lab.example/review', title: 'Lab Review', content: '...', credibility: 90, independence: 70, tags: ['hands-on'] },
+    ];
+    const stanceRows = [
+      { url: 'https://shop.example/listing', stance: 'support', span: 'MSRP: $459.99' },
+      { url: 'https://lab.example/review', stance: 'support', span: 'In our battery test it lasted 31 hours' },
+    ];
+    eq(
+      'buildClaimEvidence: spec-sheet support → neutral, first-hand support stays (row order)',
+      buildClaimEvidence(claim, scoredEvidence, stanceRows).map((r) => r.stance),
+      ['neutral', 'support'],
     );
   }
 
