@@ -560,6 +560,17 @@ describe('review fixes: saved-verdict key and status score', () => {
     const empty = await seedVerification({ key, ageDays: 1, claims: [] });
     expect(await verifyHandlers.findSavedVerdict(env.DB, key, nowSec())).toBeNull();
 
+    const untestableKey = 'verify:asin:B0DTESTUNT';
+    await seedVerification({
+      key: untestableKey,
+      ageDays: 1,
+      claims: [
+        { text: 'The product is sold by third-party seller Electronics Club on Amazon.', status: 'unsubstantiated', type: 'support', claimType: 'support' },
+        { text: 'An optional 2-Year Asurion Wearables Protection Plan is available for $64.99.', status: 'unsubstantiated', type: 'warranty', claimType: 'warranty' },
+      ],
+    });
+    expect(await verifyHandlers.findSavedVerdict(env.DB, untestableKey, nowSec())).toBeNull();
+
     const badKey = 'verify:asin:B0DTESTBAD';
     const bad = await seedVerification({ key: badKey, ageDays: 1 });
     await env.DB.prepare('UPDATE research SET result = ? WHERE id = ?').bind('{not json', bad.id).run();
@@ -587,7 +598,7 @@ describe('review fixes: saved-verdict key and status score', () => {
     const decided = [
       { text: 'a', status: 'verified', claimType: 'spec' },
       { text: 'b', status: 'contradicted', claimType: 'marketing' },
-      { text: 'c', status: 'partially-verified', claimType: 'warranty' },
+      { text: 'c', status: 'partially-verified', claimType: 'spec' },
     ];
     const scored = await seedVerification({ key: null, claims: decided });
     await env.DB.prepare('UPDATE research SET overall_score = 0 WHERE id = ?').bind(scored.id).run();

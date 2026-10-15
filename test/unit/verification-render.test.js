@@ -83,9 +83,9 @@ const RESULT_FIXTURE = {
     },
     {
       id: 'c3',
-      text: 'Free lifetime firmware updates',
-      type: 'support',
-      claimType: 'support',
+      text: 'Adaptive EQ automatically tunes audio to your ear canal',
+      type: 'marketing',
+      claimType: 'marketing',
       status: 'unsubstantiated',
       confidence: 0,
       support: 0,
@@ -96,9 +96,9 @@ const RESULT_FIXTURE = {
     },
     {
       id: 'c4',
-      text: '2-year warranty on all parts',
-      type: 'warranty',
-      claimType: 'warranty',
+      text: 'Multipoint Bluetooth connects to 3 devices simultaneously',
+      type: 'spec',
+      claimType: 'spec',
       status: 'contradicted',
       confidence: 0.55,
       support: 0,
@@ -107,11 +107,11 @@ const RESULT_FIXTURE = {
       supporting: [],
       contradicting: [
         {
-          url: 'https://reddit.com/r/headphones/comments/acme_warranty',
+          url: 'https://reddit.com/r/headphones/comments/acme_multipoint',
           stance: 'contradict',
           credibility: 55,
           independence: 65,
-          span: 'Support confirmed my unit only had a 1-year warranty, not 2.',
+          span: 'Multipoint only pairs two devices at once, not three.',
           tags: ['community'],
         },
         {
@@ -119,7 +119,7 @@ const RESULT_FIXTURE = {
           stance: 'contradict',
           credibility: 30,
           independence: 40,
-          span: 'Same experience — only got 1 year of coverage.',
+          span: 'Same experience — maxes out at two connected devices.',
           tags: ['seeded-unit', 'incentivized-review'],
         },
       ],
@@ -196,6 +196,7 @@ export async function runVerificationRenderTests() {
 
   // Unsubstantiated honest framing.
   ok('unsubstantiated honest framing present', html.includes("No independent source corroborated this"));
+  ok('unsubstantiated framing references product page or listing, not maker materials', html.includes('on the product page or listing') && !html.includes('maker&rsquo;s own materials'));
 
   // Methodology block.
   ok('methodology block present', html.includes('How this Truth Audit works'));
@@ -268,12 +269,18 @@ export async function runVerificationRenderTests() {
   const highScoreResult = {
     category: 'noise-canceling headphones',
     overall: { score: 78 },
-    claims: [{ status: 'verified', claimType: 'spec' }, { status: 'verified', claimType: 'warranty' }],
+    claims: [
+      { text: 'Battery lasts 40 hours', status: 'verified', type: 'spec', claimType: 'spec' },
+      { text: 'Weighs 250 grams', status: 'verified', type: 'spec', claimType: 'spec' },
+    ],
   };
   const lowScoreResult = {
     category: 'noise-canceling headphones',
     overall: { score: 32 },
-    claims: [{ status: 'contradicted', claimType: 'spec' }, { status: 'contradicted', claimType: 'warranty' }],
+    claims: [
+      { text: 'Battery lasts 40 hours', status: 'contradicted', type: 'spec', claimType: 'spec' },
+      { text: 'Weighs 250 grams', status: 'contradicted', type: 'spec', claimType: 'spec' },
+    ],
   };
 
   const rankingProducts = [
@@ -506,4 +513,71 @@ async function runHonestVerdictTests(ok) {
       ok(`review: malformed supporting does not throw (${field} = ${label})`, !threw && html.includes('Claim ledger'));
     }
   }
+
+  // Saved reports in D1 with untestable store/listing clutter drop those claims
+  // at render and score time so they neither display nor dilute X-of-Y counts.
+  {
+    const screenshotClutterClaims = [
+      {
+        id: 'junk1',
+        text: 'The product is sold by third-party seller Electronics Club on Amazon.',
+        type: 'support',
+        claimType: 'support',
+        status: 'unsubstantiated',
+        confidence: 0,
+        independentCount: 0,
+        supporting: [],
+        contradicting: [],
+      },
+      {
+        id: 'junk2',
+        text: 'The seller offers a 30-day refund/replacement return window, with refunds usually issued within 24 hours.',
+        type: 'spec',
+        claimType: 'spec',
+        status: 'unsubstantiated',
+        confidence: 0,
+        independentCount: 0,
+        supporting: [],
+        contradicting: [],
+      },
+      {
+        id: 'junk3',
+        text: 'An optional 2-Year Asurion Wearables Protection Plan is available for $64.99.',
+        type: 'warranty',
+        claimType: 'warranty',
+        status: 'unsubstantiated',
+        confidence: 0,
+        independentCount: 0,
+        supporting: [],
+        contradicting: [],
+      },
+      {
+        id: 'junk4',
+        text: 'An optional 3-Year Asurion Wearables Protection Plan is available for $84.99.',
+        type: 'spec',
+        claimType: 'spec',
+        status: 'unsubstantiated',
+        confidence: 0,
+        independentCount: 0,
+        supporting: [],
+        contradicting: [],
+      },
+    ];
+    const mixedResult = {
+      ...RESULT_FIXTURE,
+      claims: [...RESULT_FIXTURE.claims, ...screenshotClutterClaims],
+    };
+    const { value: mixedHonest } = callHonest(mixedResult);
+    ok(
+      'honestOverall: drops untestable stored claims before computing verdict and counts',
+      JSON.stringify(mixedHonest) === JSON.stringify(overallVerdict(RESULT_FIXTURE.claims)),
+    );
+    const { html: mixedHtml, threw: mixedThrew } = await renderSafely(mixedResult);
+    ok('saved report with untestable claims: no throw', !mixedThrew);
+    ok('saved report: drops third-party seller claim from rendered HTML', !mixedHtml.includes('Electronics Club'));
+    ok('saved report: drops 30-day return window claim from rendered HTML', !mixedHtml.includes('30-day refund/replacement'));
+    ok('saved report: drops Asurion protection plan claims from rendered HTML', !mixedHtml.includes('Asurion Wearables Protection Plan'));
+    ok('saved report: keeps testable claims and 3 of 4 coverage count', mixedHtml.includes('3 of 4 claims'));
+  }
 }
+

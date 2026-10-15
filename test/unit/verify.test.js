@@ -100,9 +100,9 @@ export async function runVerifyTests() {
   }
 
   // ── isTestableClaim ──────────────────────────────────────────────────────
-  // Commercial terms and the maker's own lab conditions are not testable by
-  // an independent review. A missing export records one failed assertion per
-  // case, not a crash.
+  // Commercial terms, storefront/buy-box chrome, and the maker's own lab
+  // conditions are not testable by an independent review. A missing export
+  // records one failed assertion per case, not a crash.
   {
     const testable = (claim) => (typeof isTestableClaim === 'function'
       ? isTestableClaim(claim)
@@ -115,6 +115,24 @@ export async function runVerifyTests() {
       { type: 'support', text: 'Purchases include a 14-day return and refund policy.' },
       { type: 'spec', text: 'A 3-month complimentary trial of Audible Premium Plus is offered with purchase.' },
       { type: 'spec', text: 'Battery playtime was tested at 25°C in an Anker laboratory using default settings.' },
+      // Screenshot statements (both as support/warranty and when mislabeled as spec/marketing):
+      { type: 'support', text: 'The product is sold by third-party seller Electronics Club on Amazon.' },
+      { type: 'spec', text: 'The product is sold by third-party seller Electronics Club on Amazon.' },
+      { type: 'support', text: 'The seller offers a 30-day refund/replacement return window, with refunds usually issued within 24 hours.' },
+      { type: 'spec', text: 'The seller offers a 30-day refund/replacement return window, with refunds usually issued within 24 hours.' },
+      { type: 'warranty', text: 'An optional 2-Year Asurion Wearables Protection Plan is available for $64.99.' },
+      { type: 'spec', text: 'An optional 2-Year Asurion Wearables Protection Plan is available for $64.99.' },
+      { type: 'warranty', text: 'An optional 3-Year Asurion Wearables Protection Plan is available for $84.99.' },
+      { type: 'spec', text: 'An optional 2-Year Asurion Wearables Protection Plan is available.' },
+      // Other storefront / buy-box / protection / financing / rating clutter:
+      { type: 'spec', text: 'Ships from Amazon and fulfilled by Amazon.' },
+      { type: 'marketing', text: 'Sold by an authorized reseller with free delivery.' },
+      { type: 'spec', text: 'Eligible for AppleCare+ or Allstate extended care coverage.' },
+      { type: 'marketing', text: 'Available with monthly payments of 15 /mo through Affirm or Klarna.' },
+      { type: 'marketing', text: 'Rated 4.7 out of 5 stars and #1 Best Seller in Headphones.' },
+      { type: 'spec', text: 'Backed by a 30-day money-back guarantee and free returns.' },
+      { claimType: 'warranty', text: 'Covered for two years.' },
+      { claimType: 'support', text: 'Dedicated customer support line.' },
       null,
       {},
       { type: 'spec', text: '' },
@@ -126,13 +144,20 @@ export async function runVerifyTests() {
       'Silent Mode operates at around 45 dB.',
       'The WH-1000XM6 is available in Black, Midnight Blue, and Platinum Silver.',
       'Color gamut covers 99.3% DCI-P3 and 149% sRGB.',
+      'Robot vacuum automatically returns to its charging dock when battery is low.',
+      'Includes 3 replacement silicone ear tips and stereo/mono audio switching.',
     ];
     for (const claim of UNTESTABLE) {
-      eq(`isTestableClaim: commercial term, maker test, or invalid claim → false (${JSON.stringify(claim)})`, testable(claim), false);
+      eq(`isTestableClaim: commercial term, storefront chrome, maker test, or invalid claim → false (${JSON.stringify(claim)})`, testable(claim), false);
     }
     for (const text of TESTABLE_TEXTS) {
       eq(`isTestableClaim: testable spec claim → true (${JSON.stringify(text)})`, testable({ type: 'spec', text }), true);
     }
+    ok(
+      'CLAIM_EXTRACTION_SYSTEM: schema restricts type to spec|marketing (no warranty|support)',
+      verifyModule.CLAIM_EXTRACTION_SYSTEM.includes('"type":"spec|marketing"')
+        && !verifyModule.CLAIM_EXTRACTION_SYSTEM.includes('warranty|support'),
+    );
   }
 
   // ── extractClaims drops untestable claims ────────────────────────────────
@@ -141,6 +166,9 @@ export async function runVerifyTests() {
       { text: 'Rated IPX4 water resistant.', type: 'spec' },
       { text: 'The WH-1000XM6 is priced at $459.99 MSRP.', type: 'spec' },
       { text: 'Purchases include a 14-day return policy.', type: 'support' },
+      { text: 'The product is sold by third-party seller Electronics Club on Amazon.', type: 'spec' },
+      { text: 'The seller offers a 30-day refund/replacement return window, with refunds usually issued within 24 hours.', type: 'spec' },
+      { text: 'An optional 2-Year Asurion Wearables Protection Plan is available for $64.99.', type: 'spec' },
     ] });
     let texts;
     try {
@@ -152,7 +180,7 @@ export async function runVerifyTests() {
     } catch (err) {
       texts = `extractClaims threw: ${err.message}`;
     }
-    eq('extractClaims: drops price and return-policy claims, keeps the testable spec', texts, ['Rated IPX4 water resistant.']);
+    eq('extractClaims: drops price, return-window, seller, and protection-plan claims, keeps the testable spec', texts, ['Rated IPX4 water resistant.']);
   }
 
   // ── applyStanceBackstops ─────────────────────────────────────────────────

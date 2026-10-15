@@ -12,6 +12,7 @@ import { getResearchBySlug, findRankingForCategory } from '../lib/db.js';
 import { buildAffiliateUrl, retailerLabel, resolveAmazonTag } from '../lib/affiliate-links.js';
 import { starMarkup, renderItemImage } from './research-primitives.js';
 import { overallVerdict, INSUFFICIENT_EVIDENCE_LABEL } from '../lib/verdict.js';
+import { isTestableClaim } from '../engine/verify.js';
 
 // Longest prefill the entry form keeps. A pasted product link can be long.
 const MAX_PREFILL_LENGTH = 2048;
@@ -478,7 +479,7 @@ ${contradicting.map((c) => renderEvidenceRow(c, 'contradict')).join('')}
         : '';
 
     const unsubstantiatedNote = claim.status === 'unsubstantiated'
-        ? `<p class="mt-3 font-mono text-[11px] text-ink-3">No independent source corroborated this — it appears only in the maker&rsquo;s own materials.</p>`
+        ? `<p class="mt-3 font-mono text-[11px] text-ink-3">No independent source corroborated this — it appears only on the product page or listing.</p>`
         : '';
 
     return `<li class="mb-4 border border-line bg-surface-1 p-5">
@@ -668,7 +669,9 @@ ${hasBuyLink ? `<a href="${escapeHtml(affiliateUrl)}" target="_blank" rel="noope
  * { score: null, label: INSUFFICIENT_EVIDENCE_LABEL, checkedCount: 0, claimCount: 0 }.
  */
 export function honestOverall(result) {
-    const claims = result && typeof result === 'object' && Array.isArray(result.claims) ? result.claims : [];
+    const claims = result && typeof result === 'object' && Array.isArray(result.claims)
+        ? result.claims.filter(isTestableClaim)
+        : [];
     try {
         return overallVerdict(claims);
     } catch (err) {
@@ -764,7 +767,7 @@ async function renderCompleteReport(row, env) {
     const parsed = parseJsonSafe(row.result, {});
     const result = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     const claims = Array.isArray(result.claims)
-        ? result.claims.filter((c) => c && typeof c === 'object' && !Array.isArray(c)).map(normalizeClaim)
+        ? result.claims.filter((c) => c && typeof c === 'object' && !Array.isArray(c) && isTestableClaim(c)).map(normalizeClaim)
         : [];
     const overall = honestOverall({ claims });
     const evidenceCount = Number.isFinite(result.evidenceCount) ? result.evidenceCount : 0;

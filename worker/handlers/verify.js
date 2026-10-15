@@ -22,6 +22,7 @@ import { getQuota, consumeQuota, FREE_VERIFIES } from '../lib/quota.js';
 import { isNameKey, parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_LEN } from '../lib/product-link.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { overallVerdict } from '../lib/verdict.js';
+import { isTestableClaim } from '../engine/verify.js';
 
 const PRODUCT_MIN_LEN = 3;
 const PRODUCT_MIN_ALNUM = 3;
@@ -194,23 +195,35 @@ async function startNewSubmission(request, env, intake) {
     return handleNewSubmission(env, intake, sessionUser, clientIp);
 }
 
+function hasTestableClaims(resultJson) {
+    if (typeof resultJson !== 'string' || !resultJson) return false;
+    try {
+        const parsed = JSON.parse(resultJson);
+        return Array.isArray(parsed?.claims) && parsed.claims.some(isTestableClaim);
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Newest complete verification with this key that completed at or after
  * nowSec - VERIFY_REUSE_MAX_AGE_DAYS days. Retired rows never match, and a
- * row whose result holds no claim (for example a failed page read) never matches.
+ * row whose result holds no testable claim (for example a failed page read or
+ * only commercial/storefront claims) never matches.
  * Returns { id, slug, completed_at } or null.
  */
 export async function findSavedVerdict(db, key, nowSec) {
     if (!key || VERIFY_REUSE_MAX_AGE_DAYS <= 0) return null;
     const since = nowSec - VERIFY_REUSE_MAX_AGE_DAYS * DAY_SECONDS;
     const row = await db.prepare(
-        `SELECT id, slug, completed_at FROM research
+        `SELECT id, slug, completed_at, result FROM research
           WHERE canonical_query = ?1 AND kind = 'verification' AND status = 'complete'
             AND completed_at >= ?2 AND retired_at IS NULL
             AND (CASE WHEN json_valid(result) THEN json_array_length(result, '$.claims') END) >= 1
           ORDER BY completed_at DESC, id DESC LIMIT 1`
     ).bind(key, since).first();
-    return row ? { id: row.id, slug: row.slug, completed_at: row.completed_at } : null;
+    if (!row || !hasTestableClaims(row.result)) return null;
+    return { id: row.id, slug: row.slug, completed_at: row.completed_at };
 }
 
 // A failed lookup must not block a paid run: log it and treat it as a miss.
@@ -349,7 +362,7 @@ function overallFromResult(resultJson, reportId) {
     if (typeof resultJson === 'string' && resultJson) {
         try {
             const parsed = JSON.parse(resultJson);
-            claims = Array.isArray(parsed?.claims) ? parsed.claims : [];
+            claims = Array.isArray(parsed?.claims) ? parsed.claims.filter(isTestableClaim) : [];
         } catch (err) {
             console.error('[verify] stored result is not valid JSON. id:', reportId,
                 'error:', err instanceof Error ? err.message : String(err));
