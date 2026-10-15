@@ -1,11 +1,21 @@
 # Issues
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
+
+## 2026-10-15: dev tool advisories (CP-689)
+
+### Security
+- [x] CRITICAL (Security, dev tools): vitest 3.2 (arbitrary file read via @vitest/mocker) and tinypool (prototype pollution to RCE), plus 12 HIGH in @cloudflare/vitest-pool-workers 0.9, wrangler, miniflare, and their deps. Dev-only, but they ran on agentbox with live keys. package.json, package-lock.json. Fixed 2026-10-15: vitest 5.0.4, @vitest/coverage-istanbul 5.0.4, and @cloudflare/vitest-plugin 1.4.2 (the renamed successor of the deprecated vitest-pool-workers; it brings wrangler 4.151.0 and miniflare 5.20261012.0-beta). `npm audit` now finds 0 vulnerabilities, so no HIGH item remains.
+
+### Testing
+- [x] MEDIUM (Testing): the new plugin has no per-test storage isolation (the old isolatedStorage is gone), so D1 and KV state leaked between tests and 7 tests failed. test/integration/email-flows.spec.js, handlers.spec.js, internal.spec.js. Fixed 2026-10-15: each file clears the tables and KV keys it writes in a beforeEach. New specs that write D1 or KV must reset their own state.
+- [x] MEDIUM (Testing, cost): index.spec.js "POST /api/classify" sent a real request to the LLM classifier with the live dev keys and timed out in about 2 of 5 runs. test/integration/index.spec.js. Fixed 2026-10-15: the test stubs the OpenRouter reply, as classifier.spec.js does.
+- [ ] LOW (Testing): vitest 5 turns on fsModuleCache by default, and @cloudflare/vitest-plugin 1.4.2 cannot read that cache inside workerd. vitest.config.js sets `fsModuleCache: false`. Remove it when a plugin release fixes this.
 
 ## 2026-10-06: refocus run (spec docs/refocus-2026-10/spec.md, plan docs/refocus-2026-10/plan.md)
 
 ### Ops
-- [ ] HIGH (OPS): Apply schema/017_retire_seo_rows.sql to dev and production (plan.md rollout steps 3 to 5) before main moves past commit 6658f59. Commits from 071e72b onward read research.retired_at and break listings, /reviews, and the sitemap without it.
+- [x] HIGH (OPS): Apply schema/017_retire_seo_rows.sql to dev and production (plan.md rollout steps 3 to 5) before main moves past commit 6658f59. Commits from 071e72b onward read research.retired_at and break listings, /reviews, and the sitemap without it. Done 2026-10-13: production already had it (362 rows retired). Dev was at migration 007; applied 008 to 016 (012 before 011) and then 017. Dev and production schemas now match.
 - [ ] HIGH (OPS): on 2026-10-14 the local Brave key answers HTTP 402 (prepaid credit balance insufficient), and Serper and Tavily are out of credit too. Only Exa worked. Check the Brave balance for production, which uses Brave as its main search. benchmarks/verify-product.mjs, worker/engine/tools.js.
 - [ ] HIGH (OPS): Jina Reader answers HTTP 402 (payment required) and Serper is exhausted for the local benchmark keys. benchmarks/verify-product.mjs could not extract claims for any of 5 products on 2026-10-06. Check whether production keys hit the same limits.
 
@@ -33,12 +43,94 @@ Last updated: 2026-10-14
 ### Reliability
 - [ ] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line.
 
+
+## 2026-09-18: traffic-scaling pass (site-wide spend gate + sampled view counter)
+
+Live traffic to https://chrisputer.tech is climbing. Two backlog items that
+were acceptable at low volume stop being acceptable as traffic grows: the only
+spend control that sees a DISTRIBUTED source is the monthly budget cap (which
+refuses work only after the money is gone), and every report-page view issued
+its own D1 write. Both are closed. Full unit suite (39 suites) and the 284
+integration tests pass, and `wrangler deploy --dry-run` builds clean.
+
+### Fixed
+- [x] HIGH (security/spend): no SITE-WIDE ceiling on new PAID research runs, so
+      a distributed source across many IPs could drain `MONTHLY_BUDGET_USD` and
+      leave every real visitor on a 503 until the month rolled over. The per-IP
+      cap (20/hour) cannot see that shape by construction, which the affiliate
+      surface already proved in the 2026-08-14/15 incident (1,232 hits from
+      1,232 distinct addresses, none near its per-IP cap). Added
+      `worker/lib/spend-gate.js`: `checkGlobalResearchSpend` calls the KV
+      sliding-window limiter with the CONSTANT key `research:global`, 40 runs
+      per 3600 s. A constant key means one counter for the whole site, which is
+      what makes it global rather than per-visitor. It sits in
+      `worker/handlers/research.js` AFTER the per-IP velocity cap and BEFORE
+      the monthly governor, and only on the path that starts a genuinely new
+      paid run, so cache hits and cluster hits never consume a token. Internal
+      (`X-Worker-Secret`) callers are exempt, matching the existing per-IP
+      bypass. Refusal is 429 + `Retry-After`. Every trip logs one structured
+      line (`where: spend-gate`, `event: global-throttle`) so tuning data
+      accumulates. FAIL-OPEN: a missing KV binding or a KV error never blocks a
+      run. Rollback = delete the call site, the module is otherwise inert.
+      Closes the HIGH (risk) item from the 2026-08-26 board audit.
+- [x] Limit sizing: a run costs about $0.10, so 40/hour is about $4/hour. The
+      flywheel cron starts at most `FLYWHEEL_DAILY_MAX` (12) runs per DAY and
+      organic paid runs sit far below that, so real demand at today's scale
+      cannot reach the ceiling. The KV limiter is used rather than the native
+      `[[ratelimits]]` binding because the binding only supports a 10 s or 60 s
+      window, and the thing worth bounding here is spend per hour. This is the
+      same "window restriction" workaround the 2026-08-15 section proposed for
+      the affiliate surface.
+- [x] MED (perf): every report-page view issued its own
+      `UPDATE research SET view_count = view_count + 1`, on BOTH the KV
+      cache-hit path (`worker/routes/pages.js`) and the render path
+      (`worker/pages/research-page.js`). One D1 write per view is the dominant
+      write load as traffic grows, on a surface otherwise served entirely from
+      KV. Added `worker/lib/view-counter.js`: below 100 recorded views every
+      view writes (new and long-tail pages keep exact counts), at or above the
+      threshold a view writes with probability 1/10 and adds 10. Expected value
+      is unchanged, so `ORDER BY view_count` keeps ranking the same pages in
+      the same order, while writes on the hottest pages drop about 10x. A
+      skipped sample issues NO statement at all, which is where the saving is.
+      `view_count` is a popularity signal for ranking and reporting, never for
+      billing or quota, so bounded write rate beats exactness here. Closes the
+      MED (perf) view-count half of the 2026-07-08 read-amplification item.
+- [x] The KV page-cache meta value (`page:<ver>:<slug>:lm`) now carries both the
+      last-modified stamp and the view count the sampling policy needs, as JSON.
+      Legacy bare-integer values still parse and report an unknown count, which
+      makes the caller count exactly. That is the safe direction, and it
+      self-heals within one cache TTL, so no CACHE_VERSION bump is needed and
+      no page loses its `Last-Modified` across the deploy.
+- [x] Regression tests: `test/unit/spend-gate.test.js` (21 assertions) proves
+      the key is constant, that the distributed shape lands on ONE counter,
+      fail-open on a missing or throwing KV, the Retry-After contract, and the
+      log shape. `test/unit/view-counter.test.js` (35 assertions) proves the
+      expected-value invariant that keeps ranking correct, the ~10x write-rate
+      drop, exact counting below the threshold, legacy meta parsing, and that a
+      D1 failure can never break a render. Both wired into
+      `scripts/run-tests.mjs`.
+- [x] LOW (cleanup): `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` and
+      `CACHE_TTL_SECONDS` removed from `[vars]` in both `wrangler.toml` and
+      `wrangler.dev.toml`. No code reads any of the three (re-verified by
+      grep across `worker/`, `scripts/` and `test/`; the `CACHE_TTL_SECONDS`
+      in `worker/lib/classifier.js` is a module-local constant, not the env
+      var). Closes the 2026-07-28 "not done (deliberate)" cleanup item.
+
+### Known consequence (accepted)
+- The spend gate is site-wide, so during an attack a real visitor's new
+  research can be refused too. They get a 429 with a Retry-After and the
+  existing research stays fully browsable, which is a far better failure than
+  a drained budget 503-ing everyone for the rest of the month.
+- Above 100 views a page's count is a sampled estimate, so an individual
+  number can sit within about one sample batch of the true value. Ordering is
+  preserved in expectation, which is what the count is used for.
+
 ## 2026-08-26: whole-project review board audit
 
 Findings from a 14-persona board audit plus a live-site sweep of https://chrisputer.tech. All items verified against the code unless marked unverified.
 
 ### Security and spend
-- [ ] HIGH (risk): the signup gate on research is removed by owner decision, so the per-IP hourly cap and the monthly budget cap are now the only spend controls on the paid research pipeline, and a distributed source across many IPs can consume the monthly budget.
+- [x] HIGH (risk): the signup gate on research is removed by owner decision, so the per-IP hourly cap and the monthly budget cap are now the only spend controls on the paid research pipeline, and a distributed source across many IPs can consume the monthly budget. RESOLVED 2026-09-18: site-wide hourly ceiling on new paid runs (`worker/lib/spend-gate.js`, 40/hour on the constant key `research:global`) is now a third layer between the per-IP cap and the monthly governor. See the 2026-09-18 section at the top.
 - [x] CRITICAL: POST /api/classify has no rate limit, no burst gate and no budget gate, and it passes canonical=null so the KV cache is skipped, making every anonymous request a paid OpenRouter call the monthly budget governor never sees (worker/index.js:120-136, worker/lib/classifier.js:254-265) (now burst gated, rate limited at 60/hr and cache-keyed via canonicalizeQuery).
 - [x] CRITICAL: five SQL-injection scanner probes became live, indexed, sitemap-listed report pages (paid runs, index pollution), for example /research/best-tax-software-for-self-employed-and-9323-utl-inaddr-get-host-address-chr-113-4g0k1i0o. Intake screening plus canonical clustering both let near-identical payloads through (worker/lib/safety.js, worker/lib/listable.js) (deterministic probe screen in worker/lib/safety.js isProbeQuery, prod rows purged).
 - [x] HIGH: /verify/:slug injects user text into an inline script with JSON.stringify, which does not escape a closing script tag, so a crafted product name breaks out into HTML. The CSP nonce blocks script execution, so the impact is HTML injection, not stored XSS (worker/pages/verify-page.js:221, :307) (jsonForScript in worker/lib/html.js).
@@ -637,8 +729,10 @@ binding, NO Durable Objects). Rollback = delete the `[[ratelimits]]` block;
   configuration) so it can still prove the 10-verify LIFETIME quota.
 
 ### Not done (deliberate)
-- [ ] LOW (cleanup): `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_SECONDS` in `[vars]` are dead config
+- [x] LOW (cleanup): `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_SECONDS` in `[vars]` are dead config
       (no code reads them, verified again 2026-07-28). Left in place to keep this diff scoped.
+      RESOLVED 2026-09-18: removed from both wrangler.toml and wrangler.dev.toml, along with the
+      equally dead `CACHE_TTL_SECONDS`.
 
 ## 2026-07-24 — Stance judge swap validated + model-benchmark findings
 
@@ -1087,8 +1181,12 @@ consent gaps, and stale docs — NOT in core logic.
       if a row is written outside the pipeline). Add a host allowlist on the fallback. STALE, closed
       2026-07-08: the isKnownRetailerUrl gate now guards this redirect (see the 2026-07-08 "Review-board
       backlog cleared" section, Fixed list).
-- [ ] MED (perf): every page view runs getRelatedResearch (OR-of-8 LIKE, LIMIT 50) + a view_count UPDATE
+- [x] MED (perf): every page view runs getRelatedResearch (OR-of-8 LIKE, LIMIT 50) + a view_count UPDATE
       = 3+ D1 statements/view — read amplification that scales with traffic.
+      PARTIALLY RESOLVED 2026-09-18: the view_count UPDATE half is fixed — writes are now sampled above
+      100 views (worker/lib/view-counter.js), cutting hot-page write rate about 10x. The
+      getRelatedResearch half was separately reassessed (2026-07-01, below) as already mitigated by the
+      KV page cache, which means it runs on cache MISS only, not per view.
 - [x] MED (bug): CACHE_VERSION (tr9) ≠ sitemap XML_CACHE_VERSION (tr1) despite a comment claiming they
       match — the shared-lastmod invariant is broken. STALE, closed 2026-07-08: the comment was corrected
       to state the two versions are independent by design (see the 2026-07-08 "Review-board backlog

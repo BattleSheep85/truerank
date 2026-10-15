@@ -1,15 +1,39 @@
-// Workers integration-test harness (Miniflare-backed, via vitest-pool-workers).
+// Workers integration-test harness (Miniflare-backed, via @cloudflare/vitest-plugin).
 // Runs tests INSIDE workerd with real local D1 + KV bindings read from
 // wrangler.toml, so handlers / db / KV-backed logic can be exercised the way the
 // deployed worker runs them. DEV-ONLY — never ships to the worker.
 //
 // The fast pure-logic suites stay on `node scripts/run-tests.mjs` (zero-dep);
 // these integration specs live under test/integration/ and run via `npx vitest`.
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
+import { defineConfig } from 'vitest/config';
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      // Inherit bindings (DB, KV, vars, compatibility_date) from the real
+      // wrangler config; Miniflare provides in-memory local D1/KV for tests
+      // so nothing touches production.
+      wrangler: { configPath: './wrangler.toml' },
+      miniflare: {
+        // HARD GUARD: the wrangler config also loads .dev.vars, which on a
+        // developer machine holds the real mailbox credentials. Blank them
+        // for the whole pool so no spec can ever open a socket to the mail
+        // server, even if it forgets the env.__mailTransport stub.
+        bindings: {
+          MAIL_ENABLED: 'false',
+          TRUERANK_SMTP_USER: '',
+          TRUERANK_SMTP_PASSWORD: '',
+        },
+      },
+    }),
+  ],
   test: {
     include: ['test/integration/**/*.spec.js'],
+    // Vitest 5 turns this on by default, but @cloudflare/vitest-plugin 1.4.2
+    // cannot read the cached modules inside workerd (every spec fails with
+    // "no such file or directory, readAll node_modules/.vitest-cache/...").
+    fsModuleCache: false,
     coverage: {
       provider: 'istanbul', // v8 coverage doesn't work inside workerd; istanbul does
       reporter: ['text', 'text-summary'],
@@ -24,25 +48,6 @@ export default defineWorkersConfig({
         'worker/handlers/subscribe.js', 'worker/handlers/image.js', 'worker/handlers/auth.js',
         'worker/index.js',
       ],
-    },
-    poolOptions: {
-      workers: {
-        // Inherit bindings (DB, KV, vars, compatibility_date) from the real
-        // wrangler config; Miniflare provides in-memory local D1/KV for tests
-        // so nothing touches production.
-        wrangler: { configPath: './wrangler.toml' },
-        miniflare: {
-          // HARD GUARD: the wrangler config also loads .dev.vars, which on a
-          // developer machine holds the real mailbox credentials. Blank them
-          // for the whole pool so no spec can ever open a socket to the mail
-          // server, even if it forgets the env.__mailTransport stub.
-          bindings: {
-            MAIL_ENABLED: 'false',
-            TRUERANK_SMTP_USER: '',
-            TRUERANK_SMTP_PASSWORD: '',
-          },
-        },
-      },
     },
   },
 });

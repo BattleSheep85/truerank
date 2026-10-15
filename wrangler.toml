@@ -23,9 +23,6 @@ cpu_ms = 300000
 
 [vars]
 ENVIRONMENT = "production"
-RATE_LIMIT_MAX = "5"
-RATE_LIMIT_WINDOW_SECONDS = "3600"
-CACHE_TTL_SECONDS = "86400"
 MONTHLY_BUDGET_USD = "60"
 # Programmatic-SEO flywheel: max keyword research runs the cron will start per
 # UTC day. The flywheel also stays dormant until SERPER_API_KEY is set.

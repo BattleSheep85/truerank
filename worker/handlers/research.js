@@ -15,6 +15,7 @@ import { screenQuery, rejectionMessage } from '../lib/safety.js';
 import { budgetExhausted } from '../pipeline/orchestrator.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
+import { checkGlobalResearchSpend } from '../lib/spend-gate.js';
 import { getSessionUser, recordUserSearch } from '../lib/auth.js';
 import { apiStatus } from '../lib/status.js';
 import { isWorkerAuthed } from '../lib/worker-auth.js';
@@ -141,6 +142,25 @@ export async function handleStartResearch(request, env) {
                 { error: 'Too many new research runs from your connection in the last hour. Please try again shortly.' },
                 429,
                 { 'Retry-After': String(retryAfter) },
+            );
+        }
+    }
+
+    // SITE-WIDE hourly ceiling on new paid runs. The per-IP cap above cannot
+    // see a distributed source by construction (the affiliate surface proved
+    // this in the 2026-08-14/15 incident: 1,232 hits from 1,232 addresses),
+    // and the monthly governor below only refuses work after the money is
+    // already spent. This bounds the hourly burn instead. Internal callers are
+    // exempt for the same reason they bypass the per-IP cap: this gate exists
+    // to stop anonymous wallet drain, not a secret-holding first-party
+    // harness. See worker/lib/spend-gate.js for the sizing rationale.
+    if (!isInternal) {
+        const globalSpend = await checkGlobalResearchSpend(env);
+        if (!globalSpend.allowed) {
+            return jsonResponse(
+                { error: 'Frank is handling an unusual number of new research runs right now. Please try again shortly, or browse the existing research.' },
+                429,
+                { 'Retry-After': String(globalSpend.retryAfterSeconds) },
             );
         }
     }

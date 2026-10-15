@@ -10,6 +10,7 @@ import { BTN_PRIMARY, isNonProductCategory, sourceRel, sourceLabel } from './res
 import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel } from './research-cards.js';
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
 import { buildResearchSeo } from './research-jsonld.js';
+import { recordView } from '../lib/view-counter.js';
 
 // Find up to 5 sibling research pages that share canonical tokens. Used to build
 // the "Related research" block — internal links Google rewards for topical depth,
@@ -81,10 +82,9 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     getProductsByResearchId(env.DB, entry.id),
     isComplete ? getRelatedResearch(env.DB, slug, entry.canonical_query, entry.category) : Promise.resolve([]),
     isComplete ? getClusterWinnerSlug(env.DB, entry.canonical_query) : Promise.resolve(null),
-    // Increment views only for completed research.
-    isComplete
-      ? env.DB.prepare('UPDATE research SET view_count = view_count + 1 WHERE id = ?').bind(entry.id).run()
-      : Promise.resolve(),
+    // Increment views only for completed research. Sampled above a threshold
+    // so the write rate on hot pages stays bounded (worker/lib/view-counter.js).
+    isComplete ? recordView(env.DB, entry) : Promise.resolve(),
   ]);
 
   // Parse each product's JSON columns ONCE here, so renderProduct and the
@@ -405,5 +405,5 @@ ${isLiveReport ? `<div class="notify-footer mt-8 border-t border-line pt-6">
     ? `${displayTitle} (${titleYear})`
     : displayTitle;
   const htmlOut = layout(seoTitle, entry.summary ?? 'AI-powered product research', body, amazonHint + noindex + structuredData + turnstileScript + extra, layoutMeta);
-  return { html: htmlOut, lastModified: lastModifiedTs, status: entry.status };
+  return { html: htmlOut, lastModified: lastModifiedTs, status: entry.status, viewCount: entry.view_count ?? 0 };
 }

@@ -2,7 +2,7 @@
 // SELF.fetch (same env/bindings the test seeds), covering the offline routes:
 // feeds, redirects, report API, research pages, CORS, 404.
 import { env, SELF } from 'cloudflare:test';
-import { beforeAll, describe, it, expect } from 'vitest';
+import { afterEach, beforeAll, describe, it, expect, vi } from 'vitest';
 import { applySchema } from './_schema.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
 import { checkRateLimit } from '../../worker/lib/rate-limit.js';
@@ -10,6 +10,13 @@ import { completeResearch, insertProductV2 } from './_helpers.js';
 
 const BASE = 'https://chrisputer.tech';
 let completeId;
+
+// Fake OpenRouter chat-completion response wrapping a classifier JSON, so the
+// classify route never reaches the live LLM (the dev keys in .dev.vars are real).
+const orResponse = (classifierJson) =>
+  new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(classifierJson) } }] }), { status: 200 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 beforeAll(async () => {
   await applySchema(env.DB);
@@ -128,6 +135,11 @@ describe('index.js routing', () => {
   });
 
   it('POST /api/classify → 200 with fail-open / classified response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => orResponse({
+      accept: true, reject_reason: null, topical_category: 'mechanical keyboards',
+      facets: { is_buyable: true },
+      clarifying_questions: [{ key: 'budget', question: 'Budget?', suggested_answers: ['<$75', '$75-150'] }],
+    })));
     const res = await SELF.fetch(`${BASE}/api/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.85' },

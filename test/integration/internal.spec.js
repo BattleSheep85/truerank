@@ -3,7 +3,7 @@
 // (The full success-persist path triggers Serper/IndexNow fetches and is covered
 // separately under a fetch-mocked round.)
 import { env } from 'cloudflare:test';
-import { beforeAll, describe, it, expect } from 'vitest';
+import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import { handleNextJob, handleProgress, handleComplete } from '../../worker/handlers/internal.js';
 import { claimNextPendingJob } from '../../worker/pipeline/orchestrator.js';
@@ -22,6 +22,24 @@ const noAuthReq = (body) => new Request('https://x/api/internal/x', {
 beforeAll(async () => {
   await applySchema(env.DB);
   env.WORKER_SECRET = SECRET; // per-test isolated env; safe to set
+});
+
+// The Workers plugin does not reset D1 or KV between tests in one file. Clear
+// the research queue and KV (progress feeds) so each handleNextJob test sees
+// only the rows it inserts, as it did under the old isolatedStorage.
+// Delete every KV key, page by page.
+async function clearKv(kv) {
+  let cursor;
+  do {
+    const page = await kv.list({ cursor });
+    await Promise.all(page.keys.map((k) => kv.delete(k.name)));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+}
+
+beforeEach(async () => {
+  await env.DB.prepare('DELETE FROM research').run();
+  await clearKv(env.KV);
 });
 
 describe('auth gating', () => {

@@ -13,6 +13,7 @@ import { renderClarifyPage, extractClarifications } from '../pages/clarify.js';
 import { handleStartResearch } from '../handlers/research.js';
 import { displayQuery, escapeLikeWildcards, canonicalizeQuery } from '../lib/utils.js';
 import { listableRowsSql } from '../lib/listable.js';
+import { recordView, parsePageMeta, buildPageMeta } from '../lib/view-counter.js';
 
 // --- Server-rendered research page with KV page cache ---------------------
 
@@ -45,14 +46,12 @@ export async function handleResearchPage(slug, url, request, env, ctx) {
             env.KV.get(cacheMetaKey),
         ]);
         if (cached) {
-            // Cached views still count — bump view_count out-of-band so the
-            // KV fast path never blocks on D1.
-            ctx.waitUntil(
-                env.DB.prepare("UPDATE research SET view_count = view_count + 1 WHERE slug = ?1 AND status = 'complete'")
-                    .bind(slug).run()
-                    .catch((err) => console.error('View count update failed:', err)),
-            );
-            const lm = cachedLm ? parseInt(cachedLm, 10) || undefined : undefined;
+            // Cached views still count. Bump out-of-band so the KV fast path
+            // never blocks on D1, and sample above a threshold so the write
+            // rate on hot pages stays bounded (worker/lib/view-counter.js).
+            const meta = parsePageMeta(cachedLm);
+            ctx.waitUntil(recordView(env.DB, { slug, view_count: meta.viewCount }));
+            const lm = meta.lastModified;
             const notModified = maybe304(ifModifiedSince, lm);
             if (notModified) return notModified;
             return htmlPageResponse(cached, env, { lastModifiedSec: lm, request });
@@ -70,7 +69,7 @@ export async function handleResearchPage(slug, url, request, env, ctx) {
     // Cached body is consent-neutral by construction; htmlPageResponse injects ads/banner per request.
     if (!fromQuery && !cleanLinks && result.status === 'complete') {
         ctx.waitUntil(env.KV.put(cacheKey, result.html, { expirationTtl: 3600 }));
-        ctx.waitUntil(env.KV.put(cacheMetaKey, String(result.lastModified), { expirationTtl: 3600 }));
+        ctx.waitUntil(env.KV.put(cacheMetaKey, buildPageMeta(result.lastModified, result.viewCount), { expirationTtl: 3600 }));
     }
     const notModified = maybe304(ifModifiedSince, result.lastModified);
     if (notModified) return notModified;
