@@ -9,7 +9,7 @@ Honest product research. We search real reviews across the web (expert review si
 ## What it does
 
 1. You type a product query (e.g. "best NAS for home media server")
-2. A research engine runs ~50 web/news searches (self-hosted SearXNG + HN Algolia + RSS feeds, with Brave and Exa as fallbacks) and reads the strongest sources
+2. A research engine runs ~50 web/news searches (self-hosted SearXNG + HN Algolia + RSS feeds, with Exa as the fallback) and reads the strongest sources
 3. Sources are scored for credibility (hands-on vs listicle vs affiliate-conflict) and an honest synthesis ranks the products with sourced pros/cons
 4. You get a ranked comparison with trust signals, pros/cons traceable to sources, and links to buy
 
@@ -27,7 +27,7 @@ Honest product research. We search real reviews across the web (expert review si
 | AI - synthesis | `minimax/minimax-m3` via OpenRouter | paid |
 | AI - extract (claims) | `anthropic/claude-haiku-4.5` via OpenRouter | paid |
 | AI - stance judge | `minimax/minimax-m3` via OpenRouter | paid |
-| Search | self-hosted SearXNG (primary) + Brave/Exa (fallback) + HN Algolia + RSS | mostly free |
+| Search | self-hosted SearXNG (primary) + Exa (fallback) + HN Algolia + RSS | mostly free |
 
 AI cost is governed by `MONTHLY_BUDGET_USD` (default $60): each run increments a KV cost counter and `/api/research` returns 503 once the month's spend hits the cap.
 
@@ -63,7 +63,7 @@ npx wrangler secret put OPENROUTER_API_KEY    # required — classifier/planner/
 npx wrangler secret put SERPER_API_KEY        # primary web/news search
 npx wrangler secret put WORKER_SECRET         # gates /api/internal/* + salts IP hashes
 # Optional search fallbacks / tuning:
-npx wrangler secret put BRAVE_API_KEY         # optional search fallback
+npx wrangler secret put BRAVE_API_KEY         # optional, not used in production
 npx wrangler secret put TAVILY_API_KEY        # optional search fallback
 npx wrangler secret put JINA_API_KEY          # optional — lifts read_page rate cap
 #   SEARXNG_URL, MONTHLY_BUDGET_USD, EXTERNAL_WORKER_ENABLED, FLYWHEEL_DAILY_MAX,
