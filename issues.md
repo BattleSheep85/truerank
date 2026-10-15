@@ -2,6 +2,11 @@
 
 Last updated: 2026-10-15
 
+## 2026-10-15: store and listing clutter shown as product claims (CP-705)
+
+- [x] HIGH (Product, verify): the claim checker showed store text as product claims (third-party seller, return window, Asurion plans) and blamed "the maker's own materials". Fixed in 5a724b8: the extract prompt asks only for spec and marketing claims, `isTestableClaim` drops seller, return, protection-plan, financing, and rating text, and saved reports are filtered at render, score, and reuse time. worker/engine/verify.js, worker/pages/verify-page.js, worker/handlers/verify.js.
+- [x] MEDIUM (Product, verify): the first filter also dropped real claims with "extended coverage" (mesh Wi-Fi range), in new and saved reports. Fixed in 5a9380f: the pattern needs "plan" or "program" after it. worker/engine/verify.js.
+
 ## 2026-10-15: dev tool advisories (CP-689)
 
 ### Security
