@@ -30,7 +30,7 @@ dependencies: everything that ships is vendored or loaded via CDN. Supply chain
 security is a hard requirement for anything that reaches production.
 
 **One scoped exception (2026-06-18): dev/test tooling.** A Miniflare-backed Workers
-test harness (`vitest` + `@cloudflare/vitest-pool-workers`) lives in `devDependencies`
+test harness (`vitest` + `@cloudflare/vitest-plugin`, the renamed successor of `@cloudflare/vitest-pool-workers`) lives in `devDependencies`
 ONLY. It is never bundled into the worker (wrangler bundles `worker/index.js`'s import
 graph; `node_modules`/test specs aren't in it). `node_modules/` is gitignored;
 `package.json` + `package-lock.json` are committed for reproducible installs. The runtime
