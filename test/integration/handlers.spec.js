@@ -1,7 +1,7 @@
 // Integration coverage for the user-facing handlers: subscribe (DB), image proxy
 // (DB + fetch mocked), and the auth flow (signup/login/logout — DB + crypto).
 import { env } from 'cloudflare:test';
-import { beforeAll, describe, it, expect, vi, afterEach } from 'vitest';
+import { beforeAll, beforeEach, describe, it, expect, vi, afterEach } from 'vitest';
 import { applySchema } from './_schema.js';
 import { handleSubscribe } from '../../worker/handlers/subscribe.js';
 import { handleUnsubscribe } from '../../worker/handlers/unsubscribe.js';
@@ -21,6 +21,28 @@ async function insertProductV2(db, { id, researchId, name, rank = null, imageUrl
 
 beforeAll(() => applySchema(env.DB));
 afterEach(() => vi.unstubAllGlobals());
+
+// The Workers plugin does not reset D1 or KV between tests in one file. Clear
+// what the subscribe and auth tests write (subscribers, users and their
+// sessions, KV rate-limit timestamps), as the old isolatedStorage did.
+// research and products stay: handleProductImage seeds them in a beforeAll.
+// Delete every KV key, page by page.
+async function clearKv(kv) {
+  let cursor;
+  do {
+    const page = await kv.list({ cursor });
+    await Promise.all(page.keys.map((k) => kv.delete(k.name)));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+}
+
+beforeEach(async () => {
+  await env.DB.prepare('DELETE FROM subscribers').run();
+  await env.DB.prepare('DELETE FROM user_searches').run();
+  await env.DB.prepare('DELETE FROM sessions').run();
+  await env.DB.prepare('DELETE FROM users').run();
+  await clearKv(env.KV);
+});
 
 const postJson = (body) => new Request('https://x/p', {
   method: 'POST', body: body === undefined ? undefined : JSON.stringify(body),
@@ -132,8 +154,8 @@ describe('handleProductImage', () => {
   });
 });
 
-// NB: vitest-pool-workers isolates D1/KV PER TEST, so each `it` must be
-// self-contained (it can't see a user another `it` created).
+// NB: the beforeEach above clears users and sessions before every test, so
+// each `it` must be self-contained (it can't see a user another `it` created).
 describe('auth flow', () => {
   const email = 'user@truerank.test';
   const PW = 'hunter2pass';

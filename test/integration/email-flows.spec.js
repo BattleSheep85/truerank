@@ -7,7 +7,7 @@
 //      stub at `env.__mailTransport`, which is the seam sendMail resolves
 //      before it ever reaches worker/lib/smtp.js. No socket is opened.
 import { env } from 'cloudflare:test';
-import { beforeAll, describe, it, expect } from 'vitest';
+import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import { completeResearch } from './_helpers.js';
 import { handleSubscribe } from '../../worker/handlers/subscribe.js';
@@ -19,6 +19,27 @@ import { generateId, insertResearch } from '../../worker/lib/db.js';
 import { CONFIRM_TTL_S } from '../../worker/lib/subscribe-flow.js';
 
 beforeAll(() => applySchema(env.DB));
+
+// The Workers plugin does not reset D1 or KV between tests in one file. Each
+// test starts from an empty schema and empty KV (rate-limit timestamps and the
+// mail:sent:<date> daily counter), as it did under the old isolatedStorage.
+// No describe here seeds data in a beforeAll, so a full reset is safe.
+// Delete every KV key, page by page.
+async function clearKv(kv) {
+  let cursor;
+  do {
+    const page = await kv.list({ cursor });
+    await Promise.all(page.keys.map((k) => kv.delete(k.name)));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+}
+
+beforeEach(async () => {
+  await env.DB.prepare('DELETE FROM subscribers').run();
+  await env.DB.prepare('DELETE FROM products').run();
+  await env.DB.prepare('DELETE FROM research').run();
+  await clearKv(env.KV);
+});
 
 // A transport that records the recipient and the raw message. It NEVER stores
 // the credentials it is handed.
