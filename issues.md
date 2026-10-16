@@ -2,6 +2,11 @@
 
 Last updated: 2026-10-15
 
+## 2026-10-15: product images do not resolve (CP-709)
+
+- [x] HIGH (Product, images): the product-image resolver used only Serper or Brave, and production has neither key, so product photos did not resolve. Fixed in e8211e4: the resolver uses the SearXNG image category when SEARXNG_URL is set, with Brave as a per-query backup. The Blackbox SearXNG loads bing images and startpage images for this (blackbox repo 48c317e). worker/lib/image-resolver.js, worker/engine/searxng.js.
+- [ ] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs.
+
 ## 2026-10-15: store and listing clutter shown as product claims (CP-705)
 
 - [x] HIGH (Product, verify): the claim checker showed store text as product claims (third-party seller, return window, Asurion plans) and blamed "the maker's own materials". Fixed in 5a724b8: the extract prompt asks only for spec and marketing claims, `isTestableClaim` drops seller, return, protection-plan, financing, and rating text, and saved reports are filtered at render, score, and reuse time. worker/engine/verify.js, worker/pages/verify-page.js, worker/handlers/verify.js.
