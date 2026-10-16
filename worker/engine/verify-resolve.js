@@ -13,7 +13,10 @@
 import { runSearch, readPageInto } from './tools.js';
 import { isManufacturerDomain } from '../lib/credibility.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
+import { MODEL_VARIANT_WORDS, distillProductName } from '../lib/product-link.js';
 import { afterAbort, anySignal, delay, runPoolUntil, POOL_GRACE_MS } from '../lib/deadline.js';
+
+export { MODEL_VARIANT_WORDS, distillProductName };
 
 const TOKEN_RE = /[a-z0-9]+/g;
 const DIGIT_RE = /\d/;
@@ -22,8 +25,6 @@ const ALPHA_RE = /[a-z]/;
 // A token with letters and digits and at least this many chars is a model
 // code ("1000xm6", "aw3423dwf"). A page that names the code is about the product.
 const MODEL_CODE_MIN_CHARS = 5;
-// A short word right after the model number names a variant ("nc", "pro", "combo").
-const VARIANT_MAX_CHARS = 5;
 // A model run without its series word must have at least this many chars.
 const MIN_BARE_RUN_CHARS = 4;
 // A short letter prefix of a model code ("wh" of WH-1000XM6) is part of the
@@ -35,16 +36,38 @@ const MIN_BRAND_CHARS = 3;
 const BRAND_WORDS = 2;
 
 // Generic name words a product page often leaves out ("12th generation",
-// "2024", "mouse"). The name match ignores them; brand, series words, and
-// model numbers must still match.
+// "2024", "mouse", "tire", "blender", "case"). The name match ignores them;
+// brand, series words, model numbers, and MODEL_VARIANT_WORDS must still match.
 const QUALIFIER_WORDS = new Set([
   'generation', 'gen', 'edition', 'model', 'version', 'series',
-  'mouse', 'headphones', 'earbuds', 'speaker', 'phone', 'watch', 'vacuum',
+  'mouse', 'headphones', 'headphone', 'earbuds', 'earbud', 'speaker', 'speakers',
+  'soundbar', 'phone', 'smartphone', 'watch', 'smartwatch', 'vacuum',
   'printer', 'monitor', 'laptop', 'tablet', 'ereader', 'camera', 'keyboard',
+  'router', 'projector', 'microphone',
+  'case', 'tower', 'chassis', 'cooler', 'psu', 'motherboard',
+  'tire', 'tires', 'radial', 'season', 'touring', 'all',
+  'blender', 'mixer', 'cooker', 'pressure', 'toaster', 'oven', 'microwave', 'dishwasher',
+  'refrigerator', 'fridge', 'kettle', 'maker', 'fryer', 'espresso', 'grill', 'skillet', 'stand',
+  'drill', 'driver', 'saw', 'sander', 'grinder', 'impact', 'wrench', 'tool', 'kit', 'cordless', 'brushless',
+  'shoe', 'shoes', 'boot', 'boots', 'sneaker', 'sneakers', 'running', 'neutral', 'mens', 'womens', 'unisex',
+  'wireless', 'wired', 'bluetooth', 'portable', 'electric', 'digital', 'automatic',
+  'rechargeable', 'unlocked', 'compatible', 'dual', 'chamber', 'full', 'mid',
+  'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red', 'green', 'pink', 'gold', 'tungsten',
 ]);
 const ORDINAL_RE = /^(?:1st|2nd|3rd|[4-9]th|1\dth|20th)$/;
 const YEAR_RE = /^(?:2019|202\d|2030)$/;
+const SPEC_TOKEN_RE = /^\d+(?:x\d+)?(?:gb|tb|mb|kb|mm|cm|in|inch|inches|ft|yd|m|g|kg|mg|lb|lbs|oz|w|kw|v|kv|mv|ah|mah|wh|kwh|hz|khz|mhz|ghz|db|dba|rpm|psi|bar|cfm|fps|mp|dpi|cpi|nits|lm|lumens|k|c|f|l|ml|gal|qt|quart|quarts|pt|cup|cups|pc|pcs|pk|pack|ct|count|hr|hrs|hour|hours|min|mins|sec|s|yr|yrs|year|years|awg|ply|tpi)$/;
+const TIRE_SIZE_TOKEN_RE = /^\d{2,3}[rz]\d{2}$/;
+const UNIT_WORDS = new Set([
+  'gb', 'tb', 'mb', 'kb', 'mm', 'cm', 'in', 'inch', 'inches', 'ft',
+  'g', 'kg', 'lb', 'lbs', 'oz', 'w', 'kw', 'v', 'ah', 'mah', 'wh',
+  'hz', 'khz', 'mhz', 'ghz', 'db', 'rpm', 'psi', 'cfm', 'mp', 'dpi',
+  'nits', 'lm', 'lumens', 'l', 'ml', 'gal', 'qt', 'quart', 'quarts',
+  'pt', 'cup', 'cups', 'pc', 'pcs', 'pk', 'pack', 'ct', 'count',
+  'hr', 'hrs', 'hour', 'hours', 'min', 'mins', 'sec', 'yr', 'yrs', 'year', 'years',
+]);
 const E_READER_RE = /\be-reader\b/gi;
+const MULTI_IN_ONE_TEXT_RE = /\b\d+\s*[- ]?\s*in\s*[- ]?\s*1\b/gi;
 
 // Retailer host labels on any country domain. credibility.js lists only a few
 // retailer hosts (amazon.com, amazon.co.uk, amazon.de).
@@ -78,20 +101,35 @@ function tokens(text) {
   return String(text ?? '').toLowerCase().match(TOKEN_RE) || [];
 }
 
-function isQualifier(token) {
-  return QUALIFIER_WORDS.has(token) || ORDINAL_RE.test(token) || YEAR_RE.test(token);
+function isSpecNumberAt(words, index) {
+  const token = words[index] ?? '';
+  if (!DIGIT_RE.test(token)) return false;
+  if (ORDINAL_RE.test(token) || YEAR_RE.test(token) || SPEC_TOKEN_RE.test(token) || TIRE_SIZE_TOKEN_RE.test(token)) {
+    return true;
+  }
+  if (/^\d+$/.test(token)) {
+    const next = words[index + 1] ?? '';
+    if (UNIT_WORDS.has(next) || TIRE_SIZE_TOKEN_RE.test(next)) return true;
+    if (next === 'in' && words[index + 2] === '1') return true;
+    if (token === '1' && words[index - 1] === 'in' && /^\d+$/.test(words[index - 2] ?? '')) return true;
+  }
+  return false;
+}
+
+function isQualifierAt(words, index) {
+  const token = words[index] ?? '';
+  if (QUALIFIER_WORDS.has(token) || isSpecNumberAt(words, index)) return true;
+  if (UNIT_WORDS.has(token) && /^\d+$/.test(words[index - 1] ?? '')) return true;
+  return false;
 }
 
 // Product name tokens without the generic qualifier words, or all tokens
 // when only qualifier words are left.
 function nameTokens(product) {
-  const all = tokens(String(product ?? '').replace(E_READER_RE, 'ereader'));
-  const kept = all.filter((w) => !isQualifier(w));
+  const normalized = String(product ?? '').replace(E_READER_RE, 'ereader').replace(MULTI_IN_ONE_TEXT_RE, ' ');
+  const all = tokens(normalized);
+  const kept = all.filter((_, i) => !isQualifierAt(all, i));
   return kept.length > 0 ? kept : all;
-}
-
-function squash(text) {
-  return tokens(text).join('');
 }
 
 function parseUrl(url) {
@@ -130,31 +168,72 @@ export function ownPageKind(url, product) {
 }
 
 function isModelCode(token) {
-  return token.length >= MODEL_CODE_MIN_CHARS && DIGIT_RE.test(token) && ALPHA_RE.test(token);
+  return token.length >= MODEL_CODE_MIN_CHARS
+    && DIGIT_RE.test(token)
+    && ALPHA_RE.test(token)
+    && !SPEC_TOKEN_RE.test(token)
+    && !TIRE_SIZE_TOKEN_RE.test(token)
+    && !ORDINAL_RE.test(token);
 }
 
 function longest(list) {
   return list.reduce((a, b) => (b.length > a.length ? b : a));
 }
 
-// The longest model code with its short letter prefix, when it has one.
+// The longest model code with its short letter prefix, when the code starts
+// with a digit ("wh" + "1000xm6" -> "wh1000xm6").
 function modelCodeKey(words, code) {
   const prev = words[words.indexOf(code) - 1] ?? '';
-  const isPrefix = prev.length > 0 && prev.length <= MODEL_PREFIX_MAX_CHARS && !DIGIT_RE.test(prev);
+  const isPrefix = DIGIT_RE.test(code[0] ?? '')
+    && prev.length > 0
+    && prev.length <= MODEL_PREFIX_MAX_CHARS
+    && !DIGIT_RE.test(prev)
+    && !MODEL_VARIANT_WORDS.has(prev);
   return isPrefix ? `${prev}${code}` : code;
 }
 
-// Name without a model number: the series words after the brand.
+// Name without a model number: the series words after the brand, plus any
+// trailing model-variant words ("Instant Pot Duo Plus" -> ["pot", "duo", "plus"]).
+function seriesWordsOf(words) {
+  if (words.length <= 1) return words;
+  let end = Math.min(words.length, 3);
+  while (end < words.length && MODEL_VARIANT_WORDS.has(words[end])) end += 1;
+  return words.slice(1, end);
+}
+
 function seriesKey(words) {
-  return words.length > 1 ? words.slice(1, 3).join('') : words.join('');
+  return seriesWordsOf(words).join('');
+}
+
+function postVariantAt(words, index) {
+  const post = [];
+  for (let i = index; i < words.length && MODEL_VARIANT_WORDS.has(words[i]); i += 1) {
+    post.push(words[i]);
+  }
+  return post.join('');
+}
+
+// Structured model line for a name with a model number:
+// { series, preVariant, number, postVariant } ("AirPods Pro 2" -> airpods + pro + 2,
+// "Antec C8 Wood" -> antec + c8 + wood, "Galaxy S25 Ultra" -> galaxy + s25 + ultra).
+function modelLine(words) {
+  const first = words.findIndex((w, i) => DIGIT_RE.test(w) && !isSpecNumberAt(words, i));
+  if (first < 0) return null;
+  const hasPreVariant = first >= 2 && MODEL_VARIANT_WORDS.has(words[first - 1]);
+  const series = hasPreVariant ? words[first - 2] : (first > 0 ? words[first - 1] : '');
+  const preVariant = hasPreVariant ? words[first - 1] : '';
+  const number = words[first];
+  const postVariant = postVariantAt(words, first + 1);
+  return { series, preVariant, number, postVariant };
 }
 
 /**
  * Squashed name runs a page must contain to be about this product. A model
  * code (with its short letter prefix) is enough: "wh1000xm6", "aw3423dwf".
- * Otherwise the series word plus the model number plus one short variant
- * word ("liberty4nc", "flip7", "k2combo"). Generic qualifier words
- * ("12th generation", "2024", "mouse") are not part of a key.
+ * Otherwise the series word (plus any pre-number variant) plus the model
+ * number plus allowlisted variant words ("liberty4nc", "flip7", "k2combo",
+ * "antecc8wood", "airpodspro2"). Generic qualifier words and slug descriptors
+ * ("12th generation", "2024", "mouse", "dual", "chamber") are not part of a key.
  */
 export function productKeys(product) {
   const words = nameTokens(product);
@@ -162,12 +241,10 @@ export function productKeys(product) {
   const codes = words.filter(isModelCode);
   if (codes.length > 0) return [modelCodeKey(words, longest(codes))];
 
-  const first = words.findIndex((w) => DIGIT_RE.test(w));
-  if (first < 0) return [seriesKey(words)];
-  const next = words[first + 1];
-  const variant = next && !DIGIT_RE.test(next) && next.length <= VARIANT_MAX_CHARS ? next : '';
-  const run = `${words[first]}${variant}`;
-  const withSeries = first > 0 ? `${words[first - 1]}${run}` : run;
+  const line = modelLine(words);
+  if (!line) return [seriesKey(words)];
+  const run = `${line.number}${line.postVariant}`;
+  const withSeries = `${line.series}${line.preVariant}${run}`;
   return run.length >= MIN_BARE_RUN_CHARS && run !== withSeries ? [withSeries, run] : [withSeries];
 }
 
@@ -178,26 +255,36 @@ function pathAndTitleWords(source) {
   return { path, words: tokens(`${path} ${source?.title ?? ''}`) };
 }
 
-/** True when the url path or the title names this product (see productKeys). */
-export function namesProduct(source, product) {
-  const keys = productKeys(product);
-  if (keys.length === 0) return false;
-  const { path } = pathAndTitleWords(source);
-  const text = `${squash(path)} ${squash(source?.title)}`;
-  return keys.some((key) => text.includes(key));
+const REGEXP_SPECIAL_RE = /[.*+?^${}()|[\]\\]/g;
+const VARIANT_TAIL_RE_SOURCE = [...MODEL_VARIANT_WORDS].join('|');
+
+function keyPattern(key, blockVariantTail) {
+  const chars = key.split('').map((c) => c.replace(REGEXP_SPECIAL_RE, '\\$&')).join('[^a-z0-9]*');
+  const endBoundary = DIGIT_RE.test(key.at(-1) ?? '') ? '(?![0-9])' : '(?![a-z0-9])';
+  const variantGuard = blockVariantTail ? `(?![^a-z0-9]*(?:${VARIANT_TAIL_RE_SOURCE})(?![a-z0-9]))` : '';
+  return `(?<![a-z0-9])${chars}${endBoundary}${variantGuard}`;
 }
 
-// The series word and model number of a name without a model code
-// ("flip" and "7" of "JBL Flip 7"), or null.
-function seriesAndNumber(words) {
-  const first = words.findIndex((w) => DIGIT_RE.test(w));
-  return first > 0 ? { series: words[first - 1], number: words[first] } : null;
+function hasKeyMatch(text, product) {
+  const keys = productKeys(product);
+  if (keys.length === 0) return false;
+  const ours = nameTokens(product);
+  const blockVariantTail = ours.filter(isModelCode).length === 0;
+  const body = String(text ?? '');
+  return keys.some((key) => new RegExp(keyPattern(key, blockVariantTail), 'i').test(body));
+}
+
+/** True when the url path or the title names this product (see productKeys). */
+export function namesProduct(source, product) {
+  const { path } = pathAndTitleWords(source);
+  return hasKeyMatch(`${path} ${source?.title ?? ''}`, product);
 }
 
 /**
  * True when the url path or the title names another model of the same line
  * and not this one: WF-1000XM6 or WH-1000XM5 for WH-1000XM6, Flip 6 for
- * Flip 7. Such a page tests another product.
+ * Flip 7, Antec C8 Wood for Antec C8, Galaxy S25 Ultra for Galaxy S25,
+ * AirPods Pro 2 for AirPods 2. Such a page tests another product.
  */
 export function namesOtherModel(source, product) {
   if (namesProduct(source, product)) return false;
@@ -208,9 +295,38 @@ export function namesOtherModel(source, product) {
     const ourKey = modelCodeKey(ours, longest(codes));
     return words.some((w) => isModelCode(w) && modelCodeKey(words, w) !== ourKey);
   }
-  const line = seriesAndNumber(ours);
-  if (!line) return false;
-  return words.some((w, i) => w === line.series && DIGIT_RE.test(words[i + 1] ?? '') && words[i + 1] !== line.number);
+  const line = modelLine(ours);
+  if (!line) {
+    const series = seriesWordsOf(ours);
+    const last = series.at(-1) ?? '';
+    if (!last) return false;
+    const prev = series.length >= 2 && MODEL_VARIANT_WORDS.has(last) ? series.at(-2) : '';
+    return words.some((w, i) => {
+      if (w === last && postVariantAt(words, i + 1) !== '') return true;
+      if (prev && w === prev && words[i + 1] !== last) return true;
+      return false;
+    });
+  }
+  return words.some((w, i) => {
+    if (w === line.series) {
+      const hasPre = MODEL_VARIANT_WORDS.has(words[i + 1] ?? '') && DIGIT_RE.test(words[i + 2] ?? '') && !isSpecNumberAt(words, i + 2);
+      const numIdx = hasPre ? i + 2 : i + 1;
+      const candNum = words[numIdx] ?? '';
+      if (DIGIT_RE.test(candNum) && !isSpecNumberAt(words, numIdx)) {
+        const candPre = hasPre ? words[i + 1] : '';
+        const candPost = postVariantAt(words, numIdx + 1);
+        return candPre !== line.preVariant || candNum !== line.number || candPost !== line.postVariant;
+      }
+      if (MODEL_VARIANT_WORDS.has(candNum) && (candNum !== line.preVariant || line.number !== '')) {
+        return true;
+      }
+    }
+    if (ALPHA_RE.test(line.number) && w === line.number) {
+      const candPost = postVariantAt(words, i + 1);
+      if (candPost !== line.postVariant) return true;
+    }
+    return false;
+  });
 }
 
 function decodeURIComponentSafe(text) {
@@ -263,7 +379,7 @@ export function claimCandidateReason(source, product) {
   const kind = ownPageKind(source?.url, product);
   if (!kind) return 'not-own-site';
   if (isListingPage(source.url)) return 'listing-page';
-  return namesProduct(source, product) ? kind : 'other-product';
+  return namesProduct(source, product) && !namesOtherModel(source, product) ? kind : 'other-product';
 }
 
 /**
@@ -298,18 +414,17 @@ export function productWords(product) {
   return tokens(product);
 }
 
-const REGEXP_SPECIAL_RE = /[.*+?^${}()|[\]\\]/g;
-
 /**
  * Start offsets of product name mentions in text: each productKeys key with
  * any separators between its chars ("wh1000xm6" finds "WH-1000XM6"). Sorted.
  */
 export function productMentions(text, product) {
   const body = String(text ?? '');
-  const starts = productKeys(product).flatMap((key) => {
-    const pattern = key.split('').map((c) => c.replace(REGEXP_SPECIAL_RE, '\\$&')).join('[^a-z0-9]*');
-    return [...body.matchAll(new RegExp(`(?<![a-z0-9])${pattern}`, 'gi'))].map((m) => m.index);
-  });
+  const ours = nameTokens(product);
+  const blockVariantTail = ours.filter(isModelCode).length === 0;
+  const starts = productKeys(product).flatMap((key) =>
+    [...body.matchAll(new RegExp(keyPattern(key, blockVariantTail), 'gi'))].map((m) => m.index),
+  );
   return [...new Set(starts)].sort((a, b) => a - b);
 }
 
@@ -320,8 +435,7 @@ export function productMentions(text, product) {
  */
 export function aboutProduct(source, product) {
   if (namesProduct(source, product)) return true;
-  const text = squash(source?.content);
-  return productKeys(product).some((key) => text.includes(key));
+  return hasKeyMatch(source?.content, product);
 }
 
 /** One key per evidence page: host plus path, plus the video id of a YouTube watch url. */
@@ -462,7 +576,8 @@ export function isUsableClaimPage(content) {
  * (found: every search result).
  */
 export async function findClaimCandidates({ product, env, search = runSearch }) {
-  const queries = RESOLVE_QUERY_SUFFIXES.map((suffix) => `${product}${suffix}`);
+  const queryName = distillProductName(product) || String(product ?? '').trim();
+  const queries = RESOLVE_QUERY_SUFFIXES.map((suffix) => `${queryName}${suffix}`);
   const results = await Promise.all(queries.map((q) => search(q, 'web', env, false)));
   const found = results.flatMap((list) => (Array.isArray(list) ? list : []));
   return { candidates: rankClaimCandidates(found, product), queries, found };
@@ -738,10 +853,11 @@ const TEST_PAGE_RE = /\breviews?\b|\btested\b|\btests?\b|\bhands[- ]on\b|\bmeasu
  * test result seldom repeats the claimed value.
  */
 export function claimSearchQuery(product, terms) {
+  const queryName = distillProductName(product) || String(product ?? '').trim();
   const topic = (Array.isArray(terms) ? terms : [])
     .filter((t) => !NUMBER_ONLY_RE.test(t))
     .slice(0, CLAIM_QUERY_TOPIC_WORDS);
-  return [String(product ?? '').trim(), ...topic, CLAIM_SEARCH_WORDS].join(' ');
+  return [queryName, ...topic, CLAIM_SEARCH_WORDS].join(' ');
 }
 
 /** Round robin over lists: the first item of each list, then the second, and so on. */

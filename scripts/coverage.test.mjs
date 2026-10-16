@@ -28,6 +28,8 @@ import { runEmailTemplatesTests } from '../test/unit/email-templates.test.js';
 import { runSubscribeFlowTests } from '../test/unit/subscribe-flow.test.js';
 import { runListableTests } from '../test/unit/listable.test.js';
 import { runGroundingCheckTests } from '../benchmarks/tests/grounding-check.test.mjs';
+import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
+import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 
 const suites = [
   ['credibility', runCredibilityTests],
@@ -37,6 +39,8 @@ const suites = [
   ['utils', runUtilsTests],
   ['affiliate-links', runAffiliateLinksTests],
   ['lib-pure', runLibPureTests],
+  ['product-link', runProductLinkUnitTests],
+  ['verify-resolve', runVerifyResolveTests],
   ['credibility-extra', runCredibilityExtraTests],
   ['prompts', runPromptsTests],
   ['llm', runLlmTests],

@@ -21,7 +21,45 @@ const LINK_KEY_NAME_PART = '|name:';
 const NAME_KEY_MAX_TOKENS = 20;
 const SLUG_NAME_MAX_WORDS = 10;
 const SLUG_NAME_MIN_WORDS = 2;
+export const SLUG_DISTILL_MIN_WORDS = 6;
 const REMAINDER_MIN_ALNUM = 3;
+
+// Explicit allowlist of real model-variant tokens (Red-Team #3).
+export const MODEL_VARIANT_WORDS = Object.freeze(new Set([
+  'ultra', 'pro', 'plus', 'max', 'mini', 'lite', 'se', 'fe', 'ti', 'xt', 'xtx',
+  'super', 'oled', 'anc', 'nc', 'combo', 'duo', 'xl', 'xs', 'air', 'slim',
+  'wood', 'flux', 'curve', 'mesh', 'rgb', 'argb',
+]));
+
+const SPEC_UNIT_TOKEN_RE = /^\d+(?:x\d+)?(?:gb|tb|mb|kb|mm|cm|in|inch|inches|ft|yd|m|g|kg|mg|lb|lbs|oz|w|kw|v|kv|mv|ah|mah|wh|kwh|hz|khz|mhz|ghz|db|dba|rpm|psi|bar|cfm|fps|mp|dpi|cpi|nits|lm|lumens|k|c|f|l|ml|gal|qt|quart|quarts|pt|cup|cups|pc|pcs|pk|pack|ct|count|hr|hrs|hour|hours|min|mins|sec|s|yr|yrs|year|years|awg|ply|tpi)$/i;
+const TIRE_SIZE_RE = /^\d{2,3}[rz]\d{2}$/i;
+const ORDINAL_TOKEN_RE = /^(?:1st|2nd|3rd|[4-9]th|1\dth|20th)$/i;
+const YEAR_TOKEN_RE = /^(?:2019|202\d|2030)$/;
+const MULTI_IN_ONE_RE = /^\d+[-_]?in[-_]?1$/i;
+const UNIT_FOLLOW_WORDS = new Set([
+  'gb', 'tb', 'mb', 'kb', 'mm', 'cm', 'in', 'inch', 'inches', 'ft',
+  'g', 'kg', 'lb', 'lbs', 'oz', 'w', 'kw', 'v', 'ah', 'mah', 'wh',
+  'hz', 'khz', 'mhz', 'ghz', 'db', 'rpm', 'psi', 'cfm', 'mp', 'dpi',
+  'nits', 'lm', 'lumens', 'l', 'ml', 'gal', 'qt', 'quart', 'quarts',
+  'pt', 'cup', 'cups', 'pc', 'pcs', 'pk', 'pack', 'ct', 'count',
+  'hr', 'hrs', 'hour', 'hours', 'min', 'mins', 'sec', 'yr', 'yrs', 'year', 'years',
+]);
+
+// Common retail SEO slug descriptor words that start the keyword tail after Brand + Series (+ Variant).
+const SLUG_DESCRIPTOR_WORDS = new Set([
+  'dual', 'chamber', 'compatible', 'full', 'mid', 'tower', 'atx', 'eatx', 'matx', 'itx',
+  'pc', 'computer', 'gaming', 'case', 'chassis', 'tempered', 'glass', 'front', 'panel',
+  'all', 'season', 'radial', 'tire', 'tires', 'touring', 'passenger', 'suvs', 'truck',
+  'wireless', 'bluetooth', 'noise', 'cancelling', 'canceling', 'active', 'over', 'ear',
+  'headphones', 'headphone', 'earbuds', 'earbud', 'headset', 'speaker', 'speakers',
+  'unlocked', 'cell', 'phone', 'smartphone', 'android', 'mobile',
+  'electric', 'pressure', 'cooker', 'slow', 'multi', 'multicooker', 'steamer', 'warmer',
+  'professional', 'grade', 'blender', 'mixer', 'stand', 'tilt', 'head', 'kitchen', 'appliance',
+  'cordless', 'brushless', 'compact', 'drill', 'driver', 'impact', 'hammer', 'tool', 'kit',
+  'mens', 'womens', 'unisex', 'neutral', 'running', 'walking', 'trail', 'shoe', 'shoes', 'sneakers', 'footwear',
+  'waterproof', 'portable', 'rechargeable', 'stainless', 'steel', 'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red',
+  'with', 'for', 'and',
+]);
 
 const LINK_RE = /https?:\/\/\S+/i;
 const ALL_LINKS_RE = /https?:\/\/\S+/gi;
@@ -104,12 +142,76 @@ function isIdLike(words) {
   return words.every((w) => HEX_WORD_RE.test(w)) && words.some((w) => DIGIT_RE.test(w));
 }
 
+function isSlugSpecToken(lower, i) {
+  const w = lower[i] ?? '';
+  if (!DIGIT_RE.test(w)) return false;
+  if (ORDINAL_TOKEN_RE.test(w) || YEAR_TOKEN_RE.test(w) || SPEC_UNIT_TOKEN_RE.test(w) || TIRE_SIZE_RE.test(w) || MULTI_IN_ONE_RE.test(w)) {
+    return true;
+  }
+  if (/^\d+$/.test(w)) {
+    const next = lower[i + 1] ?? '';
+    if (UNIT_FOLLOW_WORDS.has(next) || TIRE_SIZE_RE.test(next)) return true;
+    if (next === 'in' && lower[i + 2] === '1') return true;
+    if (w === '1' && lower[i - 1] === 'in' && /^\d+$/.test(lower[i - 2] ?? '')) return true;
+  }
+  return false;
+}
+
+// Distills 6+ word retail SEO slugs into Brand + Series + Model + Variant.
+function distillSlugWords(words) {
+  const capped = words.slice(0, SLUG_NAME_MAX_WORDS);
+  if (words.length < SLUG_DISTILL_MIN_WORDS) return capped;
+  const lower = words.map((w) => w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ''));
+
+  // 1. Model number token in positions 1..4 (Brand + Series + Model [+ Variant]).
+  for (let i = 1; i <= Math.min(4, words.length - 1); i += 1) {
+    if (DIGIT_RE.test(lower[i]) && !isSlugSpecToken(lower, i)) {
+      let end = i + 1;
+      while (end < words.length && MODEL_VARIANT_WORDS.has(lower[end])) end += 1;
+      return words.slice(0, end);
+    }
+  }
+
+  // 2. Model code token later in the slug (e.g. DEWALT 20V MAX Cordless Drill Kit DCD771C2).
+  for (let i = 5; i < words.length; i += 1) {
+    const w = lower[i];
+    if (w.length >= 5 && DIGIT_RE.test(w) && /[a-z]/.test(w) && !isSlugSpecToken(lower, i)) {
+      let prefixEnd = 1;
+      while (prefixEnd < Math.min(4, i) && !SLUG_DESCRIPTOR_WORDS.has(lower[prefixEnd])) {
+        prefixEnd += 1;
+      }
+      return [...words.slice(0, prefixEnd), words[i]];
+    }
+  }
+
+  // 3. No model number: stop before the first spec or SEO descriptor word (at index >= 2).
+  for (let i = 2; i < words.length; i += 1) {
+    if (isSlugSpecToken(lower, i) || SLUG_DESCRIPTOR_WORDS.has(lower[i])) {
+      return words.slice(0, Math.min(i, 4));
+    }
+  }
+
+  return capped;
+}
+
+/**
+ * Distills a 6+ word SEO product name or slug into concise Brand + Series +
+ * Model + Variant words for search queries. Shorter names stay unchanged.
+ */
+export function distillProductName(product) {
+  const raw = String(product ?? '').trim();
+  if (!raw) return '';
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length < SLUG_DISTILL_MIN_WORDS) return raw;
+  return distillSlugWords(words).join(' ');
+}
+
 // Turn one path segment into a name, or null. sep splits the words.
 function slugToName(segment, sep) {
   const text = safeDecode(segment).replace(FILE_EXT_RE, '');
   const words = text.split(sep).filter(Boolean);
   if (words.length < SLUG_NAME_MIN_WORDS || !LETTER_RE.test(text)) return null;
-  return words.slice(0, SLUG_NAME_MAX_WORDS).join(' ');
+  return distillSlugWords(words).join(' ');
 }
 
 function pathSegments(pathname) {

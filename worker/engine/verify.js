@@ -30,6 +30,7 @@ import {
   readTestPages,
   evidencePagesToRead,
   evidenceReader,
+  distillProductName,
   MAX_RESOLVE_READS,
   CLAIM_PAGES_WANTED,
 } from './verify-resolve.js';
@@ -1074,7 +1075,8 @@ const VERIFY_GATHER_PROVIDERS = Object.freeze(['web']);
 // Step 4, GATHER independent evidence for the product (gatherParallel, without
 // notes: verify never reads them). Reads go through the shared `readPage`.
 function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, startGate, readGate }) {
-  return gatherParallel(product, config, apiKey, env, emit, VERIFY_FACETS, product, {}, {
+  const queryName = distillProductName(product) || product;
+  return gatherParallel(queryName, config, apiKey, env, emit, VERIFY_FACETS, queryName, {}, {
     withNotes: false,
     startGate,
     readGate,

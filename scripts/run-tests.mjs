@@ -50,6 +50,8 @@ import { runSafetyTests } from '../test/unit/safety.test.js';
 import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
 import { runViewCounterTests } from '../test/unit/view-counter.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
+import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
+import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -64,12 +66,14 @@ const suites = [
   ['research-primitives', runResearchPrimitivesTests],
   ['affiliate-links', runAffiliateLinksTests],
   ['lib-pure', runLibPureTests],
+  ['product-link', runProductLinkUnitTests],
   ['credibility-extra', runCredibilityExtraTests],
   ['prompts', runPromptsTests],
   ['llm', runLlmTests],
   ['asin-resolver', runAsinResolverTests],
   ['verdict', runVerdictTests],
   ['verify', runVerifyTests],
+  ['verify-resolve', runVerifyResolveTests],
   ['verification-render', runVerificationRenderTests],
   ['jina', runJinaTests], // async suite (awaited below)
   ['searxng', runSearxngTests], // async suite (awaited below)
