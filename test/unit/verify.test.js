@@ -1627,5 +1627,29 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
     });
     eq(`${label}: classifyStance passes temperature: 0`, seen.opts?.temperature, 0);
   });
+
+  await guarded('spanShowsFirstHand rejects spec-sheet restatements (hours duration, bare fits)', () => {
+    const claim = 'Up to 30 hours of battery life';
+    const product = 'Sony WH-1000XM6';
+    const backstop = (span) => applyStanceBackstops({ stance: 'support', span, tags: ['hands-on'] }, claim, product);
+    const SPEC = [
+      'Battery: playback for 30 hours with ANC on.',
+      'Fits radiators up to 360 mm in the top mount.',
+      'Accommodates GPUs up to 400 mm.',
+    ];
+    for (const span of SPEC) {
+      eq(`${label}: spanShowsFirstHand false for spec restatement (${JSON.stringify(span)})`, spanShowsFirstHand(span), false);
+      eq(`${label}: applyStanceBackstops → neutral for spec restatement (${JSON.stringify(span)})`, backstop(span), 'neutral');
+    }
+    const FIRST_HAND = [
+      'We used it for 3 weeks of commuting.',
+      'The battery lasted 31 hours in our rundown test.',
+      'Installed a 360 mm radiator in the top mount without trouble.',
+    ];
+    for (const span of FIRST_HAND) {
+      eq(`${label}: spanShowsFirstHand true for observation (${JSON.stringify(span)})`, spanShowsFirstHand(span), true);
+      eq(`${label}: applyStanceBackstops keeps support for observation (${JSON.stringify(span)})`, backstop(span), 'support');
+    }
+  });
 }
 

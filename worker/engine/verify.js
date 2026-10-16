@@ -524,10 +524,10 @@ const SPAN_FIRST_PERSON = /\b(?:i|we|my|our|me)\b/i;
 const SPAN_OBSERVATION = [
   /\b(?:tested|testing|tests|measured|measuring|measurements?|clocked|lasted|survived|scored|scoring|hit|covered|recorded|benchmarked|benchmarks?|averaged|peaked|reached|achieved|delivered|attenuates?|attenuated|isolated|weighed)\b/i,
   /\b(?:ran\s+for|took\s+\d|held\s+(?:up|\d)|stayed\s+(?:below|under|around|cool|quiet|stable)|dropped\s+to|picked\s+up|finished\s+in|operated\s+at|pulled\s+\d|drew\s+\d|consumed\s+\d)\b/i,
-  /\b(?:fits?|fitted|accommodates?|accommodated|housed|mounted|installed|installation|handled|performed)\b/i,
+  /\b(?:fitted|accommodated|mounted|installed|handled|performed)\b/i,
   /\b(?:in\s+(?:use|practice|testing|the\s+lab|the\s+test|daily\s+use|real[- ]world)|real[- ]world|hands[- ]on|out\s+of\s+the\s+box|on\s+the\s+(?:scale|test\s+bench|desk|ear|head|wrist|road|trail)|during\s+(?:testing|use|playback|charging|calls|gaming|printing|cooking|cleaning|commutes?|flights?|workouts?)|under\s+(?:load|stress|heavy\s+use))\b/i,
   /\b(?:with\s+room\s+to\s+spare|plenty\s+of\s+(?:room|clearance|space)|easily\s+(?:fits?|handles?|holds?|clears?|accommodates?)|feels?\s+(?:solid|sturdy|comfortable|lightweight|cheap|flimsy|premium|snug|secure)|sounds?\s+(?:clean|clear|balanced|warm|punchy|bright|muddy)|runs?\s+(?:quiet|quietly|cool|hot|warm|smoothly)|works?\s+(?:well|flawlessly|reliably|seamlessly)|pair(?:ed|s|ing)\s+(?:cleanly|quickly|easily|seamlessly)|snap(?:s|ped)?\s+(?:cleanly|into\s+place)|tool[- ]less)\b/i,
-  /\b(?:over|across|after|for)\s+(?:\d+|a|one|two|three|four|five|six|several|a\s+few)\s+(?:hour|hours|day|days|week|weeks|month|months|year|years)\b/i,
+  /\b(?:over|across|after|for)\s+(?:\d+|a|one|two|three|four|five|six|several|a\s+few)\s+(?:day|days|week|weeks|month|months|year|years)\b/i,
   /\[buyer\s+review\]|\bverified\s+purchase\b/i,
 ];
 // Second-hand reports ("According to RTINGS", "SoundGuys measured") quote
