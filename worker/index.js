@@ -39,7 +39,7 @@ import { notFound, redirect301, maybe304, withSecurityHeaders, htmlPageResponse,
 import { handleResearchPage, handleBestHub, handleNewResearch, handleSearchSuggest } from './routes/pages.js';
 import { renderFrankPage } from './pages/frank-egg.js';
 import { deadUrlResponse } from './lib/dead-urls.js';
-import { isRetiredResearchSlug, retiredReportResponse } from './lib/retired.js';
+import { isRetiredResearchSlug, retiredReportResponse, getRetiredVerification, retiredVerificationResponse } from './lib/retired.js';
 import { processResearchMessage, processVerificationMessage, runScheduledTick } from './jobs.js';
 
 // Dev-only HTTP Basic Auth wall. Active ONLY when BOTH DEV_AUTH_USER and
@@ -363,6 +363,9 @@ export default {
                 }
                 const verifySlugMatch = path.match(/^\/verify\/([a-z0-9-]+)$/);
                 if (verifySlugMatch) {
+                    // Retired verification reports answer 410 before rendering.
+                    const retired = await getRetiredVerification(env.DB, verifySlugMatch[1]);
+                    if (retired) return retiredVerificationResponse(request, retired.query);
                     const result = await renderVerifyResultPage(verifySlugMatch[1], env);
                     if (!result) return notFound();
                     return htmlPageResponse(result.html, env, { cacheControl: 'no-store', request });

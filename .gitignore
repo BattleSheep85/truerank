@@ -37,3 +37,6 @@ benchmarks/results/*.log
 
 # Local benchmark run logs
 logs/
+
+# Production D1 row backups (real data, never commit)
+backups/
