@@ -390,8 +390,9 @@ export function runVerdictTests() {
     const support = [
       { url: 'https://one.example.com', tags: ['hands-on'] },
       { url: 'https://www.one.example.com/other-page', tags: ['hands-on'] }, // same host as above (www stripped)
-      { url: 'https://two.example.com', tags: ['hands-on'] },
-      { url: 'https://sponsored.example.com', tags: ['hands-on', 'sponsored-content'] },
+      { url: 'https://two.example.org', tags: ['hands-on'] }, // CP-777: same site as example.com
+      { url: 'https://another.test', tags: ['hands-on'] },
+      { url: 'https://sponsored.example.net', tags: ['hands-on', 'sponsored-content'] },
       { url: 'not-a-valid-url', tags: ['hands-on'] },
     ];
     const weighAllStrong = () => 1.0; // every item clears the 0.25 threshold
@@ -399,6 +400,16 @@ export function runVerdictTests() {
       'independentCorroborators: dedupes hosts, excludes disqualified tags, skips invalid URLs',
       independentCorroborators(support, weighAllStrong),
       2,
+    );
+    // CP-777: blogs on shared hosts are separate authors, not one site.
+    eq(
+      'CP-777 independentCorroborators: two blogspot.com blogs are two sites',
+      independentCorroborators([
+        { url: 'https://alice.blogspot.com/review', tags: ['hands-on'] },
+        { url: 'https://bob.blogspot.com/review', tags: ['hands-on'] },
+        { url: 'https://carol.substack.com/p/review', tags: ['hands-on'] },
+      ], weighAllStrong),
+      3,
     );
 
     const weighAllWeak = () => 0.1; // below CORROBORATOR_MIN_WEIGHT
@@ -567,6 +578,73 @@ export function runVerdictTests() {
       expertContra('https://www.tomsguide.com/x'),
     ], opts);
     eq('CP-723 control: two higher-weight expert contradictions still contradict', expertVsLab.status, 'contradicted');
+  }
+
+
+  // CP-777 regressions: one site counts once (repeat-run score spread).
+  {
+    const EPS = 1e-9;
+    const opts = { policy: 'verification' };
+    const page = (url, stance, tags = ['hands-on']) => ({ url, stance, credibility: 75, independence: 60, tags });
+    const chuckClaim = { id: 'c1', type: 'spec', text: 'Metal 1/2-inch ratcheting chuck grips bits securely.' };
+
+    // 1. Four pages of one blog with one sentence cannot outvote another site.
+    const oneBlog = verdictForClaim(chuckClaim, [
+      page('https://reviewdatacheck.com/dewalt-review.html', 'support'),
+      page('https://laziman.com/blog/best-cordless-drill-2026', 'contradict'),
+      page('https://laziman.com/blog/best-cordless-screwdriver-2026', 'contradict'),
+      page('https://laziman.com/blog/dewalt-dcd791-review', 'contradict'),
+      page('https://laziman.com/blog/milwaukee-vs-dewalt-2026', 'contradict'),
+    ], opts);
+    ok('CP-777 one site: four laziman.com pages contradict with one page of weight', Math.abs(oneBlog.contradict - 0.6) < EPS);
+    ok('CP-777 one site: four pages of one blog cannot contradict a claim another site supports', oneBlog.status !== 'contradicted');
+    eq('CP-777 one site: every page stays listed as evidence', oneBlog.contradicting.length, 4);
+
+    // 2. Regional mirrors of one outlet (pcmag.com, au., me., uk.) are one site.
+    const fansClaim = { id: 'c2', type: 'spec', text: 'Includes two 140 mm Aspect PWM fans pre-installed' };
+    const mirrors = verdictForClaim(fansClaim, [
+      page('https://www.pcmag.com/reviews/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://au.pcmag.com/pc-cases/98039/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://me.pcmag.com/en/pc-cases/14135/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://uk.pcmag.com/pc-cases/1/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    ok('CP-777 mirrors: four pcmag mirrors add one page of support', Math.abs(mirrors.support - 0.6) < EPS);
+    eq('CP-777 mirrors: four pcmag mirrors are one independent corroborator', mirrors.independentCount, 1);
+    eq('CP-777 mirrors: one outlet alone cannot verify', mirrors.status, 'partially-verified');
+
+    // 3. A two-part regional suffix keeps outlets apart (pcmag.co.uk vs pcmag.com is one; techradar is another).
+    const twoSites = verdictForClaim(fansClaim, [
+      page('https://www.pcmag.co.uk/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.pcmag.com/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.techradar.com/x', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    ok('CP-777 sites: pcmag.co.uk + pcmag.com + techradar.com add two pages of support', Math.abs(twoSites.support - 1.2) < EPS);
+    eq('CP-777 sites: two outlets are two corroborators', twoSites.independentCount, 2);
+    eq('CP-777 sites: two outlets can verify', twoSites.status, 'verified');
+
+    // 4. The strongest page of a site is the one that counts.
+    const strongest = verdictForClaim(fansClaim, [
+      { url: 'https://kitguru.net/a', stance: 'support', credibility: 40, independence: 50, tags: [] },
+      { url: 'https://kitguru.net/b', stance: 'support', credibility: 90, independence: 90, tags: ['hands-on', 'expert-domain'] },
+    ], opts);
+    ok('CP-777 strongest page: the site adds its best page weight (0.9)', Math.abs(strongest.support - 0.9) < EPS);
+
+    // 5. Order does not change the result.
+    const reversed = verdictForClaim(chuckClaim, [
+      page('https://laziman.com/blog/milwaukee-vs-dewalt-2026', 'contradict'),
+      page('https://laziman.com/blog/dewalt-dcd791-review', 'contradict'),
+      page('https://reviewdatacheck.com/dewalt-review.html', 'support'),
+      page('https://laziman.com/blog/best-cordless-screwdriver-2026', 'contradict'),
+      page('https://laziman.com/blog/best-cordless-drill-2026', 'contradict'),
+    ], opts);
+    eq('CP-777 order: same verdict in any order', reversed, oneBlog);
+
+    // 6. Control: without the verification policy every page still adds up.
+    const legacy = verdictForClaim(chuckClaim, [
+      page('https://laziman.com/a', 'contradict'),
+      page('https://laziman.com/b', 'contradict'),
+    ]);
+    ok('CP-777 control: the default policy still sums every page', Math.abs(legacy.contradict - 0.9) < EPS);
   }
 
   return report;

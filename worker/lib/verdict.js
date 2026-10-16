@@ -171,31 +171,50 @@ const TWO_PART_PUBLIC_SUFFIXES = Object.freeze([
   'co.in', 'co.nz', 'com.sg', 'com.tr', 'co.za',
 ]);
 
+// Shared hosts where each subdomain is a different author (CP-777): a site
+// key there is the whole host, not the shared host's label.
+const SHARED_HOSTS = Object.freeze([
+  'blogspot.com', 'wordpress.com', 'substack.com', 'medium.com', 'tumblr.com',
+  'github.io', 'wixsite.com', 'weebly.com', 'netlify.app', 'vercel.app', 'pages.dev',
+]);
+
+function sharedHostOf(host) {
+  return SHARED_HOSTS.find((shared) => host.endsWith(`.${shared}`)) || null;
+}
+
 /**
- * Store label for a buyer-review URL, so regional storefronts of one retailer
+ * Store (or site) label for a URL, so regional storefronts of one retailer
  * group together: "www.amazon.co.uk" and "amazon.ca" both give "amazon",
- * "bestbuy.com" gives "bestbuy". Invalid or missing URL gives ''.
+ * "bestbuy.com" gives "bestbuy", "au.pcmag.com" gives "pcmag". A blog on a
+ * shared host keeps its whole host ("alice.blogspot.com"). Invalid or
+ * missing URL gives ''.
  */
 export function buyerStoreKeyOf(url) {
-  const labels = hostKeyOf(url).split('.').filter(Boolean);
+  const host = hostKeyOf(url);
+  if (sharedHostOf(host)) return host;
+  const labels = host.split('.').filter(Boolean);
   if (labels.length < 2) return labels[0] || '';
   const lastTwo = labels.slice(-2).join('.');
   const suffixLength = TWO_PART_PUBLIC_SUFFIXES.includes(lastTwo) ? 2 : 1;
   return labels[labels.length - suffixLength - 1] || labels[0];
 }
 
-/** Independence key: buyer reviews group by store, everything else by host. */
+/**
+ * Independence key: buyer reviews group by store, everything else by site
+ * (CP-777: the regional mirrors pcmag.com, au.pcmag.com and uk.pcmag.com are
+ * one outlet, so one site).
+ */
 function corroboratorKeyOf(item) {
-  if (!isBuyerReviewItem(item)) return hostKeyOf(item.url);
-  const store = buyerStoreKeyOf(item.url);
-  return store ? `buyer:${store}` : '';
+  const site = buyerStoreKeyOf(item.url);
+  if (!site) return '';
+  return isBuyerReviewItem(item) ? `buyer:${site}` : site;
 }
 
 /**
  * Counts DISTINCT hostnames among `supporting` items that qualify as genuine
  * independent corroborators: weigh(item) >= CORROBORATOR_MIN_WEIGHT AND none
- * of NON_INDEPENDENT_TAGS present in item.tags. Two pages on the same host
- * count once. Buyer-review items group by store (buyerStoreKeyOf), so
+ * of NON_INDEPENDENT_TAGS present in item.tags. Two pages on the same site
+ * count once, regional mirrors included (CP-777). Buyer-review items group by store (buyerStoreKeyOf), so
  * amazon.com, amazon.co.uk, and amazon.ca count once (CP-723).
  * Invalid/missing URLs are skipped (can't establish a distinct
  * host). Pure — does not mutate `supporting`.
@@ -259,23 +278,33 @@ export function hasHandsOnCorroborator(supporting, weigh = verificationWeight) {
   return false;
 }
 
-// Sums weights; with `capBuyerReviewsByStore`, all buyer reviews from one
-// store (buyerStoreKeyOf) add at most MAX_BUYER_REVIEW_HOST_WEIGHT.
-function sumCappedWeight(items, weigh, capBuyerReviewsByStore) {
+// Sums weights. With `groupBySite` (the verification policy), all buyer
+// reviews from one store (buyerStoreKeyOf) add at most
+// MAX_BUYER_REVIEW_HOST_WEIGHT, and every other site adds only its strongest
+// page (CP-777: four pages of one blog repeating one sentence, or four
+// regional mirrors of one review, are one vote, not four). A page without a
+// valid URL counts on its own.
+function sumCappedWeight(items, weigh, groupBySite) {
   const buyerHostTotals = new Map();
+  const siteBest = new Map();
   let total = 0;
   for (const ev of items) {
     const w = weigh(ev);
-    if (capBuyerReviewsByStore && isBuyerReviewItem(ev)) {
+    if (!groupBySite) {
+      total += w;
+    } else if (isBuyerReviewItem(ev)) {
       const host = buyerStoreKeyOf(ev.url) || '__buyer_review__';
       const used = buyerHostTotals.get(host) || 0;
       const allowed = Math.max(0, Math.min(w, MAX_BUYER_REVIEW_HOST_WEIGHT - used));
       buyerHostTotals.set(host, used + allowed);
       total += allowed;
     } else {
-      total += w;
+      const site = buyerStoreKeyOf(ev.url);
+      if (!site) total += w;
+      else siteBest.set(site, Math.max(siteBest.get(site) || 0, w));
     }
   }
+  for (const w of siteBest.values()) total += w;
   return total;
 }
 
