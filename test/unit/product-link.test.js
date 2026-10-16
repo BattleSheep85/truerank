@@ -253,6 +253,12 @@ export function runProductLinkUnitTests() {
   eq('CP-777 trimProductType: a type word inside the name stays', trimProductType('Bose QuietComfort Earbuds'), 'Bose QuietComfort Earbuds');
   eq('CP-777 trimProductType: a variant word is never trimmed', trimProductType('Antec C8 Wood'), 'Antec C8 Wood');
   eq('CP-777 trimProductType: spec words alone are not trimmed to one word', trimProductType('Anker 20V'), 'Anker 20V');
+  // A one-letter "unit" at the end is usually the model: 3S, 5s, 5c, 4a 5G.
+  for (const name of ['Logitech MX Master 3S', 'Apple iPhone 5s', 'Apple iPhone 5c', 'Google Pixel 4a 5G', 'DJI Mini 4K']) {
+    eq(`CP-777 trimProductType: a one-letter model suffix stays ("${name}")`, trimProductType(name), name);
+  }
+  eq('CP-777 trimProductType: a one-letter model suffix stays before a type word', trimProductType('Logitech MX Master 3S mouse'), 'Logitech MX Master 3S mouse');
+  eq('CP-777 trimProductType: a watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
   eq('CP-777 trimProductType: empty input gives ""', trimProductType('  '), '');
   eq('CP-777 trimProductType: non-string gives ""', trimProductType(null), '');
   eq('CP-777 distillProductName: short typed name drops the type word', distillProductName('Fractal Design North case'), 'Fractal Design North');

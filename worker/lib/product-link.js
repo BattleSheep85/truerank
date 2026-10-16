@@ -74,6 +74,10 @@ const PRODUCT_TYPE_TAILS = Object.freeze([
 ].map((phrase) => phrase.split(' ')));
 // trimProductType never leaves fewer words than this.
 const TYPE_TRIM_MIN_WORDS = 2;
+// A trailing number with a one-letter suffix is usually the model, not a spec
+// ("MX Master 3S", "iPhone 5c", "Pixel 4a 5G"). Volts and watts are the
+// exceptions ("DCD791 20V", "Nano 65W").
+const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
 
 const LINK_RE = /https?:\/\/\S+/i;
 const ALL_LINKS_RE = /https?:\/\/\S+/gi;
@@ -219,6 +223,12 @@ function typeTailLength(lower) {
   return tail ? tail.length : 0;
 }
 
+// True when the last word is a spec (128GB, 20V), not a model suffix (3S).
+function isTrailingSpec(lower) {
+  const last = lower.length - 1;
+  return isSlugSpecToken(lower, last) && !ONE_LETTER_SUFFIX_RE.test(lower[last]);
+}
+
 /**
  * The product name without trailing product-type words and trailing spec
  * words ("DeWalt DCD791 20V drill" -> "DeWalt DCD791", "Antec C8 PC case"
@@ -229,7 +239,7 @@ export function trimProductType(product) {
   const words = String(product ?? '').trim().split(/\s+/).filter(Boolean);
   let lower = words.map(lowerWord);
   for (;;) {
-    const cut = typeTailLength(lower) || (isSlugSpecToken(lower, lower.length - 1) ? 1 : 0);
+    const cut = typeTailLength(lower) || (isTrailingSpec(lower) ? 1 : 0);
     if (cut === 0 || lower.length - cut < TYPE_TRIM_MIN_WORDS) break;
     lower = lower.slice(0, -cut);
   }
