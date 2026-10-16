@@ -16,6 +16,7 @@ import {
   extractRetailerSpecText,
   extractBuyerReviews,
   harvestBuyerReviews,
+  readBuyerReviewPages,
   reviewTextHash,
   sanitizeReviewSnippet,
   buildClaimTextBlock,
@@ -409,6 +410,38 @@ export async function runVerifyResolveTests() {
   const redditComments = extractBuyerReviews(redditThread, { url: 'https://www.reddit.com/r/headphones/comments/123/sony_wh1000xm6/' });
   eq('extractBuyerReviews: extracts first-hand owner comment from Reddit thread', redditComments.length, 1);
   eq('extractBuyerReviews: tags Reddit comment kind as owner-comment', redditComments[0].kind, 'owner-comment');
+
+  // CP-778: the shared read of an Amazon claim page won (usable spec text) and
+  // the focused read with the buyer reviews was stopped, so the check had no
+  // buyer-review evidence. readBuyerReviewPages reads those pages again.
+  {
+    const product = 'Antec C8';
+    const amazonClaim = { url: 'https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH', title: 'Antec C8 Full-Tower E-ATX PC Case', content: 'Antec C8 spec text. '.repeat(80) };
+    const makerClaim = { url: 'https://www.antec.com/product/case/c8', title: 'Antec C8', content: 'Antec C8 spec text. '.repeat(80) };
+    const alreadyHasReviews = { url: 'https://www.newegg.com/antec-c8/p/N82E16811129306', title: 'Antec C8', content: 'spec\n[Buyer review] The Antec C8 fit my 360 mm radiator on top with room to spare.' };
+    const reviewText = 'spec\n# Customer reviews\n[Buyer review] Fits a 4090 with lots of room, cable routing behind the board is easy.\n[Buyer review] The Antec C8 panels pop off with no tools and the glass is thick.';
+    const asked = [];
+    const focusedRead = async (url) => {
+      asked.push(url);
+      return reviewText;
+    };
+    const pages = await readBuyerReviewPages([amazonClaim, makerClaim, alreadyHasReviews], product, { focusedRead });
+    eq('readBuyerReviewPages: reads only retailer claim pages without buyer reviews', asked, [amazonClaim.url]);
+    eq('readBuyerReviewPages: returns the read page with the focused text', pages.map((p) => [p.url, p.content]), [[amazonClaim.url, reviewText]]);
+    eq('readBuyerReviewPages: does not change the claim source', amazonClaim.content.startsWith('Antec C8 spec text.'), true);
+    const harvested = harvestBuyerReviews([amazonClaim, ...pages], product);
+    eq('readBuyerReviewPages: harvest finds the buyer reviews of the read page', harvested.map((h) => [h.source, h.reviewCount]), [['buyer-review', 2]]);
+
+    const none = await readBuyerReviewPages([amazonClaim], product, { focusedRead: async () => 'spec text without any reviews' });
+    eq('readBuyerReviewPages: a read without buyer reviews adds nothing', none, []);
+    const failed = await readBuyerReviewPages([amazonClaim], product, { focusedRead: async () => { throw new Error('boom'); } });
+    eq('readBuyerReviewPages: a failed read adds nothing and does not throw', failed, []);
+    const stopped = new AbortController();
+    stopped.abort();
+    const skipped = await readBuyerReviewPages([amazonClaim], product, { focusedRead, signal: stopped.signal });
+    eq('readBuyerReviewPages: a stopped run reads nothing', skipped, []);
+    eq('readBuyerReviewPages: bad input gives an empty list', await readBuyerReviewPages(null, product, { focusedRead }), []);
+  }
 
   // sanitizeReviewSnippet unit checks
   eq(

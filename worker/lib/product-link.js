@@ -61,6 +61,33 @@ const SLUG_DESCRIPTOR_WORDS = new Set([
   'with', 'for', 'and',
 ]);
 
+// Product-type words a buyer adds after the name ("Fractal Design North
+// case", "Ninja Creami ice cream maker"). They change the searches, so the
+// two names read different pages and check different claims (CP-777).
+// Longest first. Names where the type word is part of the product line
+// (Laptop, TV, Headphones, Earbuds, Watch, Speaker) are left out on purpose.
+const PRODUCT_TYPE_TAILS = Object.freeze([
+  'ice cream maker', 'espresso machine', 'coffee maker', 'vacuum cleaner',
+  'robot vacuum', 'stick vacuum', 'impact driver', 'drill driver', 'hammer drill',
+  'cordless drill', 'power supply', 'computer case', 'pc case', 'cell phone', 'air fryer',
+  'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires', 'vacuum', 'drill',
+].map((phrase) => phrase.split(' ')));
+// "case" after one of these is an accessory, not a PC case ("iPhone 16 case").
+const CASE_WORDS = Object.freeze(['case', 'chassis']);
+const DEVICE_WORDS = Object.freeze([
+  'iphone', 'ipad', 'airpods', 'galaxy', 'pixel', 'switch', 'kindle', 'macbook',
+  'airtag', 'gopro', 'steam', 'playstation', 'ps5', 'xbox', 'watch', 'phone', 'tablet', 'laptop',
+]);
+// "phone" leaves only after a model number ("Pixel 9 Pro phone"), so a line
+// name such as "Asus ROG Phone" keeps it.
+const PHONE_WORDS = Object.freeze(['phone', 'smartphone']);
+// trimProductType never leaves fewer words than this.
+const TYPE_TRIM_MIN_WORDS = 2;
+// A trailing number with a one-letter suffix is usually the model, not a spec
+// ("MX Master 3S", "iPhone 5c", "Pixel 4a 5G"). Volts and watts are the
+// exceptions ("DCD791 20V", "Nano 65W").
+const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
+
 const LINK_RE = /https?:\/\/\S+/i;
 const ALL_LINKS_RE = /https?:\/\/\S+/gi;
 const TRAILING_PUNCT_RE = /[.,;:!?)\]}>"']+$/;
@@ -161,7 +188,7 @@ function isSlugSpecToken(lower, i) {
 function distillSlugWords(words) {
   const capped = words.slice(0, SLUG_NAME_MAX_WORDS);
   if (words.length < SLUG_DISTILL_MIN_WORDS) return capped;
-  const lower = words.map((w) => w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ''));
+  const lower = words.map(lowerWord);
 
   // 1. Model number token in positions 1..4 (Brand + Series + Model [+ Variant]).
   for (let i = 1; i <= Math.min(4, words.length - 1); i += 1) {
@@ -194,15 +221,62 @@ function distillSlugWords(words) {
   return capped;
 }
 
+function lowerWord(word) {
+  return word.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+// Length of the longest PRODUCT_TYPE_TAILS phrase that ends `lower`, or 0.
+function typeTailLength(lower) {
+  const tail = PRODUCT_TYPE_TAILS.find((phrase) => phrase.length <= lower.length
+    && phrase.every((w, i) => lower[lower.length - phrase.length + i] === w));
+  if (!tail || !isGenericTail(tail, lower.slice(0, -tail.length))) return 0;
+  return tail.length;
+}
+
+// False when the tail word is part of what the product is: an accessory
+// case, or "Phone" in a line name.
+function isGenericTail(tail, rest) {
+  const word = tail.at(-1);
+  if (CASE_WORDS.includes(word) && tail.length === 1) {
+    return !rest.some((w) => DEVICE_WORDS.includes(w));
+  }
+  if (PHONE_WORDS.includes(word)) return rest.some((w) => DIGIT_RE.test(w));
+  return true;
+}
+
+// True when the last word is a spec (128GB, 20V), not a model suffix (3S).
+function isTrailingSpec(lower) {
+  const last = lower.length - 1;
+  return isSlugSpecToken(lower, last) && !ONE_LETTER_SUFFIX_RE.test(lower[last]);
+}
+
+/**
+ * The product name without trailing product-type words and trailing spec
+ * words ("DeWalt DCD791 20V drill" -> "DeWalt DCD791", "Antec C8 PC case"
+ * -> "Antec C8"), so "X" and "X case" search the same way (CP-777). Never
+ * leaves fewer than TYPE_TRIM_MIN_WORDS words: "OtterBox case" stays.
+ */
+export function trimProductType(product) {
+  const words = String(product ?? '').trim().split(/\s+/).filter(Boolean);
+  let lower = words.map(lowerWord);
+  for (;;) {
+    const cut = typeTailLength(lower) || (isTrailingSpec(lower) ? 1 : 0);
+    if (cut === 0 || lower.length - cut < TYPE_TRIM_MIN_WORDS) break;
+    lower = lower.slice(0, -cut);
+  }
+  return words.slice(0, lower.length).join(' ');
+}
+
 /**
  * Distills a 6+ word SEO product name or slug into concise Brand + Series +
- * Model + Variant words for search queries. Shorter names stay unchanged.
+ * Model + Variant words for search queries. Shorter names only lose trailing
+ * product-type and spec words (trimProductType).
  */
 export function distillProductName(product) {
   const raw = String(product ?? '').trim();
   if (!raw) return '';
   const words = raw.split(/\s+/).filter(Boolean);
-  if (words.length < SLUG_DISTILL_MIN_WORDS) return raw;
+  if (words.length < SLUG_DISTILL_MIN_WORDS) return trimProductType(raw);
   return distillSlugWords(words).join(' ');
 }
 

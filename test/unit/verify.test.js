@@ -490,6 +490,7 @@ export async function runVerifyTests() {
 
   // ── CP-723: stance data fence, buyer marker scope, url-less harvest source ──
   await runCp723Tests({ eq, ok, report });
+  await runCp779Tests({ eq, ok, report });
 
   return report;
 }
@@ -1639,6 +1640,9 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'Battery: playback for 30 hours with ANC on.',
       'Fits radiators up to 360 mm in the top mount.',
       'Accommodates GPUs up to 400 mm.',
+      'Tool-less drive bays',
+      'Toolless 3.5-inch drive trays.',
+      'Achieved IP68 certification',
     ];
     for (const span of SPEC) {
       eq(`${label}: spanShowsFirstHand false for spec restatement (${JSON.stringify(span)})`, spanShowsFirstHand(span), false);
@@ -1648,6 +1652,8 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'We used it for 3 weeks of commuting.',
       'The battery lasted 31 hours in our rundown test.',
       'Installed a 360 mm radiator in the top mount without trouble.',
+      'The tool-less drive bays snapped into place in seconds.',
+      'It achieved 41 dB of attenuation in our test.',
     ];
     for (const span of FIRST_HAND) {
       eq(`${label}: spanShowsFirstHand true for observation (${JSON.stringify(span)})`, spanShowsFirstHand(span), true);
@@ -1724,5 +1730,63 @@ async function runCp723Tests({ eq, ok, report }) {
     const harvested = resolveModule.harvestBuyerReviews([{ content: 'x' }, amzPage], 'Sony WH-1000XM6');
     eq(`${label}: a url-less first source does not stop the harvest`, harvested.length, 1);
     eq(`${label}: the amazon source is still harvested`, harvested[0]?.url, 'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews');
+  });
+}
+
+async function runCp779Tests({ eq, report }) {
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  await guarded('CP-779 near-spec measurement', () => {
+    const label = 'CP-779 near-spec measurement';
+    const claim = 'Up to 6 hours of listening time with Active Noise Cancellation enabled';
+    const item = (span) => ({ stance: 'contradict', span, tags: ['hands-on', 'expert-domain'], url: 'https://www.soundguys.com/apple-airpods-pro-2-review', title: 'AirPods Pro 2 review' });
+    eq(`${label}: 5 h 43 min vs "up to 6 hours" → neutral`,
+      applyStanceBackstops(item('In our battery test the AirPods Pro 2 lasted 5 hours, 43 minutes with ANC on.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: compact "5h 43m" → neutral`,
+      applyStanceBackstops(item('We measured 5h 43m of playback.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: 4 hours 10 minutes vs 6 hours stays contradict`,
+      applyStanceBackstops(item('In our battery test the AirPods Pro 2 lasted 4 hours, 10 minutes with ANC on.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: a rated figure next to a far-off measurement stays contradict`,
+      applyStanceBackstops(item('Apple says 6 hours, but we measured only 4 hours in our test.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: near value in another unit (mm vs hours) stays contradict`,
+      applyStanceBackstops(item('We measured 6 mm of driver travel and the battery died early.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: within 3% without "up to" → neutral`,
+      applyStanceBackstops({ ...item('We weighed it at 5.4 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: 8% off a non-"up to" claim stays contradict`,
+      applyStanceBackstops({ ...item('We weighed it at 5.75 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'contradict');
+    // QA (CP-779): the spec quoted back is not a measurement, so a verbal
+    // result next to it must keep the contradiction.
+    for (const span of [
+      'Apple claims up to 6 hours, but in our test it barely lasted half that.',
+      'Apple advertises 6 hours, yet ours died after about an hour.',
+      'Apple says 6 hours; our pair managed just three hours.',
+    ]) {
+      eq(`${label}: quoted spec with a verbal result stays contradict: ${JSON.stringify(span)}`,
+        applyStanceBackstops(item(span), claim, 'Apple AirPods Pro 2'), 'contradict');
+    }
+    eq(`${label}: quoted spec next to a near measurement → neutral`,
+      applyStanceBackstops(item('Apple says up to 6 hours, and we measured 5 hours, 43 minutes.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: support is never changed by the near-spec rule`,
+      applyStanceBackstops({ ...item('We measured 5h 43m of playback.'), stance: 'support' }, claim, 'Apple AirPods Pro 2'), 'support');
+  });
+
+  await guarded('CP-779 exact dimension sets are untestable', () => {
+    const label = 'CP-779 dimension set';
+    for (const text of [
+      'Each AirPods Pro 2 earbud measures 30.9 x 21.8 x 24.0 mm.',
+      'Charging case dimensions: 45.2 by 60.6 by 21.7 mm',
+      'Case dimensions are 1.78 × 2.39 × 0.85 inches',
+    ]) {
+      eq(`${label}: isTestableClaim drops ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), false);
+    }
+    for (const text of ['Each earbud weighs 5.3 g', 'Supports GPUs up to 440 mm long', 'Up to 6 hours of listening time']) {
+      eq(`${label}: isTestableClaim keeps ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), true);
+    }
+    eq(`${label}: extraction prompt bans exact dimension sets`, /exact dimension sets/i.test(String(verifyModule.CLAIM_EXTRACTION_SYSTEM)), true);
   });
 }
