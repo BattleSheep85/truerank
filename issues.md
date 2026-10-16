@@ -2,6 +2,32 @@
 
 Last updated: 2026-10-16
 
+## 2026-10-16: Stage 3 cross-model verification of the 200-buyer-review audit (CP-723)
+
+- [x] HIGH (Product, verify): buyer reviews could outvote a lab test. The contradict side had no buyer cap, and buyer reviews grouped by hostname, so amazon.com, amazon.co.uk and amazon.ca counted as three independent hosts. Hour and minute figures did not count as measured specs. Fixed in 5aefe0c: buyer reviews group by store on both sides (max 0.35 per store), a buyer-only contradiction cannot overturn a measured spec or beat hands-on support, and "50-hour" style claims count as measured. worker/lib/verdict.js.
+
+- [x] HIGH (Security, verify): the stance prompt did not fence evidence text as data (red-team #5), and "[Buyer review]" or "Verified Purchase" text counted as first-hand on any page. Fixed in 92fe350: evidence goes inside an <evidence_data> block with the tag neutralized in page text, and the buyer markers count only on buyer-review sources. worker/engine/verify.js.
+
+- [x] LOW (Reliability, verify): harvestBuyerReviews stopped at the first source with no URL. Fixed in 92fe350 (skips it instead). worker/engine/verify-resolve.js.
+
+- [x] HIGH (Product, verify): the probe screen rejected the Antec C8 Amazon link in production. CP-720 distills the link to "Antec C8", and rule 7 of isProbeQuery needed two words of 3+ characters. Fixed in b4aab10: a token with a letter and a digit (C8, A7) counts as a word. worker/lib/safety.js.
+
+- [ ] HIGH (Product, verify): repeat-run score spread is still above the 15-point target. Live pairs on 2026-10-16: Fractal Design North 50 vs 0, DeWalt DCD791 64 vs 25, Galaxy S25 Ultra 73 vs 41, Dyson V15 Detect 38 vs 63, Pixel 9 Pro 38 vs 25, CrossClimate 2 43 vs 50, Ninja Creami 41 vs 50 (3 of 7 within 15). worker/engine/verify.js, worker/engine/verify-resolve.js.
+
+- [ ] HIGH (Product, verify): Antec C8 still ends at "Not enough independent evidence" (link and name runs, 0 and 1 of 8 claims corroborated), although the 8 extracted spec claims are now real (GPU 440 mm, cooler 175 mm, 360 mm radiators). No Amazon buyer-review source appears in the report, and TechPowerUp is scored cred 50. Named runs of other products also show no buyer-review evidence. "Not enough independent evidence" rate: 4 of 27 fresh runs (15%), target 10%. worker/engine/verify-resolve.js, worker/lib/credibility.js.
+
+- [ ] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js.
+
+- [ ] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js.
+
+- [ ] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js.
+
+- [ ] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js.
+
+- [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
+
+- [ ] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js.
+
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 
 - [x] HIGH (Product, verify): `CLAIM_EXTRACTION_SYSTEM` and `isTestableClaim` let catalog/SKU/part/model/Costco item numbers, `Renewed`/`Unlocked` condition trivia, tire size/load index codes, FSC cert codes, and `testing was conducted...` footnotes through; `spanShowsFirstHand` stripped third-person expert review findings and verified buyer-review observations; `qualifyingVerdict` in `worker/pages/home.js` did not filter claims with `isTestableClaim`; and 29 old `kind = 'verification'` rows in production D1 were either `NO_SCORE` or hollowed out. Fixed in 7dae75a: `CLAIM_EXTRACTION_SYSTEM` and `MAX_EXTRACTED_CLAIMS = 8` target 5 to 8 distinct buyer-relevant testable claims; `isTestableClaim` drops catalog/SKU/condition/tire-size/FSC/test-footnote trivia; `verdictForClaim` enforces Red-Team #2 (`isMeasuredSpecClaim` / `hasHandsOnCorroborator`: buyer-review-only evidence caps numeric/measured `spec` claims at `partially-verified`, while observable physical/fit/experience claims can reach `verified` with independent buyer + community/expert corroboration); `spanShowsFirstHand` and `applyStanceBackstops` accept third-person review findings and buyer-review observations while checking both `support` and `contradict` against off-model (`spanNamesOtherModel`), echoed (`isMarketingEcho`), second-hand (`SPAN_SECOND_HAND`), empty, and `ai-injection` spans; `extractClaims` and `classifyStance` pass `temperature: 0`; `qualifyingVerdict` in `worker/pages/home.js` filters claims with `isTestableClaim`; and the 29 broken/hollowed-out `kind = 'verification'` rows in production D1 were backed up and retired (`retired_at = 1792144498`) with KV page-cache purged (Red-Team #6). worker/engine/verify.js, worker/lib/verdict.js, worker/pages/home.js.
