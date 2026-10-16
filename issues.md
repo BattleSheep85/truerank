@@ -1,6 +1,10 @@
 # Issues
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
+
+## 2026-10-16: noisy retail slugs and sibling-model key collisions in verify (CP-720)
+
+- [x] HIGH (Product, verify): `productKeys()` glued any `<= 5`-char word after a model number (`Antec C8 Dual Chamber...` -> `c8dual`), so independent reviews titled `Antec C8 Review` failed `namesProduct`/`aboutProduct`, and 6-to-10-word retail URL slugs sent noisy 10-word search queries. Fixed in 9cf1acd: `productKeys()` uses an explicit `MODEL_VARIANT_WORDS` allowlist (`ultra`, `pro`, `plus`, `max`, `wood`, `nc`, `combo`, etc.) for pre- and post-number variants, `namesProduct`/`namesOtherModel` keep base and sibling models apart across categories, and `parseProductInput`/`distillProductName` distill 6+ word retail SEO slugs into `Brand + Series + Model + Variant` while keeping reuse keys deterministic. worker/lib/product-link.js, worker/engine/verify-resolve.js, worker/engine/verify.js.
 
 ## 2026-10-15: product images do not resolve (CP-709)
 
