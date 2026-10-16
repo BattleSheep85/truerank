@@ -16,7 +16,9 @@ Last updated: 2026-10-16
 
 - [ ] HIGH (Product, verify): Antec C8 still ends at "Not enough independent evidence" (link and name runs, 0 and 1 of 8 claims corroborated), although the 8 extracted spec claims are now real (GPU 440 mm, cooler 175 mm, 360 mm radiators). No Amazon buyer-review source appears in the report, and TechPowerUp is scored cred 50. Named runs of other products also show no buyer-review evidence. "Not enough independent evidence" rate: 4 of 27 fresh runs (15%), target 10%. worker/engine/verify-resolve.js, worker/lib/credibility.js.
 
-- [ ] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js.
+- [x] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js. Fixed in d74b046 (CP-779): a contradiction whose figures sit within 3% of the claim, or within 10% below an "up to" claim, becomes neutral (worker/lib/quantity.js); "we tested" on a host with no domain prior earns +10, not +25 (score 60, below an expert outlet's plain 65); exact H x W x D dimension sets are banned in the extraction prompt and dropped by isTestableClaim. Existing reports keep their old scores until they run again.
+
+- [ ] LOW (Product, verify): the "5G" in a phone claim parses as 5 grams in worker/lib/quantity.js. It can only turn a contradiction to neutral when both sides say "5G", so the effect is small.
 
 - [ ] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js.
 
