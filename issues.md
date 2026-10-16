@@ -18,7 +18,7 @@ Last updated: 2026-10-16
 
 - [ ] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js.
 
-- [ ] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js.
+- [x] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js. Fixed (CP-780): the bare "achieved" and "tool-less" words are gone from `SPAN_OBSERVATION`. Spans that pair them with test or use language ("achieved 41 dB in our test", "snapped into place") still count. A regression test covers both defects.
 
 - [ ] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js.
 
