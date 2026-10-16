@@ -456,5 +456,56 @@ export function runVerdictTests() {
     eq('verdictForClaim: single-host buyer reviews can only reach partially-verified, never verified', vSingleHost.status, 'partially-verified');
   }
 
+  // ── Red-Team #2: buyer reviews cannot verify measured lab specs, CAN corroborate observable fit/feature claims ──
+  {
+    const { isMeasuredSpecClaim, hasHandsOnCorroborator } = verdictLib;
+
+    ok('isMeasuredSpecClaim: numeric dBA/noise spec is measured', isMeasuredSpecClaim({ type: 'spec', text: 'Runs at 24 dBA noise floor' }));
+    ok('isMeasuredSpecClaim: numeric wattage/power spec is measured', isMeasuredSpecClaim({ type: 'spec', text: 'Delivers 850W continuous power at 92% efficiency' }));
+    ok('isMeasuredSpecClaim: numeric battery life is measured', isMeasuredSpecClaim({ type: 'spec', text: 'Up to 30 hours of battery life with ANC on' }));
+    ok('isMeasuredSpecClaim: numeric response time is measured', isMeasuredSpecClaim({ type: 'spec', text: '0.03 ms GtG response time at 240 Hz' }));
+    eq('isMeasuredSpecClaim: radiator fit dimension is observable physical fit, not lab spec', isMeasuredSpecClaim({ type: 'spec', text: 'Fits a 360 mm radiator in the top mount' }), false);
+    eq('isMeasuredSpecClaim: GPU clearance is observable physical fit, not lab spec', isMeasuredSpecClaim({ type: 'spec', text: 'Supports GPUs up to 400 mm in length' }), false);
+    eq('isMeasuredSpecClaim: dishwasher-safe is observable, not lab spec', isMeasuredSpecClaim({ type: 'spec', text: 'Removable basket is dishwasher-safe' }), false);
+    eq('isMeasuredSpecClaim: dual-chamber layout is observable, not lab spec', isMeasuredSpecClaim({ type: 'spec', text: 'Dual-chamber layout separates PSU and cables' }), false);
+
+    // Three distinct retailer buyer-review hosts + one Reddit community thread
+    // (total support >= 1.0, independentCount >= 2, but ZERO non-buyer-review hands-on/expert sources)
+    const threeRetailerBuyerReviews = [
+      { url: 'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews', stance: 'support', credibility: 85, independence: 90, tags: ['community', 'buyer-review', 'hands-on'] },
+      { url: 'https://www.bestbuy.com/site/p/6500000#buyer-reviews', stance: 'support', credibility: 85, independence: 90, tags: ['community', 'buyer-review', 'hands-on'] },
+      { url: 'https://www.bhphotovideo.com/c/product/123#buyer-reviews', stance: 'support', credibility: 85, independence: 90, tags: ['community', 'buyer-review', 'hands-on'] },
+    ];
+    eq('hasHandsOnCorroborator: buyer-review-only sources do not count as lab hands-on corroborator', hasHandsOnCorroborator(threeRetailerBuyerReviews, verificationWeight), false);
+
+    // Numeric measured spec claim with ONLY buyer reviews across 3 hosts (support = 1.05 >= 1.0, independentCount = 3)
+    // MUST cap at partially-verified because no independent hands-on/expert test source corroborated the measurement.
+    const measuredNoiseClaim = { id: 'c1', text: 'Operates at 22.5 dBA under full load', type: 'spec' };
+    const measuredBuyerOnly = verdictForClaim(measuredNoiseClaim, threeRetailerBuyerReviews, { policy: 'verification' });
+    ok('Red-Team #2: 3 retailer buyer-review hosts reach support >= 1.0', measuredBuyerOnly.support >= 1.0);
+    eq('Red-Team #2: measured lab spec with only buyer reviews caps at partially-verified', measuredBuyerOnly.status, 'partially-verified');
+
+    // Adding an independent hands-on/expert-domain test source unlocks verified for the measured spec claim.
+    const expertLabSource = {
+      url: 'https://www.techpowerup.com/review/product-x/',
+      stance: 'support',
+      credibility: 90,
+      independence: 80,
+      tags: ['hands-on', 'expert-domain'],
+    };
+    const measuredWithExpert = verdictForClaim(
+      measuredNoiseClaim,
+      [expertLabSource, threeRetailerBuyerReviews[0]],
+      { policy: 'verification' },
+    );
+    eq('Red-Team #2: measured lab spec with expert hands-on + buyer review reaches verified', measuredWithExpert.status, 'verified');
+
+    // Observable physical/fit claim ("Fits a 360 mm radiator in the top mount") CAN reach verified
+    // when corroborated by buyer reviews + community/expert sources totaling >= 1.0 across >= 2 hosts.
+    const observableFitClaim = { id: 'c2', text: 'Fits a 360 mm radiator in the top mount', type: 'spec' };
+    const observableVerdict = verdictForClaim(observableFitClaim, threeRetailerBuyerReviews, { policy: 'verification' });
+    eq('Red-Team #2: observable physical/fit claim can reach verified from independent buyer/community corroboration', observableVerdict.status, 'verified');
+  }
+
   return report;
 }

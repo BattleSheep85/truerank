@@ -12,6 +12,7 @@
 import { escapeHtml, displayQuery, timeAgo, parseJsonSafe } from '../lib/utils.js';
 import { listableRowsSql } from '../lib/listable.js';
 import { overallVerdict } from '../lib/verdict.js';
+import { isTestableClaim } from '../engine/verify.js';
 import { notFound, withSecurityHeaders, injectHtml } from '../lib/http-response.js';
 
 const RECENT_HOME_LIMIT = 6;
@@ -55,10 +56,13 @@ ${r.category ? `<div class="card-top"><span class="card-badge">${escapeHtml(r.ca
 }
 
 // Gives the verdict for a verification row, or null when the row does not
-// qualify. Malformed result JSON gives null.
-function qualifyingVerdict(row) {
-  const claims = parseJsonSafe(row.result, null)?.claims;
-  if (!Array.isArray(claims) || claims.length < MIN_VERDICT_CLAIMS) return null;
+// qualify. Malformed result JSON gives null. Filters out untestable store,
+// SKU, and condition trivia so homepage cards match /verify/:slug pages.
+export function qualifyingVerdict(row) {
+  const rawClaims = parseJsonSafe(row.result, null)?.claims;
+  if (!Array.isArray(rawClaims)) return null;
+  const claims = rawClaims.filter(isTestableClaim);
+  if (claims.length < MIN_VERDICT_CLAIMS) return null;
   const verdict = overallVerdict(claims);
   return typeof verdict.score === 'number' ? { row, verdict } : null;
 }

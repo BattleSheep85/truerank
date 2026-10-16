@@ -109,4 +109,35 @@ describe('recentVerdictsSection (piece 12)', () => {
     const html = await section(env, 3);
     expect(verifyHrefs(html)).toEqual(['verify-limit-0', 'verify-limit-1', 'verify-limit-2']);
   });
+
+  it('filters out untestable store/SKU/warranty claims via isTestableClaim so homepage cards match report pages', async () => {
+    // Row with 2 testable claims + 3 untestable store/SKU/warranty claims -> only 2 testable (< MIN_VERDICT_CLAIMS=3), must NOT qualify!
+    const hollowedOutClaims = [
+      { text: 'Offers 30 hours of battery life', status: 'verified', claimType: 'spec' },
+      { text: 'IPX4 water resistance rating', status: 'verified', claimType: 'spec' },
+      { text: 'Sold by third-party seller Electronics Club on Amazon', status: 'verified', claimType: 'spec' },
+      { text: 'Manufacturer part number is 4Y9DY and order code is 210-BFSC', status: 'verified', claimType: 'spec' },
+      { text: '1-year limited warranty coverage', status: 'verified', claimType: 'warranty' },
+    ];
+    await seedVerdict({ slug: 'verify-hollowed-out', result: JSON.stringify({ claims: hollowedOutClaims }), ageSec: 10 });
+
+    // Row with 3 testable claims + 2 untestable claims -> qualifies with claimCount = 3 (not 5)
+    const mixedQualifyingClaims = [
+      { text: 'Offers 30 hours of battery life', status: 'verified', claimType: 'spec' },
+      { text: 'IPX4 water resistance rating', status: 'verified', claimType: 'spec' },
+      { text: 'Multipoint Bluetooth 5.3 connection', status: 'partially-verified', claimType: 'spec' },
+      { text: 'Priced at $459.99 MSRP', status: 'contradicted', claimType: 'spec' },
+      { text: 'Costco item 1603480', status: 'contradicted', claimType: 'spec' },
+    ];
+    await seedVerdict({ slug: 'verify-mixed-clean', result: JSON.stringify({ claims: mixedQualifyingClaims }), ageSec: 20 });
+    await seedVerdict({ slug: 'verify-clean-b', result: JSON.stringify({ claims: QUALIFYING_CLAIMS }), ageSec: 60 });
+    await seedVerdict({ slug: 'verify-clean-c', result: JSON.stringify({ claims: QUALIFYING_CLAIMS }), ageSec: 120 });
+
+    const html = await section(env);
+    expect(verifyHrefs(html)).toEqual(['verify-mixed-clean', 'verify-clean-b', 'verify-clean-c']);
+    expect(html).not.toContain('verify-hollowed-out');
+    // verify-mixed-clean card shows "3 of 3 claims checked", not "5 of 5 claims checked"
+    expect(html).toContain('3 of 3 claims checked');
+    expect(html).not.toContain('5 of 5 claims checked');
+  });
 });

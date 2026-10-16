@@ -485,6 +485,9 @@ export async function runVerifyTests() {
   // ── Stage 2b: buyer-review evidencePool, multi-review passage packing, STANCE_SYSTEM ──
   await runBuyerReviewVerifyTests({ eq, ok, report });
 
+  // ── Stage 2c: buyer-relevant claims (5-8), third-person/buyer-review spans, contradict backstops ──
+  await runStage2cVerifyTests({ eq, ok, report });
+
   return report;
 }
 
@@ -1465,6 +1468,164 @@ async function runBuyerReviewVerifyTests({ eq, ok, report }) {
       `${label}: scored buyer-review item carries buyer-review tag and excludes Vine review`,
       scored[1].tags.includes('buyer-review') && !scored[1].content.includes('Best headphones ever made'),
     );
+  });
+}
+
+async function runStage2cVerifyTests({ eq, ok, report }) {
+  const label = 'stage 2c buyer-relevant claims & stance backstops';
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${label}: ${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  await guarded('MAX_EXTRACTED_CLAIMS is 8 and CLAIM_EXTRACTION_SYSTEM targets 5 to 8 claims', async () => {
+    eq(`${label}: exports MAX_EXTRACTED_CLAIMS = 8`, verifyModule.MAX_EXTRACTED_CLAIMS, 8);
+    ok(
+      `${label}: CLAIM_EXTRACTION_SYSTEM specifies 5 to 8 buyer-relevant claims`,
+      /5 to 8 distinct, buyer-relevant/i.test(verifyModule.CLAIM_EXTRACTION_SYSTEM),
+    );
+
+    const tenClaims = Array.from({ length: 10 }, (_, i) => ({
+      text: `Offers ${10 + i} hours of battery playback in mode ${i + 1}.`,
+      type: 'spec',
+    }));
+    const seen = {};
+    const out = await verifyModule.extractClaims({
+      product: 'Sony WH-1000XM6',
+      claimText: 'spec page',
+      apiKey: 'k',
+      model: 'm',
+      callLLM: async (_k, _m, _msgs, opts) => {
+        seen.opts = opts;
+        return fakeReply(JSON.stringify({ claims: tenClaims }));
+      },
+    });
+    eq(`${label}: extractClaims caps output at MAX_EXTRACTED_CLAIMS (8)`, out.claims.length, 8);
+    eq(`${label}: extractClaims passes temperature: 0`, seen.opts?.temperature, 0);
+  });
+
+  await guarded('isTestableClaim drops catalog/SKU/condition/tire-size/FSC/test-footnote trivia', () => {
+    const TRIVIA = [
+      'Manufacturer part number is 4Y9DY and Dell order code is 210-BFSC.',
+      'Costco item 1603480 in Electronics.',
+      'Listing is for an Amazon Renewed / Refurbished unit.',
+      'Sold as Factory Unlocked for all GSM carriers.',
+      'Tire size is 195/65R15 with a 91T load/speed rating.',
+      'Packaging carries FSC-N003743 certification code.',
+      'Testing was conducted by Apple in August 2026 using preproduction units.',
+      'Based on internal testing at 25°C under standard laboratory conditions.',
+    ];
+    for (const text of TRIVIA) {
+      eq(`${label}: isTestableClaim drops trivia (${JSON.stringify(text)})`, verifyModule.isTestableClaim(text), false);
+    }
+  });
+
+  await guarded('spanShowsFirstHand recognizes third-person expert findings and buyer reviews while blocking echoes', () => {
+    const THIRD_PERSON_AND_BUYER_SPANS = [
+      'The Seasonic Vertex GX-850 achieved 92.4% efficiency at 50% load on our Chroma test bench.',
+      'The Lian Li O11 Vision Compact easily fits a 360 mm radiator in the side mount with plenty of clearance.',
+      'Noise output stayed under 24.5 dBA during sustained gaming loads.',
+      '[Buyer review] Installed a 360 mm AIO radiator and a 4080 Super without any cable clearance issues.',
+      'Verified Purchase: The removable basket is dishwasher-safe and cleans up without warping.',
+    ];
+    for (const span of THIRD_PERSON_AND_BUYER_SPANS) {
+      eq(`${label}: spanShowsFirstHand accepts genuine finding (${JSON.stringify(span)})`, verifyModule.spanShowsFirstHand(span), true);
+    }
+
+    // Echoed spec sheet without observation still fails applyStanceBackstops
+    eq(
+      `${label}: verbatim spec echo is downgraded to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'support', span: '850W 80 PLUS Gold Fully Modular ATX 3.0 Power Supply', tags: ['hands-on', 'expert-domain'] },
+        '850W 80 PLUS Gold Fully Modular ATX 3.0 Power Supply',
+      ),
+      'neutral',
+    );
+  });
+
+  await guarded('applyStanceBackstops & buildClaimEvidence check contradict rows for off-model, echo, and empty span (issues.md line 44)', () => {
+    // Contradict citing predecessor model (WH-1000XM5) on a WH-1000XM6 claim -> neutral
+    eq(
+      `${label}: contradict citing predecessor XM5 on WH-1000XM6 claim downgrades to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'contradict', span: 'In our test the WH-1000XM5 lasted only 24 hours with ANC on.', tags: ['hands-on'] },
+        'Up to 30 hours of battery life',
+        'Sony WH-1000XM6',
+      ),
+      'neutral',
+    );
+
+    // Support citing predecessor model (WH-1000XM5) on a WH-1000XM6 claim -> neutral
+    eq(
+      `${label}: support citing predecessor XM5 on WH-1000XM6 claim downgrades to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'support', span: 'We measured 30.5 hours on the WH-1000XM5 in our battery test.', tags: ['hands-on'] },
+        'Up to 30 hours of battery life',
+        'Sony WH-1000XM6',
+      ),
+      'neutral',
+    );
+
+    // Contradict naming BOTH models in a comparison ("WH-1000XM6 lasted 21 hours, worse than WH-1000XM5") stays contradict
+    eq(
+      `${label}: contradict naming target WH-1000XM6 alongside XM5 stays contradict`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'contradict', span: 'We measured only 21 hours on the WH-1000XM6, down from 27 hours on the WH-1000XM5.', tags: ['hands-on'] },
+        'Up to 30 hours of battery life',
+        'Sony WH-1000XM6',
+      ),
+      'contradict',
+    );
+
+    // Contradict with verbatim marketing echo (no test language) -> neutral
+    eq(
+      `${label}: contradict with verbatim marketing echo downgrades to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'contradict', span: 'Up to 30 hours of battery life', tags: ['hands-on'] },
+        'Up to 30 hours of battery life',
+        'Sony WH-1000XM6',
+      ),
+      'neutral',
+    );
+
+    // Contradict with empty span -> neutral
+    eq(
+      `${label}: contradict with empty span downgrades to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'contradict', span: '', tags: ['hands-on'] },
+        'Up to 30 hours of battery life',
+        'Sony WH-1000XM6',
+      ),
+      'neutral',
+    );
+
+    // buildClaimEvidence passes product through to applyStanceBackstops
+    const claim = { id: 'c1', text: 'Up to 30 hours of battery life', type: 'spec' };
+    const scored = [
+      { url: 'https://rtings.com/review', title: 'Review', content: '...', credibility: 90, independence: 80, tags: ['hands-on'] },
+    ];
+    const rows = [
+      { url: 'https://rtings.com/review', stance: 'contradict', span: 'The WH-1000XM5 lasted 24 hours in our test.' },
+    ];
+    const built = verifyModule.buildClaimEvidence(claim, scored, rows, 'Sony WH-1000XM6');
+    eq(`${label}: buildClaimEvidence downgrades off-model contradict row to neutral`, built[0]?.stance, 'neutral');
+  });
+
+  await guarded('classifyStance passes temperature: 0 explicitly', async () => {
+    const seen = {};
+    await verifyModule.classifyStance({
+      claim: { id: 'c1', text: 'Up to 30 hours of battery life', type: 'spec' },
+      evidence: [{ url: 'https://a.com', content: 'battery 30 hours', tags: [] }],
+      apiKey: 'k',
+      model: 'm',
+      callLLM: async (_k, _m, _msgs, opts) => {
+        seen.opts = opts;
+        return fakeReply(JSON.stringify({ verdicts: [] }));
+      },
+    });
+    eq(`${label}: classifyStance passes temperature: 0`, seen.opts?.temperature, 0);
   });
 }
 

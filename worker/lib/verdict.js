@@ -185,6 +185,51 @@ export function independentCorroborators(supporting, weigh) {
   return hosts.size;
 }
 
+// Lab-measured units or ratings that always require at least one hands-on
+// or expert test source among the independent corroborators to reach
+// 'verified' (Red-Team #2).
+const MEASURED_SPEC_UNIT_RE = /\b(?:\d+(?:\.\d+)?\s*(?:db|dba|watts?|w\b|kw\b|mah|wh\b|ah\b|v\b|volts?|a\b|amps?|hz|khz|mhz|ghz|rpm|aw\b|air\s*watts?|pa\b|kpa\b|cfm|dpi|cpi|ips\b|nits?|cd\/m2|lumens?|lux|ohms?|Ω|fps|ms\b|mb\/s|gb\/s|gbps|mbps|g\b|grams?|kg\b|lbs?\b|oz\b|°[cf]|%\s*(?:srgb|dci[- ]p3|adobe\s*rgb|ntsc|anc|noise|filtration|efficiency))|ip[x\d]\d\b)/i;
+// Observable physical fit, mounting, compatibility, package count, or
+// everyday experience claims that buyers and community users can directly
+// observe without lab equipment ("fits a 360 mm radiator", "dishwasher-safe",
+// "comfortable for all-day wear", "includes 4 pairs of ear tips").
+const OBSERVABLE_EXPERIENCE_RE = /\b(?:fits?|accommodates?|houses?|mounts?|clearance\s+for|room\s+for|compatible\s+with|supports?\s+up\s+to\s+\d+\s*(?:mm|cm|in\b)\s*(?:radiators?|fans?|gpus?|coolers?)?|supports?\s+(?:gpus?|graphics\s+cards?|radiators?|coolers?|psus?|fans?)\s+up\s+to\s+\d+\s*(?:mm|cm|in\b)|(?:gpu|radiator|cooler|psu)\s+(?:clearance|length|height)|comfortable|comfort|ergonomic|easy\s+to\s+(?:use|clean|assemble|install|set\s*up)|durable|durability|dishwasher[- ]safe|machine[- ]washable|tool[- ]less|dual[- ]chamber|lasts\s+all\s+day|(?:includes?|comes\s+with|has)\s+(?:\d+|two|three|four|five|six)\s+(?:pairs?\s+of|replacement|silicone|usb|hdmi|displayport|ports?|buttons?|attachments?|chambers?|bays?|slots?|trays?|containers?|lids?|paddles?))\b/i;
+
+/**
+ * True when `claim` is a numeric or lab-measured `spec` claim (e.g. "40 dB ANC",
+ * "IP68", "30 hours of battery life", "240 Air Watts", "60g") rather than an
+ * observable physical/fit/experience claim ("fits a 360 mm radiator",
+ * "dishwasher-safe", "dual-chamber layout"). Red-Team #2: buyer reviews alone
+ * (or without any independent hands-on/expert test source) can move a measured
+ * spec claim to `partially-verified` at most.
+ */
+export function isMeasuredSpecClaim(claim) {
+  if (!claim || typeof claim !== 'object') return false;
+  const type = claim.type ?? claim.claimType;
+  if (type !== 'spec') return false;
+  const text = String(claim.text || '');
+  if (MEASURED_SPEC_UNIT_RE.test(text)) return true;
+  if (OBSERVABLE_EXPERIENCE_RE.test(text)) return false;
+  return /\d/.test(text);
+}
+
+/**
+ * True when at least one qualifying independent corroborator in `supporting`
+ * is a non-buyer-review `hands-on` or `expert-domain` test source.
+ */
+export function hasHandsOnCorroborator(supporting, weigh = verificationWeight) {
+  const items = Array.isArray(supporting) ? supporting : [];
+  for (const item of items) {
+    if (!item || isBuyerReviewItem(item)) continue;
+    if (weigh(item) < CORROBORATOR_MIN_WEIGHT) continue;
+    const tags = item.tags || [];
+    if (NON_INDEPENDENT_TAGS.some((t) => tags.includes(t))) continue;
+    if (!hostKeyOf(item.url)) continue;
+    if (tags.includes('hands-on') || tags.includes('expert-domain')) return true;
+  }
+  return false;
+}
+
 function sumSupportWeight(items, weigh, capBuyerReviewsByHost) {
   const buyerHostTotals = new Map();
   let total = 0;
@@ -234,9 +279,12 @@ function sortedSide(items, weigh) {
  *
  * `opts.policy === 'verification'` additionally applies tier-(iii)
  * corroboration caps on top of the base status (see independentCorroborators
- * above): marketing claims can never reach 'verified', and spec/warranty/
+ * above): marketing claims can never reach 'verified', spec/warranty/
  * support/unknown claims need >= 2 distinct-host independent corroborators
- * to reach 'verified' — otherwise they're downgraded to 'partially-verified'.
+ * to reach 'verified', and numeric/measured `spec` claims (isMeasuredSpecClaim)
+ * additionally require at least one non-buyer-review hands-on/expert test
+ * source among the independent corroborators (Red-Team #2) — otherwise they're
+ * downgraded to 'partially-verified'.
  * Contradicted is unchanged (evaluated first, always wins). When this policy
  * is active and `opts.weigh` is not given, `weigh` defaults to
  * verificationWeight (not evidenceWeight) since the policy is meaningless
@@ -275,6 +323,8 @@ export function verdictForClaim(claim, evidence, opts = {}) {
       status = 'partially-verified'; // puffery is partially-verified at best
     } else if (independentCount < MIN_INDEPENDENT_CORROBORATORS) {
       status = 'partially-verified'; // spec/warranty/support need >=2 independent corroborators
+    } else if (isMeasuredSpecClaim(claim) && !hasHandsOnCorroborator(supportItems, weigh)) {
+      status = 'partially-verified'; // Red-Team #2: measured specs require >=1 hands-on/expert test source
     }
   }
 
