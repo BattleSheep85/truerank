@@ -218,6 +218,32 @@ describe('collectClaimsAndEvidence stage overlap', () => {
     expect(res.scoredEvidence.find((s) => s.url === SHARED_URL)?.content).toBe(REVIEW_TEXT);
   });
 
+  it('keeps the buyer reviews of a retailer claim page whose shared read won (CP-778)', async () => {
+    mocks.runSearch.mockImplementation(routedSearch([]));
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url.includes('acme.com') || source.url.includes('amazon.com') ? SPEC_PAGE : REVIEW_TEXT;
+      return source;
+    });
+    const reviews = [
+      '[Buyer review] I took the Acme Flip 7 camping for a week and the battery lasted about 13 hours at half volume.',
+      '[Buyer review] Dropped my Acme Flip 7 in the lake, it floated and kept playing after I dried it off.',
+    ].join('\n');
+    const focusedUrls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      focusedUrls.push(String(url));
+      return new Response(String(url).includes('amazon.com') ? `${SPEC_PAGE}\n# Customer reviews\n${reviews}` : '', { status: 200 });
+    }));
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 });
+    expect(res.status).toBe('ok');
+    // The claim page keeps the shared read: claim extraction text is unchanged.
+    expect(res.claimSources.find((s) => s.url.includes('amazon.com'))?.content).toBe(SPEC_PAGE);
+    const buyer = res.scoredEvidence.filter((s) => s.url.endsWith('#buyer-reviews'));
+    expect(buyer.map((s) => s.url)).toEqual(['https://www.amazon.com/dp/B0FLIP7#buyer-reviews']);
+    expect(buyer[0].content.match(/\[Buyer review\]/g)).toHaveLength(2);
+    // The maker page is not a retailer page: no buyer review read for it.
+    expect(focusedUrls.filter((u) => u.includes('acme.com')).length).toBeLessThanOrEqual(1);
+  });
+
   it('needs_url spends no gather search', async () => {
     const searches = [];
     mocks.runSearch.mockImplementation(async (query) => {

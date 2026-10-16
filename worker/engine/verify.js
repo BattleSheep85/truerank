@@ -32,6 +32,7 @@ import {
   evidenceReader,
   distillProductName,
   harvestBuyerReviews,
+  readBuyerReviewPages,
   MAX_RESOLVE_READS,
   CLAIM_PAGES_WANTED,
 } from './verify-resolve.js';
@@ -1316,15 +1317,19 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
     const extractedAt = Date.now();
     gate.resolve(extracted.claims.length > 0);
 
-    // 3. TEST PAGES and 4. GATHER.
+    // 3. TEST PAGES and 4. GATHER, with the buyer reviews of the retailer
+    //    claim pages read during them (readBuyerReviewPages, CP-778).
+    const reviewsDone = extracted.claims.length > 0
+      ? readBuyerReviewPages(extracted.claimSources, product, { apiKey: env?.JINA_API_KEY || '', signal: evidenceReads.signal })
+      : Promise.resolve([]);
     const testsDone = findClaimTests({ claims: extracted.claims, product, env, readPage, readMs: budget.testReadMs });
     testsDone.finally(() => testsRead.resolve(true)).catch(() => {});
     const gatherDone = early ?? testsDone.then(() => startGather());
-    const [tests, gathered] = await Promise.all([testsDone, gatherDone]);
+    const [tests, gathered, reviewPages] = await Promise.all([testsDone, gatherDone, reviewsDone]);
     const gatheredAt = Date.now();
 
     // 5. SCORE EVIDENCE
-    const allCandidateSources = [...(extracted.claimSources || []), ...tests.sources, ...(gathered.sources || [])];
+    const allCandidateSources = [...(extracted.claimSources || []), ...reviewPages, ...tests.sources, ...(gathered.sources || [])];
     const scoredEvidence = scoreEvidence(evidencePool(allCandidateSources, product, productUrl));
     return {
       status: 'ok',

@@ -1588,6 +1588,37 @@ function compactRetailerMarkdown(raw, opts = {}) {
   return `${specText}\n\n# Customer reviews\n${reviewBlock}`;
 }
 
+// True when page text holds `[Buyer review]` lines (readFocusedPage output).
+function hasBuyerReviewLines(text) {
+  return String(text ?? '').split('\n').some((line) => BUYER_REVIEW_PREFIX_RE.test(line));
+}
+
+/**
+ * Buyer reviews of the retailer claim pages. readClaimPage keeps the shared
+ * read when it is usable and stops the focused read, but only the focused
+ * read keeps a retailer page's customer reviews, so a check of an Amazon
+ * listing had no buyer-review evidence (CP-778). This reads each retailer
+ * claim page without `[Buyer review]` lines again with `focusedRead`, all at
+ * once, and returns copies with the focused text for the pages whose read has
+ * buyer reviews (harvestBuyerReviews takes them from there). Never throws;
+ * a failed or stopped read adds nothing. Does not change the input.
+ */
+export async function readBuyerReviewPages(claimSources, product, opts = {}) {
+  const { focusedRead = readFocusedPage, apiKey = '', signal } = opts;
+  const list = Array.isArray(claimSources) ? claimSources : [];
+  const picks = list.filter((source) => source?.url
+    && ownPageKind(source.url, product) === 'retailer'
+    && !hasBuyerReviewLines(source.content));
+  if (picks.length === 0 || signal?.aborted) return [];
+  const pages = await Promise.all(picks.map((source) => Promise.resolve()
+    .then(() => focusedRead(source.url, undefined, apiKey, { signal }))
+    .then((text) => ({ ...source, content: String(text ?? '') }))
+    .catch(() => null)));
+  const usable = pages.filter((page) => page && hasBuyerReviewLines(page.content));
+  console.log(`[verify-resolve] buyer review reads: ${picks.length} retailer pages, ${usable.length} with reviews`);
+  return usable;
+}
+
 function normalizedHostOf(url) {
   const parsed = parseUrl(url);
   return parsed ? parsed.hostname.replace(/^www\./, '').toLowerCase() : '';

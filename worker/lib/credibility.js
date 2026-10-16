@@ -513,6 +513,16 @@ const EXPERT_DOMAINS = new Set([
   'consumerlab.com',
   'whathifi.com',
   'soundguys.com',
+  // PC hardware labs with hands-on tests (CP-778: a TechPowerUp review of the
+  // Antec C8 scored the 50 base, like an unknown blog).
+  'techpowerup.com',
+  'gamersnexus.net',
+  'techspot.com',
+  'hardwarecanucks.com',
+  'tweaktown.com',
+  'overclock3d.net',
+  'eteknix.com',
+  'servethehome.com',
 ]);
 
 const COMMUNITY_DOMAINS = new Set([
