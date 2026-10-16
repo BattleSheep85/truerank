@@ -4,6 +4,37 @@ import { anySignal } from './deadline.js';
 const JINA_TIMEOUT_MS = 8000;
 const DIRECT_TIMEOUT_MS = 8000;
 const MAX_CONTENT_LENGTH = 15_000;
+export const RETAILER_MAX_CONTENT_LENGTH = 200_000;
+
+export const RETAILER_REMOVE_SELECTOR = [
+  'header',
+  'footer',
+  'nav',
+  'script',
+  'style',
+  'noscript',
+  '.a-carousel-container',
+  '[id*="sims-consolidated"]',
+  '[id*="sp_detail"]',
+  '#desktop-dp-sims_session-similarities-sims-feature',
+  '#HLCXComparisonWidget_feature_div',
+  '#buybox',
+  '#rightCol',
+  '#apex_desktop',
+  '#TellAmazon_feature_div',
+].join(', ');
+
+const RETAILER_PRODUCT_URL_RE = /^https?:\/\/(?:www\.)?(?:amazon\.[a-z.]{2,6}\/(?:[^\s/?#]+\/)?(?:dp|gp\/product)\/|bestbuy\.com\/site\/|walmart\.com\/ip\/|target\.com\/p\/|newegg\.com\/[^\s?#]*\/p\/|bhphotovideo\.com\/c\/product\/)/i;
+
+/**
+ * Returns true if `url` is a direct retailer product page (Amazon, Best Buy,
+ * Walmart, Target, Newegg, B&H) where full-page markdown (up to 200k chars)
+ * and carousel/buy-box DOM stripping are needed to reach both spec tables and
+ * bottom-of-page customer reviews.
+ */
+export function isRetailerProductUrl(url) {
+  return typeof url === 'string' && RETAILER_PRODUCT_URL_RE.test(url);
+}
 
 // Retry-on-429/5xx tuning. Jina's free tier throttles hard (~20 req/min) and
 // under concurrent read bursts a large fraction of requests come back 429 —
@@ -54,10 +85,17 @@ function startKeyCooldown(status) {
   keyRejectedAt = Date.now();
 }
 
-function buildJinaHeaders(apiKey) {
+function buildJinaHeaders(apiKey, url, extraHeaders) {
   // A Jina API key (free signup, generous limits) lifts the keyless rate cap that
   // otherwise 429s most concurrent reads → far more pages actually return body text.
   const base = { Accept: 'text/markdown', 'X-Return-Format': 'markdown' };
+  if (isRetailerProductUrl(url)) {
+    base['X-Remove-Selector'] = RETAILER_REMOVE_SELECTOR;
+    base['X-With-Generated-Alt'] = 'false';
+  }
+  if (extraHeaders && typeof extraHeaders === 'object') {
+    Object.assign(base, extraHeaders);
+  }
   return apiKey ? { ...base, Authorization: `Bearer ${apiKey}` } : base;
 }
 
@@ -76,9 +114,9 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * timeout, 429/5xx, or an empty/blocked body) we fall back to fetching the URL
  * directly with browser-like headers and a dependency-free HTML-to-text extraction
  * so the pipeline keeps making progress instead of silently losing the page. Both
- * paths return the same shape (a string, capped at MAX_CONTENT_LENGTH). The
- * graceful empty-string failure remains the final fallback; this function never
- * throws.
+ * paths return the same shape (a string, capped at MAX_CONTENT_LENGTH or
+ * RETAILER_MAX_CONTENT_LENGTH for retailer product URLs). The graceful
+ * empty-string failure remains the final fallback; this function never throws.
  *
  * Key rejection: a 401/402/403 on a keyed request (e.g. the key is out of
  * credit) retries the same Jina URL once without the key, and later calls skip
@@ -97,13 +135,16 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleepImpl = opts.sleepImpl ?? defaultSleep;
   const stop = opts.signal;
+  const maxChars = Number.isInteger(opts.maxChars) && opts.maxChars > 0
+    ? opts.maxChars
+    : (isRetailerProductUrl(url) ? RETAILER_MAX_CONTENT_LENGTH : MAX_CONTENT_LENGTH);
   const started = Date.now();
 
   let sendKey = Boolean(apiKey) && !isKeyCoolingDown();
 
   for (let attempt = 0; attempt <= JINA_MAX_RETRIES; attempt++) {
     if (stop?.aborted) return '';
-    const headers = buildJinaHeaders(sendKey ? apiKey : null);
+    const headers = buildJinaHeaders(sendKey ? apiKey : null, url, opts.headers);
     try {
       const response = await fetchImpl(`https://r.jina.ai/${url}`, {
         signal: anySignal([AbortSignal.timeout(JINA_TIMEOUT_MS), stop]),
@@ -127,13 +168,13 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
           await sleepImpl(backoffMs(attempt + 1));
           continue;
         }
-        return await fetchDirect(url, fetchImpl, stop);
+        return await fetchDirect(url, fetchImpl, stop, maxChars);
       }
 
       const text = await response.text();
       // Jina sometimes returns boilerplate for blocked/empty pages
-      if (text.length < 100) return await fetchDirect(url, fetchImpl, stop);
-      return text.slice(0, MAX_CONTENT_LENGTH);
+      if (text.length < 100) return await fetchDirect(url, fetchImpl, stop, maxChars);
+      return text.slice(0, maxChars);
     } catch (err) {
       if (stop?.aborted) {
         console.log(`[jina] stopped ${url} (attempt ${attempt + 1}): the caller's deadline was reached`);
@@ -145,12 +186,12 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
         await sleepImpl(backoffMs(attempt + 1));
         continue;
       }
-      return await fetchDirect(url, fetchImpl, stop);
+      return await fetchDirect(url, fetchImpl, stop, maxChars);
     }
   }
   // Unreachable in practice (the loop always returns), but keep the contract
   // explicit: never throw, always resolve to a string.
-  return await fetchDirect(url, fetchImpl, stop);
+  return await fetchDirect(url, fetchImpl, stop, maxChars);
 }
 
 /**
@@ -158,7 +199,7 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
  * readable text without any DOM library. Returns '' on any failure, or when
  * the caller's `stop` signal has aborted; never throws.
  */
-async function fetchDirect(url, fetchImpl = fetch, stop = undefined) {
+async function fetchDirect(url, fetchImpl = fetch, stop = undefined, maxChars = MAX_CONTENT_LENGTH) {
   if (!isFetchableUrl(url) || stop?.aborted) return '';
   try {
     const response = await fetchImpl(url, {
@@ -179,7 +220,7 @@ async function fetchDirect(url, fetchImpl = fetch, stop = undefined) {
 
     const html = await response.text();
     if (!html) return '';
-    return extractReadableText(html);
+    return extractReadableText(html, maxChars);
   } catch (err) {
     console.log(`[jina:direct] ERROR ${url}: ${err instanceof Error ? err.message : String(err)}`);
     return '';
@@ -189,9 +230,9 @@ async function fetchDirect(url, fetchImpl = fetch, stop = undefined) {
 /**
  * Convert raw HTML to readable plain text with no DOM library:
  * strip non-content blocks, prefer <article>/<main> (else <body>), strip remaining
- * tags, decode common entities, collapse whitespace, and cap at MAX_CONTENT_LENGTH.
+ * tags, decode common entities, collapse whitespace, and cap at maxChars.
  */
-function extractReadableText(html) {
+function extractReadableText(html, maxChars = MAX_CONTENT_LENGTH) {
   let s = html;
 
   // Drop blocks whose contents are never readable body text.
@@ -214,7 +255,7 @@ function extractReadableText(html) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return text.slice(0, MAX_CONTENT_LENGTH);
+  return text.slice(0, maxChars);
 }
 
 /** Return the inner HTML of the first matching <tag>...</tag> region, or null. */

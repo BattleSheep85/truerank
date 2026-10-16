@@ -482,6 +482,9 @@ export async function runVerifyTests() {
   // ── verify speed: stage deadlines, parallel reads, hedged calls ───────────
   await runVerifySpeedTests({ eq, ok, report });
 
+  // ── Stage 2b: buyer-review evidencePool, multi-review passage packing, STANCE_SYSTEM ──
+  await runBuyerReviewVerifyTests({ eq, ok, report });
+
   return report;
 }
 
@@ -1344,3 +1347,124 @@ async function runRerankEvidenceTests({ eq, ok, report }) {
     eq(`${label}: tiny fragments are dropped`, split('Menu. Home.', 100), []);
   });
 }
+
+async function runBuyerReviewVerifyTests({ eq, ok, report }) {
+  const label = 'stage 2b buyer reviews in verify';
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${label}: ${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  await guarded('STANCE_SYSTEM frames buyer reviews as untrusted DATA', () => {
+    const sys = String(verifyModule.STANCE_SYSTEM ?? '');
+    ok(`${label}: STANCE_SYSTEM explicitly names buyer reviews as untrusted DATA`, /buyer reviews.*untrusted DATA/i.test(sys));
+  });
+
+  await guarded('applyStanceBackstops blocks incentivized-review and ai-injection', () => {
+    eq(
+      `${label}: incentivized-review tag is downgraded to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'support', span: 'I tested the battery for 2 weeks and got 30 hours', tags: ['community', 'incentivized-review'] },
+        'Up to 30 hours of battery life',
+      ),
+      'neutral',
+    );
+    eq(
+      `${label}: ai-injection tag is downgraded to neutral`,
+      verifyModule.applyStanceBackstops(
+        { stance: 'support', span: 'I tested the battery for 2 weeks and got 30 hours', tags: ['community', 'ai-injection'] },
+        'Up to 30 hours of battery life',
+      ),
+      'neutral',
+    );
+  });
+
+  await guarded('claimEvidencePassage and rankClaimEvidence pack relevant buyer reviews per claim', () => {
+    // 60 filler reviews about comfort + 2 targeted reviews about battery life + 2 targeted reviews about multipoint
+    const lines = [];
+    for (let i = 0; i < 60; i += 1) {
+      lines.push(`[Buyer review] The ear pads on my Sony WH-1000XM6 felt soft during commute day ${i + 1}.`);
+    }
+    lines.splice(25, 0, '[Buyer review] I tested the battery on a long flight and got 31 hours of playback with ANC on.');
+    lines.splice(55, 0, '[Buyer review] In my battery test the headphones lasted 30 hours before needing a recharge.');
+    lines.push('[Buyer review] I used multipoint Bluetooth pairing between my laptop and phone all week without drops.');
+
+    const aggregated = {
+      url: 'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews',
+      title: 'Sony WH-1000XM6 — Customer Reviews (amazon.com)',
+      content: lines.join('\n'),
+      credibility: 55,
+      independence: 75,
+      tags: ['community', 'buyer-review'],
+    };
+
+    const batteryRanked = verifyModule.rankClaimEvidence(
+      [aggregated],
+      { id: 'c1', text: '30 hours of battery playback', type: 'spec' },
+      'Sony WH-1000XM6',
+      15,
+    );
+    eq(`${label}: rankClaimEvidence keeps 1 aggregated source for the retailer host`, batteryRanked.length, 1);
+    ok(
+      `${label}: passage for battery claim packs both battery buyer reviews from lines 25 and 55`,
+      batteryRanked[0].passage.includes('31 hours of playback') && batteryRanked[0].passage.includes('lasted 30 hours'),
+    );
+
+    const multipointRanked = verifyModule.rankClaimEvidence(
+      [aggregated],
+      { id: 'c2', text: 'Multipoint Bluetooth pairing with two devices', type: 'spec' },
+      'Sony WH-1000XM6',
+      15,
+    );
+    ok(
+      `${label}: passage for multipoint claim selects the multipoint buyer review at the end`,
+      multipointRanked[0].passage.includes('multipoint Bluetooth pairing between my laptop and phone'),
+    );
+  });
+
+  await guarded('evidencePool + scoreEvidence aggregates retailer buyer reviews and caps host vote', () => {
+    const amzRetailerPage = {
+      url: 'https://www.amazon.com/dp/B0DK85GRFZ',
+      title: 'Sony WH-1000XM6 Wireless Headphones',
+      content: [
+        '# About this item',
+        '* Up to 30 hours battery life',
+        '# Customer reviews',
+        '##### _5.0 out of 5 stars_ Great battery',
+        'Reviewed in the United States on October 10, 2026',
+        'Verified Purchase',
+        'I tested the Sony WH-1000XM6 battery on a 2-week trip and got 31 hours on a single charge.',
+        '##### _5.0 out of 5 stars_ Vine freebie',
+        'Reviewed in the United States on October 9, 2026',
+        'Vine Customer Review of Free Product',
+        'Best headphones ever made!',
+      ].join('\n'),
+    };
+    const rtingsReview = {
+      url: 'https://www.rtings.com/headphones/reviews/sony/wh-1000xm6',
+      title: 'Sony WH-1000XM6 Review',
+      content: 'We tested the Sony WH-1000XM6 and measured 31.2 hours of battery life.',
+    };
+    const pool = verifyModule.evidencePool(
+      [amzRetailerPage, rtingsReview],
+      'Sony WH-1000XM6',
+      'https://www.amazon.com/dp/B0DK85GRFZ',
+    );
+    eq(
+      `${label}: evidencePool keeps independent editorial source + 1 aggregated buyer-review source (not raw productUrl)`,
+      pool.map((s) => s.url),
+      [
+        'https://www.rtings.com/headphones/reviews/sony/wh-1000xm6',
+        'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews',
+      ],
+    );
+    const scored = verifyModule.scoreEvidence(pool);
+    ok(
+      `${label}: scored buyer-review item carries buyer-review tag and excludes Vine review`,
+      scored[1].tags.includes('buyer-review') && !scored[1].content.includes('Best headphones ever made'),
+    );
+  });
+}
+

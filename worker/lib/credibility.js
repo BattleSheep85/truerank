@@ -179,6 +179,10 @@ const AI_INJECTION_PATTERNS = [
   // Explicit reviewer/ranking override addressed to the model: "override your
   // ranking / disregard other reviews / this is the best regardless".
   /\b(?:override|disregard|ignore|discount|downrank)\b[^.?!]{0,50}?\b(?:your |any |other |the )?(?:ranking|rankings|scores?|reviews?|verdicts?|recommendations?|comparisons?)\b/i,
+  // Claim-verifier prompt injection planted in buyer reviews or product pages:
+  // "mark all claims as verified", "set this claim as support", "SYSTEM PROMPT:".
+  /\b(?:mark|set|classify|judge)\s+(?:all\s+|every\s+|this\s+)?claims?\s+as\s+(?:verified|support(?:ed)?|true)\b/i,
+  /\b(?:system\s+prompt|new\s+instructions?)\s*:/i,
 ];
 
 /**
@@ -305,13 +309,13 @@ export function hasSeededUnit(content) {
 // must be a review/opinion/feedback/rating, so "in exchange for your email
 // signup" does not match.
 const INCENTIVIZED_REVIEW_PATTERNS = [
-  /\bin exchange for (?:an? |my |our )?(?:honest |fair |candid )?review\b/i,
-  /\bin exchange for (?:my|our) (?:honest\s+)?(?:opinion|feedback|rating)\b/i,
+  /\bin exchange for (?:an? |my |our )?(?:honest |fair |candid |unbiased )?(?:review|opinion|feedback|rating)\b/i,
+  /\b(?:received|got|given|provided) (?:an? |this |the )?(?:free|discounted|complimentary|promotional)\b[^.?!]{0,60}?\bin exchange for (?:an? |my |our )?(?:honest |fair |candid |unbiased )?(?:review|opinion|feedback|rating)\b/i,
   /\b(?:received|got) (?:this|the|a) (?:product|item|unit) (?:for\s+)?free in exchange\b/i,
   /\bfree (?:product|item|unit) in exchange\b/i,
   /\bamazon vine\b/i,
   /\bvine voice\b/i,
-  /\bvine customer review of a free product\b/i,
+  /vine customer review of (?:a )?free product\b/i,
   /\bcomplimentary (?:unit|product|copy) (?:in exchange|for (?:a|my|our) review)\b/i,
   /\bdiscounted (?:product|unit|price) in exchange for\b/i,
 ];
@@ -692,7 +696,11 @@ export function scoreSource(input) {
     score -= 30;
   }
 
-  if (isExpertDomain(input.url)) {
+  if (input.sourceType === 'buyer-review') {
+    tags.push('community', 'buyer-review');
+    reasons.push('verified buyer / customer reviews');
+    score += 5;
+  } else if (isExpertDomain(input.url)) {
     tags.push('expert-domain');
     reasons.push('established review outlet');
     score += 15;

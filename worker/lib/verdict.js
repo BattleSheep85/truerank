@@ -22,6 +22,10 @@ export const STRONG_SUPPORT = 1.0;
 export const WEAK_SUPPORT = 0.3;
 export const CONTRADICT_MIN = 0.5;
 export const LOW_CONTRADICT = 0.25;
+// Red-Team #1: All buyer reviews harvested from a single retailer host are
+// aggregated and capped so 200 reviews on one retailer never outvote
+// independent editorial testing or self-corroborate to 'verified'.
+export const MAX_BUYER_REVIEW_HOST_WEIGHT = 0.35;
 
 // overallVerdict() score bands + labels, evaluated highest-first.
 const SCORE_BANDS = [
@@ -90,24 +94,32 @@ export function evidenceWeight(ev) {
   return cred * indep;
 }
 
+function isBuyerReviewItem(ev) {
+  const tags = (ev && ev.tags) || [];
+  return tags.includes('buyer-review') || Boolean(ev && ev.source === 'buyer-review');
+}
+
 /**
  * Evidence weight for a VERIFICATION context (strict-(a)): a genuine hands-on
  * measurement counts even when the outlet carries affiliate links — a
  * measurement is a measurement — but that forgiveness applies ONLY to
  * hands-on/expert testing. Affiliate opinion without testing, sponsored
  * posts, incentivized reviews, manufacturer restatements, and opinion
- * listicles stay heavily discounted. Requires evidence items to carry `tags`
- * (the array produced by `scoreSource` in `worker/lib/credibility.js`).
+ * listicles stay heavily discounted. Buyer reviews (`buyer-review` tag) are
+ * treated as community experience and capped at MAX_BUYER_REVIEW_HOST_WEIGHT
+ * (0.35). Requires evidence items to carry `tags` (the array produced by
+ * `scoreSource` in `worker/lib/credibility.js`).
  */
 export function verificationWeight(ev) {
   const tags = (ev && ev.tags) || [];
   const has = (t) => tags.includes(t);
   if (has('ai-injection')) return 0; // manipulation — never counts
 
-  const handsOn = has('hands-on') || has('expert-domain'); // someone actually tested/measured
+  const buyerReview = isBuyerReviewItem(ev);
+  const handsOn = !buyerReview && (has('hands-on') || has('expert-domain')); // someone actually tested/measured
   let testing;
   if (handsOn) testing = 1.0;
-  else if (has('community')) testing = 0.6; // real unpaid users, but anecdotal
+  else if (buyerReview || has('community')) testing = 0.6; // real unpaid users, but anecdotal
   else testing = 0.3; // opinion/blog/listicle/manufacturer restatement, untested
 
   let indep = clamp01((ev && ev.independence) / 100);
@@ -120,7 +132,8 @@ export function verificationWeight(ev) {
   if (has('affiliate-conflict')) mult *= handsOn ? 0.9 : 0.4; // forgive ONLY when there's a measurement
   if (has('listicle') && !handsOn) mult *= 0.4;
 
-  return clamp01(testing * indep * mult);
+  const weight = clamp01(testing * indep * mult);
+  return buyerReview ? Math.min(weight, MAX_BUYER_REVIEW_HOST_WEIGHT) : weight;
 }
 
 // Tags that disqualify an evidence item from counting as a genuine
@@ -143,6 +156,14 @@ function stripWww(hostname) {
   return hostname.startsWith('www.') ? hostname.slice(4) : hostname;
 }
 
+function hostKeyOf(url) {
+  try {
+    return stripWww(new URL(url).hostname);
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Counts DISTINCT hostnames among `supporting` items that qualify as genuine
  * independent corroborators: weigh(item) >= CORROBORATOR_MIN_WEIGHT AND none
@@ -158,13 +179,28 @@ export function independentCorroborators(supporting, weigh) {
     if (weigh(item) < CORROBORATOR_MIN_WEIGHT) continue;
     const tags = item.tags || [];
     if (NON_INDEPENDENT_TAGS.some((t) => tags.includes(t))) continue;
-    try {
-      hosts.add(stripWww(new URL(item.url).hostname));
-    } catch {
-      continue; // invalid/missing URL — can't establish a distinct host
-    }
+    const host = hostKeyOf(item.url);
+    if (host) hosts.add(host);
   }
   return hosts.size;
+}
+
+function sumSupportWeight(items, weigh, capBuyerReviewsByHost) {
+  const buyerHostTotals = new Map();
+  let total = 0;
+  for (const ev of items) {
+    const w = weigh(ev);
+    if (capBuyerReviewsByHost && isBuyerReviewItem(ev)) {
+      const host = hostKeyOf(ev.url) || '__buyer_review__';
+      const used = buyerHostTotals.get(host) || 0;
+      const allowed = Math.max(0, Math.min(w, MAX_BUYER_REVIEW_HOST_WEIGHT - used));
+      buyerHostTotals.set(host, used + allowed);
+      total += allowed;
+    } else {
+      total += w;
+    }
+  }
+  return total;
 }
 
 const MIN_INDEPENDENT_CORROBORATORS = 2;
@@ -218,7 +254,7 @@ export function verdictForClaim(claim, evidence, opts = {}) {
   const supportItems = list.filter((ev) => ev && ev.stance === STANCE.SUPPORT);
   const contradictItems = list.filter((ev) => ev && ev.stance === STANCE.CONTRADICT);
 
-  const support = supportItems.reduce((sum, ev) => sum + weigh(ev), 0);
+  const support = sumSupportWeight(supportItems, weigh, policy === 'verification');
   const contradict = contradictItems.reduce((sum, ev) => sum + weigh(ev), 0);
 
   let status;

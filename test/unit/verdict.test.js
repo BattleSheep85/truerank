@@ -422,5 +422,39 @@ export function runVerdictTests() {
     ok('spec contradiction weighs more than marketing contradiction', specContradicted.score < marketingContradicted.score);
   }
 
+  // ── Red-Team #1: buyer-review weight cap (0.35 per host, 1 host in independentCorroborators) ──
+  {
+    eq('exports MAX_BUYER_REVIEW_HOST_WEIGHT = 0.35', verdictLib.MAX_BUYER_REVIEW_HOST_WEIGHT, 0.35);
+
+    // Even if a buyer review triggers hands-on + self-purchased (indep=95),
+    // verificationWeight caps a buyer-review item at 0.35.
+    const buyerEv = {
+      url: 'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews',
+      stance: 'support',
+      credibility: 90,
+      independence: 95,
+      tags: ['community', 'buyer-review', 'hands-on', 'self-purchased'],
+    };
+    eq('verificationWeight: buyer-review item is capped at 0.35', verificationWeight(buyerEv), 0.35);
+
+    // Multiple buyer-review items from the same host (amazon.com) are capped at
+    // 0.35 total support weight and count as 1 host in independentCorroborators.
+    const manySameHostBuyerReviews = Array.from({ length: 10 }, (_, idx) => ({
+      url: `https://www.amazon.com/dp/B0DK85GRFZ?page=${idx + 1}#buyer-reviews`,
+      stance: 'support',
+      credibility: 85,
+      independence: 90,
+      tags: ['community', 'buyer-review', 'hands-on'],
+    }));
+    const vSingleHost = verdictForClaim(
+      { id: 'c1', text: '30-hour battery life', type: 'spec' },
+      manySameHostBuyerReviews,
+      { policy: 'verification' },
+    );
+    eq('verdictForClaim: 10 buyer-review items on amazon.com cap total support at 0.35', vSingleHost.support, 0.35);
+    eq('verdictForClaim: 10 buyer-review items on amazon.com count as 1 independent host', vSingleHost.independentCount, 1);
+    eq('verdictForClaim: single-host buyer reviews can only reach partially-verified, never verified', vSingleHost.status, 'partially-verified');
+  }
+
   return report;
 }

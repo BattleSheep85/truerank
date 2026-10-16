@@ -11,7 +11,7 @@
 // injectable for tests).
 
 import { runSearch, readPageInto } from './tools.js';
-import { isManufacturerDomain } from '../lib/credibility.js';
+import { isManufacturerDomain, isCommunityDomain, hasAiInjection, hasIncentivizedReview } from '../lib/credibility.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { MODEL_VARIANT_WORDS, distillProductName } from '../lib/product-link.js';
 import { afterAbort, anySignal, delay, runPoolUntil, POOL_GRACE_MS } from '../lib/deadline.js';
@@ -584,22 +584,44 @@ export async function findClaimCandidates({ product, env, search = runSearch }) 
 }
 
 // The fallback read: Jina (with the key when one is set) with a longer wait, and without navigation,
-// headers, footers, and images. The shared reader (worker/lib/jina.js) stops
-// after 8 s (keyless Jina often needs longer on a product page) and keeps the
-// first 15,000 chars, which can be only menus.
+// headers, footers, images, recommendation carousels, and Buy Box chrome. The shared reader
+// (worker/lib/jina.js) stops after 8 s (keyless Jina often needs longer on a product page).
 const FOCUSED_READ_TIMEOUT_MS = 25_000;
-const FOCUSED_READ_MAX_CHARS = 40_000;
+export const FOCUSED_READ_MAX_CHARS = 200_000;
+export const RETAILER_SPEC_MAX_CHARS = 25_000;
+export const MAX_BUYER_REVIEWS = 200;
+export const MAX_REVIEW_SNIPPET_CHARS = 400;
 const FOCUSED_READ_HEADERS = Object.freeze({
   Accept: 'text/markdown',
   'X-Return-Format': 'markdown',
   'X-Retain-Images': 'none',
-  'X-Remove-Selector': 'header, nav, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"]',
+  'X-Remove-Selector': [
+    'header',
+    'nav',
+    'footer',
+    'aside',
+    '[role="navigation"]',
+    '[role="banner"]',
+    '[role="contentinfo"]',
+    '.a-carousel-container',
+    '[id*="sims-consolidated"]',
+    '[id*="sp_detail"]',
+    '#desktop-dp-sims_session-similarities-sims-feature',
+    '#HLCXComparisonWidget_feature_div',
+    '#buybox',
+    '#rightCol',
+    '#apex_desktop',
+    '#TellAmazon_feature_div',
+  ].join(', '),
   'X-Timeout': '20',
 });
 
 /**
  * Page text from the fallback read, or '' on any failure. Never throws.
  * With a Jina key the read uses it (paid tier: faster, no free rate cap).
+ * When the page is a structured retailer listing with carousels or customer
+ * reviews, strips middle recommendation carousels and Buy Box chrome so spec
+ * sections (`<= 25,000` chars) and bottom-of-page buyer reviews both survive.
  * `opts.signal` (optional) stops the read at a caller deadline.
  */
 export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '', opts = {}) {
@@ -614,7 +636,12 @@ export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '', opts 
       console.log(`[verify-resolve] focused read HTTP ${response.status} for ${url}`);
       return '';
     }
-    return (await response.text()).slice(0, FOCUSED_READ_MAX_CHARS);
+    const raw = (await response.text()).slice(0, FOCUSED_READ_MAX_CHARS);
+    if (isBlockPage(raw)) {
+      console.log(`[verify-resolve] focused read returned block/captcha page for ${url} (${raw.length} chars)`);
+      return raw;
+    }
+    return compactRetailerMarkdown(raw, { url });
   } catch (err) {
     console.log(`[verify-resolve] focused read failed for ${url}: ${err instanceof Error ? err.message : String(err)}`);
     return '';
@@ -975,7 +1002,11 @@ export async function readEvidencePage(source, env, read = readPageInto, signal 
     return source;
   }
   const text = String(copy.content ?? '');
-  return text.length > String(source.content ?? '').length && !isBlockPage(text) ? copy : source;
+  if (isBlockPage(text)) {
+    console.log(`[verify-resolve] evidence read returned block/captcha page for ${source.url} (${text.length} chars)`);
+    return source;
+  }
+  return text.length > String(source.content ?? '').length ? copy : source;
 }
 
 /**
@@ -1026,13 +1057,14 @@ export function fairShares(lengths, cap) {
 }
 
 /**
- * The extraction input: each source's clean text (no images, link targets, or
- * navigation-only lines) in a fair share of CLAIM_TEXT_CHAR_CAP. Before this,
- * the first source took the whole cap with raw markdown, so a second page
- * never reached the model.
+ * The extraction input: each source's clean spec & feature text (no images,
+ * link targets, recommendation carousels, Buy Box chrome, or customer review
+ * sections) in a fair share of CLAIM_TEXT_CHAR_CAP. Before this, the first
+ * source took the whole cap with raw markdown, so a second page never reached
+ * the model.
  */
 export function buildClaimTextBlock(claimSources) {
-  const texts = claimSources.map((s) => cleanPageText(s.content));
+  const texts = claimSources.map((s) => cleanPageText(extractRetailerSpecText(s.content)));
   const shares = fairShares(texts.map((t) => t.length), CLAIM_TEXT_CHAR_CAP);
   return claimSources
     .map((s, i) => `### SOURCE ${i + 1} ${s.title || ''}\n${s.url}\n${texts[i].slice(0, shares[i])}`)
@@ -1047,3 +1079,573 @@ export function selectSourcesToHydrate(claimSources, { thinChars = THIN_CONTENT_
   const thin = sources.filter((s) => (s?.content?.length ?? 0) < thinChars);
   return thin.slice(0, max);
 }
+
+// ── Full-page retailer section parser & 200-buyer-review harvester ──────────
+
+// Recommendation carousel & non-product bloat section headings on retailer pages.
+const CAROUSEL_SECTION_RE = /^(?:#{1,6}\s*)?(?:similar items(?:\s+that may ship faster)?|frequently bought together|products?\s+related to this item|related products?|customers?\s+who\s+(?:viewed|bought)\s+this\s+item\s+also\s+(?:viewed|bought)|compare with similar items|what other items do customers buy|brands in this category|looking for specific info\??|videos(?:\s+for this product)?|sponsored\s+products?|people ultimately bought|you may also like|customers also viewed|more to consider|explore related products|important information)\b/i;
+
+// Customer review section headings (excluded from specText; parsed by extractBuyerReviews).
+const REVIEW_SECTION_RE = /^(?:#{1,6}\s*)?(?:customer reviews?|ratings?\s*(?:&|and)\s*reviews?|customers?\s+say|top reviews(?:\s+from\s+the\s+united\s+states|\s+from\s+other\s+countries)?|most\s+recent\s+customer\s+reviews?|verified\s+buyer\s+reviews?|owner\s+reviews?)\b/i;
+
+// Spec & feature section headings we want to KEEP for claim extraction.
+const SPEC_SECTION_RE = /^(?:#{1,6}\s*)?(?:about this item|product description|from the (?:manufacturer|brand)|product information|technical details|additional information|features?\s*(?:&|and)\s*specs?|specifications?|tech(?:nical)?\s+specs?|key\s+specs?|product\s+(?:details|specifications?|overview|highlights?)|overview|highlights?|what'?s in the box|in the box)\b/i;
+
+// Buy Box, shipping, seller, return-window, protection-plan, and rating/BSR chrome lines.
+const BUYBOX_LINE_RE = /^(?:\s*[-*|]*\s*)(?:deliver(?:y|ed)?\s+to\b|free\s+(?:delivery|shipping|returns?)\b|or\s+fastest\s+delivery\b|ships?\s+from\b|sold\s+by\b|fulfilled\s+by\b|returns?\b.*\b(?:refund|replacement|window|policy|eligible|free)\b|eligible\s+for\s+return,\s*refund\s+or\s+replacement\b|\d+[- ]day\s+(?:refund\/replacement|returns?|return\s+window)\b|add\s+a\s+protection\s+plan\b|(?:\d+[- ]year\s+)?[\w\s]*protection\s+plan\b|asurion\b|applecare\+?\b|squaretrade\b|geek\s+squad\s+protection\b|add\s+to\s+(?:cart|list|registry|wish\s*list)\b|buy\s+now\b|in\s+stock\b|only\s+\d+\s+left\s+in\s+stock\b|secure\s+transaction\b|gift\s+options\b|add\s+a\s+gift\s+receipt\b|best\s+sellers?\s+rank\b|customer\s+reviews?\s*[|:]?\s*\d(?:\.\d)?\s+out\s+of\s+5\s+stars\b|\d(?:\.\d)?\s+out\s+of\s+5\s+stars\s+\d[\d,]*\s+ratings?\b|page\s+\d+\s+of\s+\d+\b|start\s+over\s+page\b)/i;
+
+// Marker detector: true only when raw text has retailer carousels, Buy Box
+// chrome, or customer review sections (so plain test strings pass unchanged).
+function hasRetailerStructure(raw) {
+  const text = String(raw ?? '');
+  if (!text) return false;
+  return /(?:^|\n)\s*(?:#{1,6}\s*)?(?:about this item|product information|technical details|similar items(?:\s+that may ship faster)?|frequently bought together|products?\s+related to this item|customers?\s+who\s+(?:viewed|bought)\s+this\s+item|compare with similar items|customer reviews?|customers?\s+say|top reviews\s+from|verified purchase|\[buyer review\])/im.test(text)
+    || /(?:^|\n)\s*(?:ships?\s+from|sold\s+by|add\s+a\s+protection\s+plan|eligible\s+for\s+return,\s*refund\s+or\s+replacement)\b/im.test(text);
+}
+
+// Strips syndicated attribution footers before hashing so Bazaarvoice reviews
+// syndicated across Best Buy, Walmart, and Target produce the exact same hash.
+const SYNDICATED_ATTRIBUTION_RE = /(?:\[?\s*(?:originally\s+posted\s+on|syndicated\s+(?:review\s+)?from|review\s+from|posted\s+on)\s+[a-z0-9.\s_-]+\]?)\s*$/i;
+const BUYER_REVIEW_PREFIX_RE = /^\s*\[buyer review\]\s*/i;
+
+/**
+ * Deterministic normalized text hash for a buyer/owner review snippet.
+ * Strips syndicated attribution footers ("Originally posted on sony.com") and
+ * non-alphanumeric characters so identical reviews syndicated across Best Buy,
+ * Walmart, and Target hash to the same key and count only once.
+ */
+export function reviewTextHash(text) {
+  const cleaned = String(text ?? '')
+    .replace(BUYER_REVIEW_PREFIX_RE, '')
+    .replace(SYNDICATED_ATTRIBUTION_RE, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  if (!cleaned) return '';
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const code = cleaned.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (code + i), 0x85ebca6b) >>> 0;
+  }
+  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+}
+
+// Amazon Rufus / "Customers say" AI-generated review summary patterns.
+// Red-Team #4: never extract Amazon's AI summary paragraph as buyer evidence.
+const AI_REVIEW_SUMMARY_PATTERNS = [
+  /^\s*(?:#{1,6}\s*)?customers\s+(?:say|find|praise|appreciate|like|love|report|mention|note|complain|have\s+mixed\s+opinions|are\s+satisfied|are\s+dissatisfied|highlight|value|enjoy|point\s+out|think|feel)\b/i,
+  /\bai[- ]generated\s+from\s+the\s+text\s+of\s+customer\s+reviews\b/i,
+  /\bselect\s+to\s+learn\s+more\b/i,
+];
+
+/**
+ * Returns true if `text` is an AI-generated "Customers say" review summary
+ * paragraph or aspect chip list rather than a verbatim customer review.
+ */
+export function isAiReviewSummary(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return false;
+  return AI_REVIEW_SUMMARY_PATTERNS.some((re) => re.test(s));
+}
+
+// Additional incentivized-review markers found in retailer review metadata.
+const EXTRA_INCENTIVIZED_RE = /(?:vine\s+customer\s+review(?:\s+of\s+(?:a\s+)?free\s+product)?|\b(?:collected\s+as\s+part\s+of\s+a\s+promotion|incentivized\s+review|free\s+product\s+in\s+exchange\s+for\s+(?:an?\s+)?(?:honest\s+)?review))\b/i;
+
+/**
+ * Returns true if a review block or snippet carries an incentivized/Vine
+ * disclosure ("Vine Customer Review of Free Product", "received free/discounted
+ * product in exchange for a review", "[This review was collected as part of a promotion]").
+ */
+export function isIncentivizedSnippet(text) {
+  const s = String(text ?? '');
+  if (!s) return false;
+  return hasIncentivizedReview(s) || EXTRA_INCENTIVIZED_RE.test(s);
+}
+
+// Trailing review UI chrome ("Read more", "4 people found this helpful", "Helpful", "Report").
+const REVIEW_CHROME_TAIL_RE = /(?:\b(?:one|\d[\d,]*)\s+(?:person|people)\s+found\s+this\s+helpful\b|\b(?:read\s+more|helpful|report|share|comment|translate\s+review\s+to\s+english)\b|\[\s*this\s+review\s+was\s+collected\s+as\s+part\s+of\s+a\s+promotion\.?\s*\])[\s.|,-]*$/gi;
+
+/**
+ * Sanitizes a single buyer/owner review snippet (Red-Team #5):
+ * - Strips markdown images, markdown link URLs (keeping anchor text), bare URLs,
+ *   `javascript:...` targets, HTML tags, and markdown formatting tokens.
+ * - Strips trailing review UI chrome ("Read more", "Helpful", "Report", etc.).
+ * - Collapses whitespace and caps at `maxChars` (default 400 chars).
+ */
+export function sanitizeReviewSnippet(text, maxChars = MAX_REVIEW_SNIPPET_CHARS) {
+  let s = String(text ?? '')
+    .replace(BUYER_REVIEW_PREFIX_RE, '')
+    .replace(MD_IMAGE_RE, ' ')
+    .replace(/\[\s*read\s+more\s*\]\([^)]*\)/gi, ' ')
+    .replace(/\[\s*(?:helpful|report|verified\s+purchase)\s*\]\([^)]*\)/gi, ' ')
+    .replace(MD_LINK_RE, '$1')
+    .replace(BARE_URL_RE, ' ')
+    .replace(/javascript:[^\s)]+/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[#*_~`>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Strip leading/trailing quotes and review UI chrome repeatedly until stable.
+  let prev;
+  do {
+    prev = s;
+    s = s
+      .replace(REVIEW_CHROME_TAIL_RE, '')
+      .replace(/^(?:["'“”‘’.\s-]+)|(?:["'“”‘’\s]+)$/g, '')
+      .trim();
+  } while (s !== prev);
+
+  return s.slice(0, maxChars).trim();
+}
+
+/**
+ * Extracts the spec & feature text (`<= 25,000` chars) from a retailer product
+ * page: keeps title, overview/`About this item`, `Product Description`,
+ * `Product information`, `Technical Details`, and `Features & Specs`, while
+ * stripping middle recommendation carousels ("Similar items", "Related products",
+ * "Frequently bought together"), Buy Box seller/return/protection-plan chrome,
+ * and bottom customer review sections.
+ *
+ * Plain non-retailer text (e.g. manufacturer spec pages or unit-test fixtures
+ * without retailer carousel/buybox/review sections) is returned unchanged up
+ * to `maxChars`.
+ */
+export function extractRetailerSpecText(content, maxChars = RETAILER_SPEC_MAX_CHARS) {
+  const raw = String(content ?? '');
+  if (!raw) return '';
+  if (!hasRetailerStructure(raw)) return raw.slice(0, maxChars);
+
+  const lines = raw.split('\n');
+  const introLines = [];
+  const specLines = [];
+  let mode = 'intro'; // 'intro' | 'spec' | 'skip'
+  let introChars = 0;
+  const MAX_INTRO_CHARS = 4000;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+
+    // Pre-compacted buyer review line -> stop/skip.
+    if (BUYER_REVIEW_PREFIX_RE.test(trimmed)) {
+      mode = 'skip';
+      continue;
+    }
+
+    // Check section transitions before adding line.
+    if (REVIEW_SECTION_RE.test(trimmed)) {
+      mode = 'skip';
+      continue;
+    }
+    if (CAROUSEL_SECTION_RE.test(trimmed)) {
+      mode = 'skip';
+      continue;
+    }
+    if (SPEC_SECTION_RE.test(trimmed)) {
+      mode = 'spec';
+      specLines.push(rawLine);
+      continue;
+    }
+
+    // Any other top-level `# ` or `## ` heading while in 'spec' mode:
+    // keep `###` subheadings (like `### Technical Details` under `# Product information`),
+    // but if a new `# ` or `## ` heading isn't in SPEC_SECTION_RE, check if it's noise.
+    if (/^#{1,2}\s+\S/.test(trimmed) && mode === 'spec' && !SPEC_SECTION_RE.test(trimmed)) {
+      if (CAROUSEL_SECTION_RE.test(trimmed) || REVIEW_SECTION_RE.test(trimmed)) {
+        mode = 'skip';
+        continue;
+      }
+    }
+
+    // Drop Buy Box, seller, return window, Asurion/protection plan, and star-rating chrome.
+    if (BUYBOX_LINE_RE.test(trimmed)) continue;
+
+    if (mode === 'intro') {
+      if (introChars + rawLine.length <= MAX_INTRO_CHARS) {
+        introLines.push(rawLine);
+        introChars += rawLine.length + 1;
+      }
+    } else if (mode === 'spec') {
+      specLines.push(rawLine);
+    }
+  }
+
+  const combined = [...introLines, ...specLines].join('\n').trim();
+  if (!combined) {
+    // Fallback if page only had intro lines or unstructured content
+    return lines
+      .filter((l) => {
+        const t = l.trim();
+        return t && !BUYBOX_LINE_RE.test(t) && !CAROUSEL_SECTION_RE.test(t) && !REVIEW_SECTION_RE.test(t) && !BUYER_REVIEW_PREFIX_RE.test(t);
+      })
+      .join('\n')
+      .slice(0, maxChars);
+  }
+  return combined.slice(0, maxChars);
+}
+
+// Matches verbatim buyer quotes in Amazon's aspect widgets:
+// "...quote text..." [Read more](https://www.amazon.com/gp/customer-reviews/...)
+const LINKED_VERBATIM_QUOTE_RE = /[""\u201c]([^""\u201d\n]{20,600})[""\u201d]\s*\[Read more\]\(https?:\/\/[^)\s]*(?:customer-reviews|reviews)[^)\s]*\)/gi;
+
+// Matches inline Jina `Top reviews` list items:
+// ##### _5.0 out of 5 stars_ ... Reviewed in ... on <Date> ... (Verified Purchase | Vine Customer Review...) <Body>
+const INLINE_STAR_REVIEW_SPLIT_RE = /(?=(?:\*\s*(?:\[\]\([^)]*\))?\s*)?#{3,6}\s+_?\d(?:\.\d)?\s+out\s+of\s+5\s+stars_?)/gi;
+
+// Metadata header inside a star-review block up to Verified Purchase / Vine disclosure / Reviewed date.
+const REVIEWED_IN_DATE_RE = /Reviewed\s+in\s+[^\n]+?\s+on\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}/i;
+const VERIFIED_BADGE_RE = /(?:\[\s*Verified\s+(?:Purchase|Buyer|Owner)\s*\]\([^)]*\)|(?<!un)Verified\s+(?:Purchase|Buyer|Owner)\b)/i;
+const VINE_BADGE_RE = /Vine\s+Customer\s+Review(?:\s+of\s+(?:a\s+)?Free\s+Product)?\b/i;
+
+function evaluateCandidateSnippet(rawText, {
+  verified = false,
+  kind = 'buyer-review',
+  headerContext = '',
+  includeIncentivized = false,
+  maxSnippetChars = MAX_REVIEW_SNIPPET_CHARS,
+  seenHashes,
+  reviews,
+  droppedIncentivized,
+  droppedAiSummary,
+  droppedInjection,
+  maxReviews,
+}) {
+  if (reviews.length >= maxReviews) return;
+  const fullCheck = `${headerContext}\n${rawText}`;
+
+  if (isAiReviewSummary(rawText) || isAiReviewSummary(headerContext)) {
+    droppedAiSummary.push(rawText.trim());
+    return;
+  }
+
+  if (hasAiInjection(fullCheck)) {
+    droppedInjection.push({ text: sanitizeReviewSnippet(rawText, maxSnippetChars), tags: ['ai-injection'] });
+    return;
+  }
+
+  const incentivized = isIncentivizedSnippet(fullCheck);
+  const cleaned = sanitizeReviewSnippet(rawText, maxSnippetChars);
+  if (cleaned.length < 20) return;
+
+  if (isAiReviewSummary(cleaned)) {
+    droppedAiSummary.push(cleaned);
+    return;
+  }
+
+  if (hasAiInjection(cleaned)) {
+    droppedInjection.push({ text: cleaned, tags: ['ai-injection'] });
+    return;
+  }
+
+  if (incentivized || isIncentivizedSnippet(cleaned)) {
+    const item = { text: cleaned, hash: reviewTextHash(cleaned), verified: false, kind, tags: ['incentivized-review'] };
+    droppedIncentivized.push(item);
+    if (includeIncentivized) {
+      if (item.hash && !seenHashes.has(item.hash)) {
+        seenHashes.add(item.hash);
+        reviews.push(item);
+      }
+    }
+    return;
+  }
+
+  const hash = reviewTextHash(cleaned);
+  if (!hash || seenHashes.has(hash)) return;
+  seenHashes.add(hash);
+  reviews.push({ text: cleaned, hash, verified, kind });
+}
+
+/**
+ * Extracts verbatim buyer/owner review snippets from a retailer product page
+ * or Reddit/forum thread (up to `opts.maxReviews`, default 200):
+ * - Extracts verbatim `Verified Purchase` / star-rated customer review bodies.
+ * - Extracts verbatim quoted buyer snippets linked to `/customer-reviews/`.
+ * - Extracts owner comments from Reddit/forum threads or `# Customer reviews` blocks.
+ * - NEVER extracts Amazon's `"Customers say"` AI-generated summary paragraphs.
+ * - Filters out `Vine Customer Review of Free Product` and `"received free/discounted ... in exchange for a review"` (`incentivized-review`).
+ * - Drops any snippet matching `hasAiInjection` (Red-Team #5), strips links & markdown, and caps each snippet at 400 chars.
+ * - Deduplicates by `reviewTextHash` (supports passing `opts.seenHashes` across pages).
+ */
+export function extractBuyerReviews(content, opts = {}) {
+  return parseBuyerReviewsInternal(content, opts).reviews;
+}
+
+function parseBuyerReviewsInternal(content, opts = {}) {
+  const raw = String(content ?? '');
+  const maxReviews = Number.isInteger(opts.maxReviews) && opts.maxReviews > 0 ? opts.maxReviews : MAX_BUYER_REVIEWS;
+  const maxSnippetChars = Number.isInteger(opts.maxSnippetChars) && opts.maxSnippetChars > 0
+    ? opts.maxSnippetChars
+    : MAX_REVIEW_SNIPPET_CHARS;
+  const includeIncentivized = opts.includeIncentivized === true;
+  const seenHashes = opts.seenHashes instanceof Set ? opts.seenHashes : new Set();
+  const reviews = [];
+  const droppedIncentivized = [];
+  const droppedAiSummary = [];
+  const droppedInjection = [];
+
+  if (!raw) {
+    return { reviews, droppedIncentivized, droppedAiSummary, droppedInjection };
+  }
+
+  const ctx = {
+    includeIncentivized,
+    maxSnippetChars,
+    seenHashes,
+    reviews,
+    droppedIncentivized,
+    droppedAiSummary,
+    droppedInjection,
+    maxReviews,
+  };
+
+  // 0. Pre-compacted `[Buyer review] ...` lines (from readFocusedPage or test fixtures).
+  for (const line of raw.split('\n')) {
+    if (BUYER_REVIEW_PREFIX_RE.test(line)) {
+      evaluateCandidateSnippet(line.replace(BUYER_REVIEW_PREFIX_RE, ''), {
+        ...ctx,
+        verified: true,
+        kind: 'buyer-review',
+      });
+    }
+  }
+
+  // 1. Record any "Customers say" AI summary paragraphs so droppedAiSummary is populated,
+  //    and extract linked verbatim buyer quotes ("..." [Read more](.../customer-reviews/...)).
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (isAiReviewSummary(trimmed)) {
+      droppedAiSummary.push(trimmed);
+    }
+  }
+  for (const match of raw.matchAll(LINKED_VERBATIM_QUOTE_RE)) {
+    evaluateCandidateSnippet(match[1], {
+      ...ctx,
+      verified: true,
+      kind: 'buyer-review',
+    });
+  }
+
+  // 2. Star-rated / "Reviewed in ... on <Date>" / "Verified Purchase" customer review blocks.
+  const starBlocks = raw.split(INLINE_STAR_REVIEW_SPLIT_RE);
+  if (starBlocks.length > 1) {
+    for (const block of starBlocks.slice(1)) {
+      let body = block;
+      let headerContext = '';
+      const verifiedMatch = VERIFIED_BADGE_RE.exec(block);
+      const vineMatch = VINE_BADGE_RE.exec(block);
+      const dateMatch = REVIEWED_IN_DATE_RE.exec(block);
+
+      if (verifiedMatch) {
+        const cut = verifiedMatch.index + verifiedMatch[0].length;
+        headerContext = block.slice(0, cut);
+        body = block.slice(cut);
+      } else if (vineMatch) {
+        const cut = vineMatch.index + vineMatch[0].length;
+        headerContext = block.slice(0, cut);
+        body = block.slice(cut);
+      } else if (dateMatch) {
+        const cut = dateMatch.index + dateMatch[0].length;
+        headerContext = block.slice(0, cut);
+        body = block.slice(cut);
+      }
+
+      // Stop before the next major section heading if any trailed into the last block.
+      const nextHeading = body.search(/\n#{1,3}\s+\S/);
+      if (nextHeading >= 0) body = body.slice(0, nextHeading);
+      // Cut at "[Read more](javascript:void(0))" or "Helpful Report" footer.
+      const footerIdx = body.search(/\[Read more\]\(javascript:void\(0\)\)|\b(?:\d+\s+people|One\s+person)\s+found\s+this\s+helpful\b|\bHelpful\s+Report\b/i);
+      if (footerIdx >= 0) body = body.slice(0, footerIdx);
+
+      evaluateCandidateSnippet(body, {
+        ...ctx,
+        verified: Boolean(verifiedMatch),
+        kind: 'buyer-review',
+        headerContext,
+      });
+    }
+  }
+
+  // 3. Multi-line or bulleted review entries inside `# Customer reviews` / `## Ratings & Reviews`
+  //    sections (e.g. Best Buy, Walmart, Target, B&H, or clean markdown review sections)
+  //    when inline star-rating headers did not already structure the section.
+  const lines = raw.split('\n');
+  if (starBlocks.length <= 1) {
+    let inReviewSection = false;
+    let pendingHeader = '';
+    for (let i = 0; i < lines.length && reviews.length < maxReviews; i += 1) {
+      const trimmed = lines[i].trim();
+      if (!trimmed || BUYER_REVIEW_PREFIX_RE.test(trimmed)) continue;
+
+      if (REVIEW_SECTION_RE.test(trimmed)) {
+        inReviewSection = true;
+        pendingHeader = '';
+        continue;
+      }
+      if (inReviewSection && /^#{1,2}\s+\S/.test(trimmed) && !REVIEW_SECTION_RE.test(trimmed)) {
+        if (CAROUSEL_SECTION_RE.test(trimmed) || SPEC_SECTION_RE.test(trimmed)) {
+          inReviewSection = false;
+          continue;
+        }
+      }
+
+      // Standalone "Verified Purchase" / "Vine Customer Review..." badge line preceding a review paragraph.
+      if (/^(?:[^\n]{0,80}?\b)?(?:Verified\s+(?:Purchase|Buyer|Owner)|Vine\s+Customer\s+Review(?:\s+of\s+(?:a\s+)?Free\s+Product)?)\s*$/i.test(trimmed)) {
+        pendingHeader = `${pendingHeader} ${trimmed}`.trim();
+        continue;
+      }
+      if (REVIEWED_IN_DATE_RE.test(trimmed) && trimmed.length < 120) {
+        pendingHeader = `${pendingHeader} ${trimmed}`.trim();
+        continue;
+      }
+
+      if (inReviewSection) {
+        // Skip rating histogram lines ("5 star 78%", "4.6 out of 5", "3,907 global ratings"),
+        // aspect chip lists, and short UI prompts.
+        if (/^(?:\d\s*stars?\b|\d(?:\.\d)?\s+out\s+of\s+5\b|\d[\d,]*\s+(?:global\s+)?(?:ratings?|reviews?)\b|review\s+this\s+product\b|share\s+your\s+thoughts\b|write\s+a\s+customer\s+review\b|sort\s+by\b|filter\s+by\b|customer\s+images\b)/i.test(trimmed)) {
+          continue;
+        }
+        // Skip lines that already matched LINKED_VERBATIM_QUOTE_RE or INLINE_STAR_REVIEW_SPLIT_RE.
+        if (/\[Read more\]\(https?:\/\/[^)\s]*(?:customer-reviews|reviews)/i.test(trimmed)) continue;
+        if (/^#{3,6}\s+_?\d(?:\.\d)?\s+out\s+of\s+5\s+stars_?/i.test(trimmed)) continue;
+
+        if (trimmed.length >= 25) {
+          evaluateCandidateSnippet(trimmed, {
+            ...ctx,
+            verified: VERIFIED_BADGE_RE.test(pendingHeader) || VERIFIED_BADGE_RE.test(trimmed),
+            kind: 'buyer-review',
+            headerContext: pendingHeader,
+          });
+          pendingHeader = '';
+        }
+      }
+    }
+  }
+
+  // 4. Community / Reddit / forum owner comments when URL is a community domain
+  //    or the text contains Reddit/forum comment blocks (`u/...`, `Posted by`, `> ...`).
+  const isCommunity = Boolean(opts.url && isCommunityDomain(opts.url))
+    || /(?:^|\n)\s*(?:u\/[a-z0-9_-]+|r\/[a-z0-9_-]+|#{1,4}\s*comments\b)/im.test(raw);
+  if (isCommunity && reviews.length < maxReviews) {
+    const ownerRe = /\b(?:i\s+(?:bought|own|have|had|used|tested|got|picked\s+up|switched|upgraded|wore|tried)|my\s+(?:unit|pair|headphones|earbuds|battery|experience|wife|husband)|after\s+\d+\s+(?:days?|weeks?|months?|years?)|been\s+using|mine\s+(?:lasts?|lasted|works?|broke|died|holds?))\b/i;
+    for (const line of lines) {
+      if (reviews.length >= maxReviews) break;
+      const trimmed = line.replace(/^\s*(?:>+|\*|-|\d+\.)\s*/, '').trim();
+      if (trimmed.length < 25 || trimmed.startsWith('#')) continue;
+      if (!ownerRe.test(trimmed)) continue;
+      evaluateCandidateSnippet(trimmed, {
+        ...ctx,
+        verified: false,
+        kind: 'owner-comment',
+      });
+    }
+  }
+
+  return { reviews, droppedIncentivized, droppedAiSummary, droppedInjection };
+}
+
+/**
+ * Full-page retailer parser: returns `{ specText, reviews, isBlock,
+ * droppedIncentivized, droppedAiSummary, droppedInjection }` from a raw
+ * retailer markdown page (up to 200,000 chars).
+ */
+export function parseRetailerPage(content, opts = {}) {
+  const raw = String(content ?? '').slice(0, FOCUSED_READ_MAX_CHARS);
+  const isBlock = isBlockPage(raw);
+  if (isBlock) {
+    return {
+      specText: '',
+      reviews: [],
+      isBlock: true,
+      droppedIncentivized: [],
+      droppedAiSummary: [],
+      droppedInjection: [],
+    };
+  }
+  const specText = extractRetailerSpecText(raw, opts.maxSpecChars ?? RETAILER_SPEC_MAX_CHARS);
+  const parsedReviews = parseBuyerReviewsInternal(raw, opts);
+  return {
+    specText,
+    reviews: parsedReviews.reviews,
+    isBlock: false,
+    droppedIncentivized: parsedReviews.droppedIncentivized,
+    droppedAiSummary: parsedReviews.droppedAiSummary,
+    droppedInjection: parsedReviews.droppedInjection,
+  };
+}
+
+// Compacts a raw retailer markdown page for readFocusedPage: keeps specText
+// (<= 25,000 chars) + a compact `# Customer reviews` section of sanitized
+// `[Buyer review]` lines so downstream claim extraction gets specText while
+// evidencePool / harvestBuyerReviews still has the page's buyer reviews.
+function compactRetailerMarkdown(raw, opts = {}) {
+  const text = String(raw ?? '');
+  if (!hasRetailerStructure(text)) return text;
+  const { specText, reviews } = parseRetailerPage(text, opts);
+  if (reviews.length === 0) return specText;
+  const reviewBlock = reviews.map((r) => `[Buyer review] ${r.text}`).join('\n');
+  return `${specText}\n\n# Customer reviews\n${reviewBlock}`;
+}
+
+function normalizedHostOf(url) {
+  const parsed = parseUrl(url);
+  return parsed ? parsed.hostname.replace(/^www\./, '').toLowerCase() : '';
+}
+
+/**
+ * Harvests up to `maxReviews` (default 200) short buyer/owner reviews across
+ * all candidate pages about `product`, deduplicating across pages/retailers by
+ * `reviewTextHash` so syndicated Bazaarvoice reviews copied across Best Buy,
+ * Walmart, and Target count only once (Red-Team #4), and grouping all buyer
+ * reviews from each retailer host into ONE aggregated evidence source per
+ * host (`source: 'buyer-review'`, Red-Team #1).
+ */
+export function harvestBuyerReviews(sources, product, opts = {}) {
+  const list = Array.isArray(sources) ? sources : [];
+  const maxReviews = Number.isInteger(opts.maxReviews) && opts.maxReviews > 0 ? opts.maxReviews : MAX_BUYER_REVIEWS;
+  const seenHashes = new Set();
+  const byHost = new Map();
+  let totalHarvested = 0;
+
+  for (const source of list) {
+    if (!source?.url || totalHarvested >= maxReviews) break;
+    // If source is already a pre-built buyer-review source, keep its reviews under its host.
+    const kind = ownPageKind(source.url, product);
+    const isPrebuiltBuyerReview = source.source === 'buyer-review';
+    if (!isPrebuiltBuyerReview && kind !== 'retailer') continue;
+    if (product && (!aboutProduct(source, product) || namesOtherModel(source, product))) continue;
+
+    const host = normalizedHostOf(source.url);
+    if (!host) continue;
+
+    const remaining = maxReviews - totalHarvested;
+    const extracted = extractBuyerReviews(source.content, {
+      url: source.url,
+      maxReviews: remaining,
+      seenHashes,
+    });
+    if (extracted.length === 0) continue;
+
+    totalHarvested += extracted.length;
+    if (!byHost.has(host)) {
+      const baseUrl = String(source.url).replace(/#.*$/, '');
+      byHost.set(host, {
+        url: `${baseUrl}#buyer-reviews`,
+        title: `${source.title || product || host} — Customer Reviews (${host})`,
+        reviews: [],
+      });
+    }
+    byHost.get(host).reviews.push(...extracted);
+  }
+
+  return [...byHost.values()].map((entry) => ({
+    url: entry.url,
+    title: entry.title,
+    content: entry.reviews.map((r) => `[Buyer review] ${r.text}`).join('\n'),
+    source: 'buyer-review',
+    reviewCount: entry.reviews.length,
+    reviewHashes: entry.reviews.map((r) => r.hash),
+  }));
+}
+
