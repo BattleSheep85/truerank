@@ -57,19 +57,26 @@ function agrees(measured, claimed, upTo) {
   return upTo && gap < 0 && -gap <= UP_TO_TOLERANCE;
 }
 
+// A span figure equal to a claim figure is the spec quoted back ("Apple says
+// 6 hours"), not a measurement.
+function isQuotedSpec(q, claimed) {
+  return claimed.some((c) => c.dim === q.dim && c.value === q.value);
+}
+
 /**
  * True when every figure in `span` that shares a unit dimension with a figure
  * in `claimText` agrees with one of the claim's figures (within
  * NEAR_SPEC_TOLERANCE, or up to UP_TO_TOLERANCE below an "up to" claim).
- * False when they share no dimension, so a contradiction without numbers is
- * left alone. Never throws.
+ * Figures equal to a claim figure are ignored as the spec quoted back.
+ * False when no other figure shares a dimension, so a contradiction stated in
+ * words ("Apple says 6 hours; ours managed three") is left alone. Never throws.
  */
 export function isNearSpecValue(claimText, span) {
   const claimed = extractQuantities(claimText);
   const measured = extractQuantities(span);
   const upTo = typeof claimText === 'string' && UP_TO_RE.test(claimText);
   const dims = new Set(claimed.map((q) => q.dim));
-  const shared = measured.filter((q) => dims.has(q.dim));
+  const shared = measured.filter((q) => dims.has(q.dim) && !isQuotedSpec(q, claimed));
   if (shared.length === 0) return false;
   return shared.every((m) => claimed.some((c) => c.dim === m.dim && agrees(m.value, c.value, upTo)));
 }

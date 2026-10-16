@@ -1754,6 +1754,18 @@ async function runCp779Tests({ eq, report }) {
       applyStanceBackstops({ ...item('We weighed it at 5.4 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
     eq(`${label}: 8% off a non-"up to" claim stays contradict`,
       applyStanceBackstops({ ...item('We weighed it at 5.75 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'contradict');
+    // QA (CP-779): the spec quoted back is not a measurement, so a verbal
+    // result next to it must keep the contradiction.
+    for (const span of [
+      'Apple claims up to 6 hours, but in our test it barely lasted half that.',
+      'Apple advertises 6 hours, yet ours died after about an hour.',
+      'Apple says 6 hours; our pair managed just three hours.',
+    ]) {
+      eq(`${label}: quoted spec with a verbal result stays contradict: ${JSON.stringify(span)}`,
+        applyStanceBackstops(item(span), claim, 'Apple AirPods Pro 2'), 'contradict');
+    }
+    eq(`${label}: quoted spec next to a near measurement → neutral`,
+      applyStanceBackstops(item('Apple says up to 6 hours, and we measured 5 hours, 43 minutes.'), claim, 'Apple AirPods Pro 2'), 'neutral');
     eq(`${label}: support is never changed by the near-spec rule`,
       applyStanceBackstops({ ...item('We measured 5h 43m of playback.'), stance: 'support' }, claim, 'Apple AirPods Pro 2'), 'support');
   });
