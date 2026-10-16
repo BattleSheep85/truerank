@@ -164,11 +164,40 @@ function hostKeyOf(url) {
   }
 }
 
+// Two-label public suffixes used by regional retailer storefronts
+// (amazon.co.uk, amazon.com.au). The store label sits just before them.
+const TWO_PART_PUBLIC_SUFFIXES = Object.freeze([
+  'co.uk', 'com.au', 'co.jp', 'com.br', 'com.mx',
+  'co.in', 'co.nz', 'com.sg', 'com.tr', 'co.za',
+]);
+
+/**
+ * Store label for a buyer-review URL, so regional storefronts of one retailer
+ * group together: "www.amazon.co.uk" and "amazon.ca" both give "amazon",
+ * "bestbuy.com" gives "bestbuy". Invalid or missing URL gives ''.
+ */
+export function buyerStoreKeyOf(url) {
+  const labels = hostKeyOf(url).split('.').filter(Boolean);
+  if (labels.length < 2) return labels[0] || '';
+  const lastTwo = labels.slice(-2).join('.');
+  const suffixLength = TWO_PART_PUBLIC_SUFFIXES.includes(lastTwo) ? 2 : 1;
+  return labels[labels.length - suffixLength - 1] || labels[0];
+}
+
+/** Independence key: buyer reviews group by store, everything else by host. */
+function corroboratorKeyOf(item) {
+  if (!isBuyerReviewItem(item)) return hostKeyOf(item.url);
+  const store = buyerStoreKeyOf(item.url);
+  return store ? `buyer:${store}` : '';
+}
+
 /**
  * Counts DISTINCT hostnames among `supporting` items that qualify as genuine
  * independent corroborators: weigh(item) >= CORROBORATOR_MIN_WEIGHT AND none
  * of NON_INDEPENDENT_TAGS present in item.tags. Two pages on the same host
- * count once. Invalid/missing URLs are skipped (can't establish a distinct
+ * count once. Buyer-review items group by store (buyerStoreKeyOf), so
+ * amazon.com, amazon.co.uk, and amazon.ca count once (CP-723).
+ * Invalid/missing URLs are skipped (can't establish a distinct
  * host). Pure — does not mutate `supporting`.
  */
 export function independentCorroborators(supporting, weigh) {
@@ -179,8 +208,8 @@ export function independentCorroborators(supporting, weigh) {
     if (weigh(item) < CORROBORATOR_MIN_WEIGHT) continue;
     const tags = item.tags || [];
     if (NON_INDEPENDENT_TAGS.some((t) => tags.includes(t))) continue;
-    const host = hostKeyOf(item.url);
-    if (host) hosts.add(host);
+    const key = corroboratorKeyOf(item);
+    if (key) hosts.add(key);
   }
   return hosts.size;
 }
@@ -188,7 +217,7 @@ export function independentCorroborators(supporting, weigh) {
 // Lab-measured units or ratings that always require at least one hands-on
 // or expert test source among the independent corroborators to reach
 // 'verified' (Red-Team #2).
-const MEASURED_SPEC_UNIT_RE = /\b(?:\d+(?:\.\d+)?\s*(?:db|dba|watts?|w\b|kw\b|mah|wh\b|ah\b|v\b|volts?|a\b|amps?|hz|khz|mhz|ghz|rpm|aw\b|air\s*watts?|pa\b|kpa\b|cfm|dpi|cpi|ips\b|nits?|cd\/m2|lumens?|lux|ohms?|Ω|fps|ms\b|mb\/s|gb\/s|gbps|mbps|g\b|grams?|kg\b|lbs?\b|oz\b|°[cf]|%\s*(?:srgb|dci[- ]p3|adobe\s*rgb|ntsc|anc|noise|filtration|efficiency))|ip[x\d]\d\b)/i;
+const MEASURED_SPEC_UNIT_RE = /\b(?:\d+(?:\.\d+)?\s*-?\s*(?:hours?|hrs?|h\b|minutes?|mins?)\b|\d+(?:\.\d+)?\s*(?:db|dba|watts?|w\b|kw\b|mah|wh\b|ah\b|v\b|volts?|a\b|amps?|hz|khz|mhz|ghz|rpm|aw\b|air\s*watts?|pa\b|kpa\b|cfm|dpi|cpi|ips\b|nits?|cd\/m2|lumens?|lux|ohms?|Ω|fps|ms\b|mb\/s|gb\/s|gbps|mbps|g\b|grams?|kg\b|lbs?\b|oz\b|°[cf]|%\s*(?:srgb|dci[- ]p3|adobe\s*rgb|ntsc|anc|noise|filtration|efficiency))|ip[x\d]\d\b)/i;
 // Observable physical fit, mounting, compatibility, package count, or
 // everyday experience claims that buyers and community users can directly
 // observe without lab equipment ("fits a 360 mm radiator", "dishwasher-safe",
@@ -230,13 +259,15 @@ export function hasHandsOnCorroborator(supporting, weigh = verificationWeight) {
   return false;
 }
 
-function sumSupportWeight(items, weigh, capBuyerReviewsByHost) {
+// Sums weights; with `capBuyerReviewsByStore`, all buyer reviews from one
+// store (buyerStoreKeyOf) add at most MAX_BUYER_REVIEW_HOST_WEIGHT.
+function sumCappedWeight(items, weigh, capBuyerReviewsByStore) {
   const buyerHostTotals = new Map();
   let total = 0;
   for (const ev of items) {
     const w = weigh(ev);
-    if (capBuyerReviewsByHost && isBuyerReviewItem(ev)) {
-      const host = hostKeyOf(ev.url) || '__buyer_review__';
+    if (capBuyerReviewsByStore && isBuyerReviewItem(ev)) {
+      const host = buyerStoreKeyOf(ev.url) || '__buyer_review__';
       const used = buyerHostTotals.get(host) || 0;
       const allowed = Math.max(0, Math.min(w, MAX_BUYER_REVIEW_HOST_WEIGHT - used));
       buyerHostTotals.set(host, used + allowed);
@@ -249,6 +280,35 @@ function sumSupportWeight(items, weigh, capBuyerReviewsByHost) {
 }
 
 const MIN_INDEPENDENT_CORROBORATORS = 2;
+
+/**
+ * True when no contradicting item is a qualifying non-buyer source
+ * (weigh(item) >= CORROBORATOR_MIN_WEIGHT): the contradiction rests on
+ * buyer reviews (or trivial sources) alone.
+ */
+function buyerOnlyContradiction(contradictItems, weigh) {
+  return !contradictItems.some(
+    (ev) => !isBuyerReviewItem(ev) && weigh(ev) >= CORROBORATOR_MIN_WEIGHT,
+  );
+}
+
+/**
+ * CP-723: under the verification policy, a buyer-only contradiction cannot
+ * overturn a measured spec, and cannot beat hands-on/expert support.
+ */
+function contradictionBlocked(claim, supportItems, contradictItems, weigh) {
+  if (!buyerOnlyContradiction(contradictItems, weigh)) return false;
+  return isMeasuredSpecClaim(claim) || hasHandsOnCorroborator(supportItems, weigh);
+}
+
+function baseStatus(support, contradict, contradictAllowed) {
+  if (contradictAllowed && contradict >= CONTRADICT_MIN && contradict > support) {
+    return 'contradicted';
+  }
+  if (support >= STRONG_SUPPORT && contradict < LOW_CONTRADICT) return 'verified';
+  if (support >= WEAK_SUPPORT) return 'partially-verified';
+  return 'unsubstantiated';
+}
 
 function byWeightDescUrlAsc(a, b) {
   if (b._weight !== a._weight) return b._weight - a._weight;
@@ -285,7 +345,13 @@ function sortedSide(items, weigh) {
  * additionally require at least one non-buyer-review hands-on/expert test
  * source among the independent corroborators (Red-Team #2) — otherwise they're
  * downgraded to 'partially-verified'.
- * Contradicted is unchanged (evaluated first, always wins). When this policy
+ * Under this policy buyer reviews also group by store (buyerStoreKeyOf) on
+ * both sides: one store adds at most MAX_BUYER_REVIEW_HOST_WEIGHT to
+ * support or to contradict. Contradicted is evaluated first, except when the
+ * contradiction is buyer-only (no qualifying non-buyer contradicting source)
+ * and the claim is a measured spec or has hands-on/expert support (CP-723).
+ * Then the normal support thresholds apply; verified still needs
+ * contradict < LOW_CONTRADICT. Expert (non-buyer) contradiction always wins. When this policy
  * is active and `opts.weigh` is not given, `weigh` defaults to
  * verificationWeight (not evidenceWeight) since the policy is meaningless
  * without tag-aware weighting. The returned object always carries
@@ -302,23 +368,17 @@ export function verdictForClaim(claim, evidence, opts = {}) {
   const supportItems = list.filter((ev) => ev && ev.stance === STANCE.SUPPORT);
   const contradictItems = list.filter((ev) => ev && ev.stance === STANCE.CONTRADICT);
 
-  const support = sumSupportWeight(supportItems, weigh, policy === 'verification');
-  const contradict = contradictItems.reduce((sum, ev) => sum + weigh(ev), 0);
+  const verification = policy === 'verification';
+  const support = sumCappedWeight(supportItems, weigh, verification);
+  const contradict = sumCappedWeight(contradictItems, weigh, verification);
+  const contradictAllowed = !verification
+    || !contradictionBlocked(claim, supportItems, contradictItems, weigh);
 
-  let status;
-  if (contradict >= CONTRADICT_MIN && contradict > support) {
-    status = 'contradicted';
-  } else if (support >= STRONG_SUPPORT && contradict < LOW_CONTRADICT) {
-    status = 'verified';
-  } else if (support >= WEAK_SUPPORT) {
-    status = 'partially-verified';
-  } else {
-    status = 'unsubstantiated';
-  }
+  let status = baseStatus(support, contradict, contradictAllowed);
 
   const independentCount = independentCorroborators(supportItems, weigh);
 
-  if (policy === 'verification' && status === 'verified') {
+  if (verification && status === 'verified') {
     if (claim && claim.type === 'marketing') {
       status = 'partially-verified'; // puffery is partially-verified at best
     } else if (independentCount < MIN_INDEPENDENT_CORROBORATORS) {

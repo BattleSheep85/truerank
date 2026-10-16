@@ -507,5 +507,67 @@ export function runVerdictTests() {
     eq('Red-Team #2: observable physical/fit claim can reach verified from independent buyer/community corroboration', observableVerdict.status, 'verified');
   }
 
+  // CP-723 regressions
+  {
+    const { isMeasuredSpecClaim } = verdictLib;
+    const EPS = 1e-9;
+    const buyer = (url, stance) => ({ url, stance, credibility: 85, independence: 90, tags: ['community', 'buyer-review', 'hands-on'] });
+    const labSupport = { url: 'https://www.rtings.com/headphones/reviews/x', stance: 'support', credibility: 90, independence: 60, tags: ['hands-on', 'expert-domain'] };
+    const opts = { policy: 'verification' };
+
+    // 1. Regional storefronts of one retailer are one host, not three.
+    const fitClaim = { id: 'c1', type: 'spec', text: 'Fits a 360 mm radiator in the top mount' };
+    const amazonRegions = verdictForClaim(fitClaim, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews', 'support'),
+      buyer('https://www.amazon.co.uk/dp/X#buyer-reviews', 'support'),
+      buyer('https://www.amazon.ca/dp/X#buyer-reviews', 'support'),
+    ], opts);
+    eq('CP-723 store-grouping: amazon.com/.co.uk/.ca count as one independent host', amazonRegions.independentCount, 1);
+    ok('CP-723 store-grouping: one store caps buyer support at MAX_BUYER_REVIEW_HOST_WEIGHT', amazonRegions.support <= 0.35 + EPS);
+    ok('CP-723 store-grouping: one store of buyer reviews cannot verify', amazonRegions.status !== 'verified');
+
+    // 2. Buyer contradictions cannot outvote a lab test.
+    const batteryClaim = { id: 'c2', type: 'spec', text: 'Up to 30 hours battery life' };
+    const labVsBuyers = verdictForClaim(batteryClaim, [
+      labSupport,
+      buyer('https://www.amazon.com/dp/X#buyer-reviews', 'contradict'),
+      buyer('https://www.bestbuy.com/site/p/1#buyer-reviews', 'contradict'),
+    ], opts);
+    ok('CP-723 buyer contradict cap: two buyer stores cannot contradict a lab-tested claim', labVsBuyers.status !== 'contradicted');
+
+    // 3. Many buyer contradictions from one store cap at one store's weight.
+    const radiatorClaim = { id: 'c3', type: 'spec', text: 'Fits a 360 mm radiator' };
+    const oneStoreContra = verdictForClaim(radiatorClaim, [1, 2, 3, 4, 5].map(
+      (n) => buyer(`https://www.amazon.com/dp/X#buyer-review-${n}`, 'contradict'),
+    ), opts);
+    ok('CP-723 buyer contradict per-store cap: five amazon.com contradictions cap at 0.35', oneStoreContra.contradict <= 0.35 + EPS);
+
+    // 4. Buyers alone cannot overturn a measured spec.
+    const ipClaim = { id: 'c4', type: 'spec', text: 'IP68 water resistance' };
+    const ipBuyersOnly = verdictForClaim(ipClaim, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews', 'contradict'),
+      buyer('https://www.bestbuy.com/site/p/1#buyer-reviews', 'contradict'),
+      buyer('https://www.walmart.com/ip/1#buyer-reviews', 'contradict'),
+    ], opts);
+    ok('CP-723 measured spec buyer-only contradiction: buyers alone cannot contradict a measured spec', ipBuyersOnly.status !== 'contradicted');
+
+    // 5. Hour and minute durations are measured specs.
+    ok('CP-723 hours are measured: "Durable 50-hour battery"', isMeasuredSpecClaim({ type: 'spec', text: 'Durable 50-hour battery' }));
+    ok('CP-723 hours are measured: "Battery lasts all day, up to 40 hours"', isMeasuredSpecClaim({ type: 'spec', text: 'Battery lasts all day, up to 40 hours' }));
+    ok('CP-723 hours are measured: "Up to 30 hours of playback, comfortable fit"', isMeasuredSpecClaim({ type: 'spec', text: 'Up to 30 hours of playback, comfortable fit' }));
+    ok('CP-723 hours are measured: "Charges fully in 90 minutes"', isMeasuredSpecClaim({ type: 'spec', text: 'Charges fully in 90 minutes' }));
+    eq('CP-723 hours are measured: "Battery lasts all day" has no number', isMeasuredSpecClaim({ type: 'spec', text: 'Battery lasts all day' }), false);
+    eq('CP-723 hours are measured: radiator fit stays observable', isMeasuredSpecClaim({ type: 'spec', text: 'Fits a 360 mm radiator' }), false);
+
+    // 6. Control: expert (non-buyer) contradiction still contradicts.
+    const expertContra = (url) => ({ url, stance: 'contradict', credibility: 95, independence: 95, tags: ['hands-on', 'expert-domain'] });
+    const expertVsLab = verdictForClaim(batteryClaim, [
+      labSupport,
+      expertContra('https://www.techradar.com/x'),
+      expertContra('https://www.tomsguide.com/x'),
+    ], opts);
+    eq('CP-723 control: two higher-weight expert contradictions still contradict', expertVsLab.status, 'contradicted');
+  }
+
   return report;
 }
