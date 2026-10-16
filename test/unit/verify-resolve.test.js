@@ -194,6 +194,8 @@ export async function runVerifyResolveTests() {
   eq('CP-718 series word: "Antec Constellation C8 Wood" does not', namesProduct(page('https://x.com/r', 'Antec Constellation C8 Wood Review'), 'Antec C8'), false);
   eq('CP-718 series word: "Antec C5 vs C8" does not name it twice-removed', namesProduct(page('https://x.com/r', 'Antec Flux vs Lian Li C8'), 'Antec C8'), false);
   eq('CP-718 series word: "Galaxy Tab S9" is not the Galaxy S9', namesProduct(page('https://x.com/r', 'Samsung Galaxy Tab S9 review'), 'Galaxy S9'), false);
+  eq('CP-718 series word: body text never uses the series-word match', aboutProduct({ url: 'https://x.com/roundup', title: 'Best phones', content: 'In our test the Pixel lasted 8 hours.' }, 'Pixel 8'), false);
+  eq('CP-718 series word: titles do', aboutProduct({ url: 'https://x.com/r', title: 'Google Pixel 8 review', content: '' }, 'Pixel 8'), true);
   eq('CP-718 series word: three-word names keep the strict match', namesProduct(page('https://x.com/r', 'Samsung Galaxy Ultra S25 review'), 'Samsung Galaxy S25'), false);
 
   // CP-718: ten TechPowerUp pages of one review took every read; Reddit reads are always blocked.
@@ -210,6 +212,8 @@ export async function runVerifyResolveTests() {
   eq('CP-718 testPagesToRead: at most 2 pages per site', testPicks.filter((u) => u.includes('techpowerup')).length, 2);
   eq('CP-718 testPagesToRead: GamersNexus and KitGuru get reads', otherReviews.every((s) => testPicks.includes(s.url)), true);
   eq('CP-718 testPagesToRead: Reddit is not read', testPicks.some((u) => u.includes('reddit')), false);
+  const blogs = ['alice', 'bob', 'carol'].map((n) => ({ url: `https://${n}.substack.com/p/antec-c8-review`, title: 'Antec C8 review', content: 'snippet', credibility: { score: 70 } }));
+  eq('CP-718 testPagesToRead: blogs on a shared host are separate sites', testPagesToRead(blogs, 'Antec C8').length, 3);
   const gatherPicks = evidencePagesToRead(tpuFirst, 'Antec C8').map((s) => s.url);
   eq('CP-718 evidencePagesToRead: at most 2 pages per site', gatherPicks.filter((u) => u.includes('techpowerup')).length, 2);
   eq('CP-718 evidencePagesToRead: Reddit is not read', gatherPicks.some((u) => u.includes('reddit')), false);

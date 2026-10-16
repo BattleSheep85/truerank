@@ -14,6 +14,7 @@ import { runSearch, readPageInto } from './tools.js';
 import { isManufacturerDomain, isCommunityDomain, hasAiInjection, hasIncentivizedReview } from '../lib/credibility.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { MODEL_VARIANT_WORDS, distillProductName } from '../lib/product-link.js';
+import { buyerStoreKeyOf } from '../lib/verdict.js';
 import { afterAbort, anySignal, delay, runPoolUntil, POOL_GRACE_MS } from '../lib/deadline.js';
 
 export { MODEL_VARIANT_WORDS, distillProductName };
@@ -274,7 +275,10 @@ function keyPattern(key, blockVariantTail) {
 
 // Words that start another product line between a brand and a number
 // ("Galaxy Tab S9" is not the "Galaxy S9"), so they are never a series word.
-const LINE_WORDS = Object.freeze(new Set(['tab', 'watch', 'buds', 'pad', 'book', 'note', 'fold', 'flip', 'fit', 'band', 'tv', 'case', 'vs', 'and', 'or', 'like', 'the']));
+const LINE_WORDS = Object.freeze(new Set([
+  'tab', 'tablet', 'watch', 'buds', 'pad', 'book', 'laptop', 'studio', 'note', 'fold', 'flip', 'fit', 'band', 'tv',
+  'phone', 'case', 'vs', 'versus', 'and', 'or', 'like', 'the', 'with', 'than', 'lasted', 'gets', 'has',
+]));
 const LINE_WORDS_RE_SOURCE = [...LINE_WORDS, ...MODEL_VARIANT_WORDS].join('|');
 
 // CP-718: a two-word "Brand Model" name also matches "Brand Series Model"
@@ -289,21 +293,23 @@ function interposedPattern(ours) {
   return `(?<![a-z0-9])${esc(line.series)}[^a-z0-9]+(?!(?:${LINE_WORDS_RE_SOURCE})(?![a-z0-9]))[a-z]{3,}[^a-z0-9]+${esc(line.number)}${endBoundary}${VARIANT_GUARD}`;
 }
 
-function hasKeyMatch(text, product) {
+// `allowSeriesWord`: also accept interposedPattern (titles and paths only;
+// in body text "the Pixel lasted 8 hours" would match "Pixel 8").
+function hasKeyMatch(text, product, allowSeriesWord = false) {
   const keys = productKeys(product);
   if (keys.length === 0) return false;
   const ours = nameTokens(product);
   const blockVariantTail = ours.filter(isModelCode).length === 0;
   const body = String(text ?? '');
   if (keys.some((key) => new RegExp(keyPattern(key, blockVariantTail), 'i').test(body))) return true;
-  const interposed = interposedPattern(ours);
+  const interposed = allowSeriesWord ? interposedPattern(ours) : null;
   return interposed ? new RegExp(interposed, 'i').test(body) : false;
 }
 
-/** True when the url path or the title names this product (see productKeys). */
+/** True when the url path or the title names this product (see productKeys and interposedPattern). */
 export function namesProduct(source, product) {
   const { path } = pathAndTitleWords(source);
-  return hasKeyMatch(`${path} ${source?.title ?? ''}`, product);
+  return hasKeyMatch(`${path} ${source?.title ?? ''}`, product, true);
 }
 
 /**
@@ -910,11 +916,12 @@ function skipsRead(url) {
   return NO_READ_LABELS.has(label) || BLOCKED_READ_LABELS.has(label);
 }
 
-// Keeps the first MAX_READS_PER_SITE picks of each site, in order.
+// Keeps the first MAX_READS_PER_SITE picks of each site, in order. A blog
+// on a shared host (alice.substack.com) is its own site (buyerStoreKeyOf).
 function capPerSite(picks) {
   const perSite = new Map();
   return picks.filter((p) => {
-    const site = hostLabel(p.source.url);
+    const site = buyerStoreKeyOf(p.source.url) || hostLabel(p.source.url);
     const used = perSite.get(site) || 0;
     perSite.set(site, used + 1);
     return used < MAX_READS_PER_SITE;

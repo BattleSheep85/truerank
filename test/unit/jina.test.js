@@ -172,7 +172,7 @@ export async function runJinaTests() {
         fetchImpl: scriptedFetch([jsonResponse(200, refused)], jsonResponse(403, '')),
         sleepImpl: noopSleep,
       });
-      eq('CP-718 refused: a failed direct fetch keeps the Jina reply', bothBlocked, refused);
+      eq('CP-718 refused: a failed direct fetch gives no text (the refusal is not the page)', bothBlocked, '');
     } finally {
       console.log = quietLog;
     }

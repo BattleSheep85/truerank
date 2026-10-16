@@ -35,10 +35,11 @@ const UNITS = new Map([
   ['airwatts', ['airpower', 1]], ['airwatt', ['airpower', 1]],
   ['l', ['volume', 1000]], ['liter', ['volume', 1000]], ['liters', ['volume', 1000]],
   ['litre', ['volume', 1000]], ['litres', ['volume', 1000]], ['ml', ['volume', 1]],
-  ['nm', ['torque', 1]], ['rpm', ['speed', 1]], ['psi', ['pressure', 1]],
+  ['rpm', ['speed', 1]], ['psi', ['pressure', 1]],
 ]);
 // Bare "in" and "m" are left out on purpose: "6 in our test" is not inches.
-const SINGLE_RE = /(\d+(?:\.\d+)?)\s*-?\s*(air\s*watts?|aw|hours?|hrs?|h|minutes?|mins?|mm|cm|inch(?:es)?|grams|kg|g|oz|lbs?|watts|kw|w|mah|ml|wh|db|khz|hz|nits|liters?|litres?|l|nm|rpm|psi|%)(?![a-z])/gi;
+// "Nm" is left out too: it is torque or nanometres (a 3 nm chip).
+const SINGLE_RE = /(\d+(?:\.\d+)?)\s*-?\s*(air\s*watts?|aw|hours?|hrs?|h|minutes?|mins?|mm|cm|inch(?:es)?|grams|kg|g|oz|lbs?|watts|kw|w|mah|ml|wh|db|khz|hz|nits|liters?|litres?|l|rpm|psi|%)(?![a-z])/gi;
 const UP_TO_RE = /\bup\s+to\b|\bmax(?:imum)?\b|\bpeak\b/i;
 
 /**

@@ -702,7 +702,22 @@ export function runVerdictTests() {
     ], opts);
     eq('CP-718 lone contradiction: support wins, but only partially-verified', supported.status, 'partially-verified');
 
-    // 6. The default policy keeps the old single-source rule.
+    // 6. Three Reddit threads are three authors; two buyer stores are one voice.
+    const reddit = (n) => ({ url: `https://www.reddit.com/r/x/comments/${n}/t`, stance: 'contradict', credibility: 55, independence: 75, tags: ['community'] });
+    const threads = verdictForClaim({ id: 'c3', type: 'marketing', text: 'Quiet under load' }, [reddit(1), reddit(2), reddit(3)], opts);
+    eq('CP-718 community: three Reddit threads can contradict', threads.status, 'contradicted');
+    const buyer = (url) => ({ url, stance: 'contradict', credibility: 80, independence: 75, tags: ['buyer-review'], source: 'buyer-review' });
+    const stores = verdictForClaim({ id: 'c4', type: 'marketing', text: 'Easy to build in' }, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews'), buyer('https://www.bestbuy.com/site/x#buyer-reviews'),
+    ], opts);
+    ok('CP-718 buyers: two buyer stores alone do not contradict', stores.status !== 'contradicted');
+    const storesPlusBlog = verdictForClaim({ id: 'c4', type: 'marketing', text: 'Easy to build in' }, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews'), buyer('https://www.bestbuy.com/site/x#buyer-reviews'),
+      page('https://blog.example.com/c', 'contradict'),
+    ], opts);
+    eq('CP-718 buyers: buyers plus one independent page contradict', storesPlusBlog.status, 'contradicted');
+
+    // 7. The default policy keeps the old single-source rule.
     const legacy = verdictForClaim('waterproof to 100m', [{ url: 'https://expert.com', stance: 'contradict', credibility: 80, independence: 70 }]);
     eq('CP-718 default policy: one source still contradicts', legacy.status, 'contradicted');
   }

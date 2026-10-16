@@ -187,8 +187,8 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
       // CP-718: the site refused Jina (TechPowerUp's 403); a direct fetch may pass.
       if (isTargetRefused(text)) {
         console.log(`[jina] target refused Jina for ${url}, trying a direct fetch`);
-        const direct = await fetchDirect(url, fetchImpl, stop, maxChars);
-        return direct || text.slice(0, maxChars);
+        // The refusal text is not the page: '' when the direct fetch fails too.
+        return await fetchDirect(url, fetchImpl, stop, maxChars);
       }
       return text.slice(0, maxChars);
     } catch (err) {

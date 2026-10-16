@@ -346,14 +346,38 @@ function isStrongContradictor(ev, weigh) {
   return Number(ev.credibility) >= STRONG_CONTRADICTOR_CREDIBILITY && weigh(ev) >= CONTRADICT_MIN;
 }
 
+// Contradictor key: every buyer review is one voice together (buyers back
+// up a test, they do not stand in for one), each page of a MULTI_AUTHOR_SITES
+// site is its own author, and any other page counts by site.
+function contradictorKeyOf(item) {
+  if (isBuyerReviewItem(item)) return 'buyer';
+  const site = buyerStoreKeyOf(item.url);
+  if (!site) return '';
+  return MULTI_AUTHOR_SITES.includes(site) ? `${site}:${item.url}` : site;
+}
+
+// Distinct qualifying contradictors (same bar as independentCorroborators).
+function independentContradictors(items, weigh) {
+  const keys = new Set();
+  for (const item of items) {
+    if (!item || weigh(item) < CORROBORATOR_MIN_WEIGHT) continue;
+    const tags = item.tags || [];
+    if (NON_INDEPENDENT_TAGS.some((t) => tags.includes(t))) continue;
+    const key = contradictorKeyOf(item);
+    if (key) keys.add(key);
+  }
+  return keys.size;
+}
+
 /**
  * CP-718: one ordinary page cannot contradict a claim on its own (a listicle
  * about another case, a shortened spec list, one blog's figure): it takes
- * MIN_INDEPENDENT_CONTRADICTORS independent sites, or one strong expert
- * test. Repeat runs found such single pages by chance, so scores swung.
+ * MIN_INDEPENDENT_CONTRADICTORS independent voices (independentContradictors),
+ * or one strong expert test. Repeat runs found such single pages by chance,
+ * so scores swung.
  */
 function contradictionCorroborated(contradictItems, weigh) {
-  if (independentCorroborators(contradictItems, weigh) >= MIN_INDEPENDENT_CONTRADICTORS) return true;
+  if (independentContradictors(contradictItems, weigh) >= MIN_INDEPENDENT_CONTRADICTORS) return true;
   return contradictItems.some((ev) => isStrongContradictor(ev, weigh));
 }
 

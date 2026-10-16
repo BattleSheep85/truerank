@@ -1801,6 +1801,7 @@ async function runCp779Tests({ eq, report }) {
       eq(`${label}: ${JSON.stringify(span)} vs ${JSON.stringify(claim)} stays contradict`, applyStanceBackstops(item(span), claim, product), 'contradict');
     }
     eq(`${label}: the tolerance is 10%`, quantityModule.NEAR_SPEC_TOLERANCE, 0.1);
+    eq(`${label}: "Nm" is not read (torque or nanometres)`, quantityModule.extractQuantities('70 Nm of torque on a 3 nm chip'), []);
     eq(`${label}: "6 7/8 inches" parses to mm`, Math.round(quantityModule.extractQuantities('6 7/8 inches')[0]?.value), 175);
   });
 
@@ -1831,6 +1832,8 @@ async function runCp779Tests({ eq, report }) {
       'Pressure washer delivers 2000 PSI of cleaning power',
       'Includes a 16-oz CREAMi pint container',
       'Weighs 3.1 kg',
+      'A 10-minute fast charge gives 3 hours of playback',
+      'Charging case adds 24 hours, with 3 hours of playback in 10 minutes of charging',
     ]) {
       eq(`${label}: isTestableClaim keeps ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), true);
     }

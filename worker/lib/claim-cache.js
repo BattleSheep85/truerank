@@ -17,10 +17,30 @@ const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
 const MAX_CLAIM_CHARS = 400;
 const MAX_CACHED_CLAIMS = 12;
 
-/** The KV key of a product's claim set, or null when the name has no key. */
-export function claimCacheKey(product) {
+// The pasted page as host + path, lowercase, or '' when there is none or it
+// does not parse.
+function pageKeyOf(productUrl) {
+  if (!productUrl) return '';
+  try {
+    const url = new URL(String(productUrl));
+    return `${url.hostname.replace(/^www\./, '')}${url.pathname.replace(/\/+$/, '')}`.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The KV key of a product's claim set, or null when the name has no key.
+ * With a pasted page (`productUrl`) the key also names the page, so claims
+ * from a page someone pasted are never reused for the plain name (the
+ * handler's reuseKey rule), and each pasted page keeps its own claims.
+ */
+export function claimCacheKey(product, productUrl = null) {
   const nameKey = productNameKey(String(product ?? '').trim());
-  return nameKey ? KEY_PREFIX + nameKey : null;
+  if (!nameKey) return null;
+  const page = pageKeyOf(productUrl);
+  if (productUrl && !page) return null;
+  return KEY_PREFIX + nameKey + (page ? `|page:${page}` : '');
 }
 
 function validClaim(c) {
@@ -39,12 +59,12 @@ function normalizeClaims(list, keep) {
 }
 
 /**
- * The saved claims of `product` that `keep` (for example isTestableClaim)
- * still accepts, or [] when there is no KV, no key, no saved set, or the
+ * The saved claims of `product` (and its pasted page `productUrl`, see
+ * claimCacheKey) that `keep` (for example isTestableClaim) still accepts, or [] when there is no KV, no key, no saved set, or the
  * saved value is not valid. A KV error is logged and gives []. Never throws.
  */
-export async function readCachedClaims(kv, product, keep = () => true) {
-  const key = claimCacheKey(product);
+export async function readCachedClaims(kv, product, keep = () => true, productUrl = null) {
+  const key = claimCacheKey(product, productUrl);
   if (!kv || !key) return [];
   try {
     const raw = await kv.get(key);
@@ -58,11 +78,11 @@ export async function readCachedClaims(kv, product, keep = () => true) {
 }
 
 /**
- * Saves the claims of `product` for CLAIM_CACHE_TTL_SECONDS. Returns true
+ * Saves the claims of `product` (and `productUrl`) for CLAIM_CACHE_TTL_SECONDS. Returns true
  * when saved. A KV error is logged and gives false. Never throws.
  */
-export async function writeCachedClaims(kv, product, claims) {
-  const key = claimCacheKey(product);
+export async function writeCachedClaims(kv, product, claims, productUrl = null) {
+  const key = claimCacheKey(product, productUrl);
   const list = normalizeClaims(claims, () => true).map(({ text, type }) => ({ text, type }));
   if (!kv || !key || list.length === 0) return false;
   try {

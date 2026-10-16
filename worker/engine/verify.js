@@ -705,7 +705,10 @@ const PACKAGING_CERT_PATTERN = /\bfsc[- ]?(?:certified|n\d+|c\d+|mix|recycled)\b
 // CP-718: spec-sheet figures nobody tests, which repeat runs picked by chance:
 // charge times, dust bin sizes, tire inflation pressure, tread depth, tire
 // diameter/width/rim figures, and speed ratings.
-const CHARGE_TIME_PATTERN = /\b(?:charge|charging|recharge|recharging)\s+(?:time|times|duration)\b|\b(?:charges?|charged|charging|recharges?|recharging)\b[^.;]{0,40}?\b(?:in|within)\s+(?:about\s+|around\s+|roughly\s+|just\s+|under\s+|less\s+than\s+)?\d+(?:\.\d+)?\s*-?\s*(?:hours?|hrs?|minutes?|mins?)\b|\b\d+(?:\.\d+)?\s*-?\s*(?:hours?|hrs?|minutes?|mins?)\s+(?:to\s+)?(?:fully\s+)?(?:re)?charge\b/i;
+const CHARGE_TIME_RE = /\b(?:charge|charging|recharge|recharging)\s+(?:time|times|duration)\b|\b(?:charges?|charged|charging|recharges?|recharging)\b[^.;]{0,40}?\b(?:in|within)\s+(?:about\s+|around\s+|roughly\s+|just\s+|under\s+|less\s+than\s+)?\d+(?:\.\d+)?\s*-?\s*(?:hours?|hrs?|minutes?|mins?)\b|\b\d+(?:\.\d+)?\s*-?\s*(?:hours?|hrs?|minutes?|mins?)\s+(?:to\s+)?(?:fully\s+)?(?:re)?charge\b/i;
+// "10 minutes of charging gives 3 hours of playback" is a runtime claim reviewers test.
+const RUNTIME_RE = /\b(?:hours?|hrs?|minutes?|mins?)\s+of\s+(?:playback|listening|play|use|usage|runtime|run\s*time|battery|talk\s*time|music)\b|\bplayback\b/i;
+const CHARGE_TIME_PATTERN = Object.freeze({ test: (text) => CHARGE_TIME_RE.test(text) && !RUNTIME_RE.test(text) });
 const BIN_CAPACITY_PATTERN = /\b(?:bin|dust\s*bin|dustbin|dust\s*cup|dirt\s*cup|canister)\b[^.;]{0,30}?\b\d+(?:\.\d+)?\s*-?\s*(?:l|liters?|litres?|ml|oz|qt|quarts?)\b|\b\d+(?:\.\d+)?\s*-?\s*(?:l|liters?|litres?|ml)\s+(?:dust\s*)?(?:bin|dustbin|cup|canister)\b/i;
 const TIRE_SPEC_PATTERN = /\b(?:max(?:imum)?\s+)?(?:inflation|tire|tyre)\s+pressure\b|\bmax(?:imum)?\s+\d+\s*psi\b|\b\d+\s*psi\s+(?:max(?:imum)?|cold)\b|\btread\s+depth\b|\b\d{1,2}\/32\s*(?:"|-?\s*inch(?:es)?|in\b)|\b(?:overall|outside|tire|tyre)\s+diameter\b|\bsection\s+width\b|\brim\s+width\b|\bspeed\s+(?:rating|index|symbol)\b/i;
 const UNTESTABLE_CLAIM_PATTERNS = [
@@ -1229,18 +1232,19 @@ export async function extractProductClaims({ product, resolved, env, apiKey, mod
  * CLAIM_CACHE_TTL_SECONDS checks the same claims again (readCachedClaims,
  * at least MIN_CLAIMS still testable), so repeat runs score the same claims.
  * Otherwise extractProductClaims runs and a set of MIN_CLAIMS or more is
- * saved. Takes extractProductClaims' arguments and returns its shape, plus
- * `fromCache`.
+ * saved. Takes extractProductClaims' arguments plus `productUrl` (the pasted
+ * page, part of the saved set's key) and returns its shape, plus `fromCache`.
  */
 export async function stableProductClaims(args) {
   const kv = args.env?.KV;
-  const cached = await readCachedClaims(kv, args.product, isTestableClaim);
+  const productUrl = args.productUrl ?? null;
+  const cached = await readCachedClaims(kv, args.product, isTestableClaim, productUrl);
   if (cached.length >= MIN_CLAIMS) {
     console.log(`[verify] claims: reused ${cached.length} saved claims for "${args.product}"`);
     return { claims: cached, claimSources: args.resolved.claimSources, costUsd: 0, fromCache: true };
   }
   const extracted = await extractProductClaims(args);
-  if (extracted.claims.length >= MIN_CLAIMS) await writeCachedClaims(kv, args.product, extracted.claims);
+  if (extracted.claims.length >= MIN_CLAIMS) await writeCachedClaims(kv, args.product, extracted.claims, productUrl);
   return { ...extracted, fromCache: false };
 }
 
@@ -1343,6 +1347,7 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
     // 2. EXTRACT CLAIMS from the resolved pages, or reuse the product's saved claims.
     const extracted = await stableProductClaims({
       product,
+      productUrl,
       resolved,
       env,
       apiKey,

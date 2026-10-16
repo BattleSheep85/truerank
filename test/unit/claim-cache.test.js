@@ -54,6 +54,9 @@ export async function runClaimCacheTests() {
   eq('key: word order and case do not matter', claimCacheKey('Dyson V15 Detect'), claimCacheKey('detect dyson v15'));
   eq('key: differs between products', claimCacheKey('Dyson V15 Detect') === claimCacheKey('Dyson V12 Detect'), false);
   eq('key: empty name has no key', claimCacheKey('  '), null);
+  eq('key: a pasted page gets its own key', claimCacheKey('Dyson V15 Detect', 'https://evil.example/page') === claimCacheKey('Dyson V15 Detect'), false);
+  eq('key: one page, one key (www, case, trailing slash)', claimCacheKey('Antec C8', 'https://www.amazon.com/dp/B0DK85GRFZ/'), claimCacheKey('antec c8', 'https://amazon.com/DP/b0dk85grfz'));
+  eq('key: an unparsable page has no key', claimCacheKey('Antec C8', 'not a url'), null);
 
   // Round trip: write then read gives the same claims, renumbered.
   {
@@ -102,6 +105,12 @@ export async function runClaimCacheTests() {
     eq('stable: second run checks the same claims', second.claims.map((c) => c.text), first.claims.map((c) => c.text));
     eq('stable: reuse costs nothing', second.costUsd, 0);
     eq('stable: reuse keeps the resolved claim pages', second.claimSources, resolved.claimSources);
+
+    // A pasted page never reads or writes the plain name's claims.
+    const pasted = await quiet(() => stableProductClaims({ ...base, productUrl: 'https://evil.example/dyson', callLLM: extractReply(other) }));
+    eq('stable: a pasted page does not reuse the name claims', pasted.fromCache, false);
+    const plainAgain = await quiet(() => stableProductClaims({ ...base, callLLM: extractReply(other) }));
+    eq('stable: a pasted page does not overwrite the name claims', plainAgain.claims.map((c) => c.text), first.claims.map((c) => c.text));
 
     // Fewer than MIN_CLAIMS (4) extracted: nothing is saved.
     const kv2 = memoryKv();
