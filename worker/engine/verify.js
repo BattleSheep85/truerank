@@ -807,11 +807,40 @@ function neutralizeEvidenceTags(text) {
  * is expected to already be the top-N slice (see `rankClaimEvidence`). An
  * item's `passage` (from rankClaimEvidence) is the text the model sees,
  * else claimPassage of its content. Returns { rows: [{url,stance,span}], costUsd }.
- * `hardMs` (optional) caps the model call.
+ * `hardMs` (optional) caps the model call. A reply cut off at the token limit
+ * has its unjudged sources judged again in two smaller calls (CP-718).
  */
-export async function classifyStance({ claim, evidence, apiKey, model, callLLM, reasoning, product, hardMs = 0 }) {
+export async function classifyStance(args) {
+  const picked = Array.isArray(args.evidence) ? args.evidence : [];
+  const first = await stanceCall({ ...args, evidence: picked });
+  if (!first.truncated || first.rows.length >= picked.length || picked.length < MIN_SPLIT_SOURCES) {
+    return { rows: first.rows, costUsd: first.costUsd };
+  }
+  // CP-718: the reply ran out of tokens ("0 of 15 sources judged"), so the
+  // claim went unjudged in one run and judged in the next. The sources it
+  // did not judge go again in two smaller calls.
+  const judged = new Set(first.rows.map((r) => r.url));
+  const missing = picked.filter((s) => !judged.has(s.url));
+  const half = Math.ceil(missing.length / 2);
+  const parts = await Promise.all([missing.slice(0, half), missing.slice(half)]
+    .filter((part) => part.length > 0)
+    .map((part) => stanceCall({ ...args, evidence: part }).catch((err) => {
+      console.warn(`[verify] stance ${args.claim?.id}: split retry failed: ${err instanceof Error ? err.message : String(err)}`);
+      return { rows: [], costUsd: 0 };
+    })));
+  return {
+    rows: [...first.rows, ...parts.flatMap((p) => p.rows)],
+    costUsd: first.costUsd + parts.reduce((sum, p) => sum + p.costUsd, 0),
+  };
+}
+
+// A truncated reply over this many sources is split and judged again.
+const MIN_SPLIT_SOURCES = 4;
+
+// One stance call. Returns { rows, costUsd, truncated }.
+async function stanceCall({ claim, evidence, apiKey, model, callLLM, reasoning, product, hardMs = 0 }) {
   const picked = Array.isArray(evidence) ? evidence : [];
-  if (picked.length === 0) return { rows: [], costUsd: 0 };
+  if (picked.length === 0) return { rows: [], costUsd: 0, truncated: false };
 
   const terms = claimTerms(claim.text);
   const block = picked
@@ -854,7 +883,7 @@ export async function classifyStance({ claim, evidence, apiKey, model, callLLM, 
       `[verify] stance ${claim.id}: ${rows.length} of ${picked.length} sources judged (finish_reason=${choice?.finish_reason ?? 'none'})`,
     );
   }
-  return { rows, costUsd };
+  return { rows, costUsd, truncated: choice?.finish_reason === 'length' };
 }
 
 /**

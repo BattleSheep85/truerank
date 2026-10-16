@@ -1805,6 +1805,47 @@ async function runCp779Tests({ eq, report }) {
     eq(`${label}: "6 7/8 inches" parses to mm`, Math.round(quantityModule.extractQuantities('6 7/8 inches')[0]?.value), 175);
   });
 
+  await guarded('CP-718 truncated stance replies are split and judged again', async () => {
+    const label = 'CP-718 stance split';
+    const evidence = [1, 2, 3, 4, 5, 6].map((n) => ({ url: `https://r${n}.example/review`, title: 'Review', content: 'We measured 60 minutes of runtime.' }));
+    const calls = [];
+    const callLLM = async (_key, _model, messages) => {
+      const urls = evidence.map((e) => e.url).filter((u) => messages[1].content.includes(u));
+      calls.push(urls.length);
+      if (calls.length === 1) {
+        return { choices: [{ finish_reason: 'length', message: { content: `{"verdicts":[{"url":"${urls[0]}","stance":"support","span":"We measured 60 minutes"}` } }], usage: { cost: 0.01 } };
+      }
+      const verdicts = urls.map((url) => ({ url, stance: 'neutral', span: '' }));
+      return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ verdicts }) } }], usage: { cost: 0.002 } };
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    let out;
+    try {
+      out = await verifyModule.classifyStance({ claim: { id: 'c1', text: 'Runs up to 60 minutes' }, evidence, apiKey: 'k', model: 'm', callLLM });
+    } finally {
+      console.warn = warn;
+    }
+    eq(`${label}: one call, then two halves of the 5 unjudged sources`, calls, [6, 3, 2]);
+    eq(`${label}: every source is judged`, out.rows.map((r) => r.url).sort(), evidence.map((e) => e.url).sort());
+    eq(`${label}: the first verdict is kept`, out.rows[0].stance, 'support');
+    eq(`${label}: cost adds up`, Math.abs(out.costUsd - 0.014) < 1e-9, true);
+
+    const calls2 = [];
+    const stopLLM = async (_k, _m, messages) => {
+      calls2.push(1);
+      const verdicts = evidence.slice(0, 2).map((e) => ({ url: e.url, stance: 'neutral', span: '' }));
+      return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ verdicts }) } }] };
+    };
+    console.warn = () => {};
+    try {
+      await verifyModule.classifyStance({ claim: { id: 'c2', text: 'x' }, evidence, apiKey: 'k', model: 'm', callLLM: stopLLM });
+    } finally {
+      console.warn = warn;
+    }
+    eq(`${label}: a complete (not cut off) reply is not retried`, calls2.length, 1);
+  });
+
   await guarded('CP-718 spec-sheet figures nobody tests', () => {
     const label = 'CP-718 spec-sheet figures';
     for (const text of [
