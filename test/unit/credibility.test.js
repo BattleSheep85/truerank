@@ -104,6 +104,11 @@ export function runCredibilityTests() {
     ['expert-rtings', isExpertDomain('https://www.rtings.com/tv/reviews/lg/c4'), true],
     ['expert-wirecutter', isExpertDomain('https://www.nytimes.com/wirecutter/reviews/best-monitors/'), true],
     ['expert-toms', isExpertDomain('https://tomshardware.com/gpus/rtx-5090-review'), true],
+    // CP-778: PC hardware labs with hands-on tests (Antec C8 got cred 50 from TechPowerUp).
+    ['expert-techpowerup', isExpertDomain('https://www.techpowerup.com/review/antec-c8/'), true],
+    ['expert-gamersnexus', isExpertDomain('https://gamersnexus.net/cases/surprisingly-good-antec-c8-argb-case-review'), true],
+    ['expert-techspot', isExpertDomain('https://www.techspot.com/review/2800-antec-c8/'), true],
+    ['expert-hwcanucks', isExpertDomain('https://www.hardwarecanucks.com/cases/antec-c8-review/'), true],
     ['not-expert', isExpertDomain('https://some-blog.com/best-tvs-2026'), false],
 
     ['community-reddit', isCommunityDomain('https://www.reddit.com/r/buildapc/comments/xyz'), true],
