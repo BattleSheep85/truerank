@@ -470,6 +470,26 @@ export function runCredibilityTests() {
   cases.push(['regression-independence-in-band',
     plainHandsOnReview.independence >= 60 && plainHandsOnReview.independence <= 75, true]);
 
+  // ── CP-779: a "we tested" phrase on an unlisted blog (thegadgetdigest.com,
+  // soundmali.com) must not outscore an established outlet's plain review (65).
+  const unlistedHandsOn = scoreSource({
+    url: 'https://thegadgetdigest.com/airpods-pro-2-review',
+    title: 'AirPods Pro 2 Review',
+    content: 'We tested the AirPods Pro 2 for a week. Great sound and ANC.',
+    sourceType: 'web',
+  });
+  const expertPlain = scoreSource({
+    url: 'https://www.soundguys.com/apple-airpods-pro-2-review',
+    title: 'AirPods Pro 2 review',
+    content: 'The AirPods Pro 2 have great ANC.',
+    sourceType: 'web',
+  });
+  cases.push(['cp779-unlisted-handsOn-tagged', unlistedHandsOn.tags.includes('hands-on'), true]);
+  cases.push(['cp779-unlisted-handsOn-below-75', unlistedHandsOn.score < 75, true]);
+  cases.push(['cp779-unlisted-handsOn-below-expert-plain', unlistedHandsOn.score < expertPlain.score, true]);
+  cases.push(['cp779-unlisted-handsOn-still-credible', unlistedHandsOn.score >= 45, true]);
+  cases.push(['cp779-expert-handsOn-unchanged', handsOnExpert.score, 90]);
+
   // Format badge sanity.
   const badge = formatCredibilityBadge(handsOnExpert);
   cases.push(['badge-contains-score', badge.includes('[score='), true]);

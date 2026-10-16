@@ -595,11 +595,23 @@ export function isManufacturerDomain(url) {
 //   sourceType?: string,    // provider label ('web', 'news', 'rss', 'hackernews', etc.)
 // }
 
+const HANDS_ON_BONUS = 25;
+// "We tested it" costs a content farm nothing to write. On a host with no
+// domain prior (thegadgetdigest.com, soundmali.com) the phrase alone must not
+// lift a page above an established outlet's plain review (65) (CP-779).
+const UNLISTED_HANDS_ON_BONUS = 10;
+const DOMAIN_PRIOR_TAGS = ['expert-domain', 'community', 'manufacturer'];
+
+function handsOnBonus(input, tags) {
+  const hasPrior = input.sourceType === 'video' || DOMAIN_PRIOR_TAGS.some((t) => tags.includes(t));
+  return hasPrior ? HANDS_ON_BONUS : UNLISTED_HANDS_ON_BONUS;
+}
+
 /**
  * Assigns credibility tags + a 0-100 score to a source. Higher = more trustworthy.
  *
  * Scoring (base 50, clamped [0, 100]):
- *   + 25 hands-on testing detected
+ *   + 25 hands-on testing detected (+10 on an unlisted web host, CP-779)
  *   + 15 expert review domain
  *   +  5 community discussion (reddit/HN/etc.)
  *   + 10 self-funded purchase disclosed (independence-positive)
@@ -687,7 +699,6 @@ export function scoreSource(input) {
   if (isHandsOn(fullContent)) {
     tags.push('hands-on');
     reasons.push('hands-on testing language detected');
-    score += 25;
   }
 
   if (isListicle(input.title, input.content || '')) {
@@ -713,6 +724,8 @@ export function scoreSource(input) {
     reasons.push('retailer/manufacturer page — informational only');
     score -= 15;
   }
+
+  if (tags.includes('hands-on')) score += handsOnBonus(input, tags);
 
   // Video provider without hands-on signals still gets a small prior — video
   // reviews are usually demonstrative by format, even when the text we have
