@@ -1640,6 +1640,9 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'Battery: playback for 30 hours with ANC on.',
       'Fits radiators up to 360 mm in the top mount.',
       'Accommodates GPUs up to 400 mm.',
+      'Tool-less drive bays',
+      'Toolless 3.5-inch drive trays.',
+      'Achieved IP68 certification',
     ];
     for (const span of SPEC) {
       eq(`${label}: spanShowsFirstHand false for spec restatement (${JSON.stringify(span)})`, spanShowsFirstHand(span), false);
@@ -1649,6 +1652,8 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'We used it for 3 weeks of commuting.',
       'The battery lasted 31 hours in our rundown test.',
       'Installed a 360 mm radiator in the top mount without trouble.',
+      'The tool-less drive bays snapped into place in seconds.',
+      'It achieved 41 dB of attenuation in our test.',
     ];
     for (const span of FIRST_HAND) {
       eq(`${label}: spanShowsFirstHand true for observation (${JSON.stringify(span)})`, spanShowsFirstHand(span), true);
