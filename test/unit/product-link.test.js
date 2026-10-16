@@ -5,8 +5,10 @@ import {
   productNameKey,
   isNameKey,
   distillProductName,
+  trimProductType,
   MODEL_VARIANT_WORDS,
 } from '../../worker/lib/product-link.js';
+import { productKeys } from '../../worker/engine/verify-resolve.js';
 
 export function runProductLinkUnitTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -223,6 +225,52 @@ export function runProductLinkUnitTests() {
     productNameKey('Sony WH-1000XM6') !== productNameKey('Sony WF-1000XM6'),
   );
   eq('isNameKey identifies verify:name: keys', isNameKey(productNameKey('Antec C8')), true);
+
+
+  // ── CP-777: trailing product-type words (repeat-run spread) ────────────────
+  // "X" and "X case" read different pages and checked different claims.
+  const typed = [
+    ['Fractal Design North case', 'Fractal Design North'],
+    ['Antec C8 PC case', 'Antec C8'],
+    ['Google Pixel 9 Pro phone', 'Google Pixel 9 Pro'],
+    ['Samsung Galaxy S25 Ultra phone', 'Samsung Galaxy S25 Ultra'],
+    ['Michelin CrossClimate 2 tire', 'Michelin CrossClimate 2'],
+    ['Michelin Defender 2 tires', 'Michelin Defender 2'],
+    ['Ninja Creami ice cream maker', 'Ninja Creami'],
+    ['Dyson V15 Detect vacuum', 'Dyson V15 Detect'],
+    ['DeWalt DCD791 20V drill', 'DeWalt DCD791'],
+    ['DeWalt DCD791 drill', 'DeWalt DCD791'],
+    ['Milwaukee M18 Fuel 2953 impact driver', 'Milwaukee M18 Fuel 2953'],
+    ['Apple iPhone 16 128GB', 'Apple iPhone 16'],
+    ['Fractal Design North Case', 'Fractal Design North'],
+  ];
+  for (const [input, expected] of typed) {
+    eq(`CP-777 trimProductType: "${input}"`, trimProductType(input), expected);
+  }
+  eq('CP-777 trimProductType: a name without a type word stays', trimProductType('Fractal Design North'), 'Fractal Design North');
+  eq('CP-777 trimProductType: keeps two words (OtterBox case)', trimProductType('OtterBox case'), 'OtterBox case');
+  eq('CP-777 trimProductType: keeps two words (Pixel phone)', trimProductType('Pixel phone'), 'Pixel phone');
+  eq('CP-777 trimProductType: a type word inside the name stays', trimProductType('Bose QuietComfort Earbuds'), 'Bose QuietComfort Earbuds');
+  eq('CP-777 trimProductType: a variant word is never trimmed', trimProductType('Antec C8 Wood'), 'Antec C8 Wood');
+  eq('CP-777 trimProductType: spec words alone are not trimmed to one word', trimProductType('Anker 20V'), 'Anker 20V');
+  // A one-letter "unit" at the end is usually the model: 3S, 5s, 5c, 4a 5G.
+  for (const name of ['Logitech MX Master 3S', 'Apple iPhone 5s', 'Apple iPhone 5c', 'Google Pixel 4a 5G', 'DJI Mini 4K']) {
+    eq(`CP-777 trimProductType: a one-letter model suffix stays ("${name}")`, trimProductType(name), name);
+  }
+  eq('CP-777 trimProductType: a one-letter model suffix stays before a type word', trimProductType('Logitech MX Master 3S mouse'), 'Logitech MX Master 3S mouse');
+  // An accessory case keeps "case": it is not the device.
+  for (const name of ['Apple iPhone 16 case', 'Nintendo Switch 2 case', 'Samsung Galaxy S25 phone case', 'Apple AirPods Pro 2 case', 'Apple iPad Air case']) {
+    eq(`CP-777 trimProductType: an accessory case stays ("${name}")`, trimProductType(name), name);
+  }
+  // "Phone" in a product line name stays; only a phone with a model number loses it.
+  eq('CP-777 trimProductType: "Asus ROG Phone" stays', trimProductType('Asus ROG Phone'), 'Asus ROG Phone');
+  eq('CP-777 trimProductType: "Nothing CMF Phone" stays', trimProductType('Nothing CMF Phone'), 'Nothing CMF Phone');
+  eq('CP-777 trimProductType: a watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
+  eq('CP-777 trimProductType: empty input gives ""', trimProductType('  '), '');
+  eq('CP-777 trimProductType: non-string gives ""', trimProductType(null), '');
+  eq('CP-777 distillProductName: short typed name drops the type word', distillProductName('Fractal Design North case'), 'Fractal Design North');
+  eq('CP-777 distillProductName: same search name for both pair members', distillProductName('Ninja Creami ice cream maker'), distillProductName('Ninja Creami'));
+  eq('CP-777 productKeys: same key with or without the type words', productKeys(trimProductType('Ninja Creami ice cream maker')), productKeys('Ninja Creami'));
 
   return report;
 }

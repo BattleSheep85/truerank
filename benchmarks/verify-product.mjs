@@ -62,6 +62,7 @@ import {
   isTestableClaim,
 } from '../worker/engine/verify.js';
 import { claimCandidateReason } from '../worker/engine/verify-resolve.js';
+import { trimProductType } from '../worker/lib/product-link.js';
 
 // ── ENV ──────────────────────────────────────────────────────────────────────
 function loadDevVars() {
@@ -126,6 +127,8 @@ const replayInput = REPLAY_PATH ? loadReplayInput(REPLAY_PATH) : null;
 
 const PRODUCT = process.env.PRODUCT || process.argv[2] || replayInput?.product || 'Anker Soundcore Space A40';
 const PRODUCT_URL = process.env.PRODUCT_URL || replayInput?.productUrl || null;
+// The name runVerification checks: without trailing type words (CP-777).
+const SUBJECT = trimProductType(PRODUCT) || PRODUCT;
 
 // Bench-only overrides of the production models and claim concurrency.
 function modelOverrides(env) {
@@ -315,7 +318,7 @@ async function judgeAll(claims, scoredEvidence) {
     config: cfg,
     apiKey: LLM_KEY,
     callLLM: stanceCallLLM(),
-    product: LEGACY_SELECTION ? undefined : PRODUCT,
+    product: LEGACY_SELECTION ? undefined : SUBJECT,
     env: TOOL_ENV,
     concurrency: CLAIM_CONCURRENCY,
   });
@@ -393,9 +396,9 @@ async function loadClaimsAndEvidence() {
   }
 
   // The production steps 1 to 5 (runVerification's collectClaimsAndEvidence).
-  process.stderr.write(`[verify] resolving, extracting, and gathering "${PRODUCT}"...\n`);
+  process.stderr.write(`[verify] resolving, extracting, and gathering "${SUBJECT}"...\n`);
   const collected = await collectClaimsAndEvidence({
-    product: PRODUCT,
+    product: SUBJECT,
     productUrl: PRODUCT_URL,
     config: cfg,
     apiKey: LLM_KEY,

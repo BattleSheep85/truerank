@@ -36,6 +36,7 @@ import {
   CLAIM_PAGES_WANTED,
 } from './verify-resolve.js';
 import { verdictForClaim, overallVerdict, verificationWeight } from '../lib/verdict.js';
+import { trimProductType } from '../lib/product-link.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
 import { deadlineSignal, deferred, delay, hedged } from '../lib/deadline.js';
@@ -1360,7 +1361,9 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
  * claims, evidenceCount, costUsd }`.
  */
 export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM }) {
-  const collected = await collectClaimsAndEvidence({ product, productUrl, config, apiKey, env, onEvent, callLLM });
+  // CP-777: "X" and "X case" check the same product the same way.
+  const subject = trimProductType(product) || product;
+  const collected = await collectClaimsAndEvidence({ product: subject, productUrl, config, apiKey, env, onEvent, callLLM });
   if (collected.status === 'needs_url') {
     return {
       status: 'needs_url',
@@ -1372,7 +1375,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict.
   //    Claims run concurrently. A failed claim is unsubstantiated and the run
   //    goes on. Only when every claim failed is the first error rethrown.
-  const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product, env });
+  const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product: subject, env });
   const { claimVerdicts, costUsd: stanceCost } = collectClaimVerdicts(claims, judged);
   const judgedAt = Date.now();
   console.log(
