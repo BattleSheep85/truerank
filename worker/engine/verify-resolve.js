@@ -205,10 +205,14 @@ function seriesKey(words) {
   return seriesWordsOf(words).join('');
 }
 
+// CP-718: lighting words name the same product with other fans or LEDs
+// ("Antec C8 ARGB" is the Antec C8), so they never make another model.
+const LIGHTING_VARIANT_WORDS = Object.freeze(new Set(['rgb', 'argb']));
+
 function postVariantAt(words, index) {
   const post = [];
   for (let i = index; i < words.length && MODEL_VARIANT_WORDS.has(words[i]); i += 1) {
-    post.push(words[i]);
+    if (!LIGHTING_VARIANT_WORDS.has(words[i])) post.push(words[i]);
   }
   return post.join('');
 }
@@ -256,13 +260,33 @@ function pathAndTitleWords(source) {
 }
 
 const REGEXP_SPECIAL_RE = /[.*+?^${}()|[\]\\]/g;
-const VARIANT_TAIL_RE_SOURCE = [...MODEL_VARIANT_WORDS].join('|');
+const VARIANT_TAIL_RE_SOURCE = [...MODEL_VARIANT_WORDS].filter((w) => !LIGHTING_VARIANT_WORDS.has(w)).join('|');
+const LIGHTING_RE_SOURCE = [...LIGHTING_VARIANT_WORDS].join('|');
+// Lighting words may sit between the model number and a variant word.
+const VARIANT_GUARD = `(?![^a-z0-9]*(?:(?:${LIGHTING_RE_SOURCE})[^a-z0-9]+)*(?:${VARIANT_TAIL_RE_SOURCE})(?![a-z0-9]))`;
 
 function keyPattern(key, blockVariantTail) {
   const chars = key.split('').map((c) => c.replace(REGEXP_SPECIAL_RE, '\\$&')).join('[^a-z0-9]*');
   const endBoundary = DIGIT_RE.test(key.at(-1) ?? '') ? '(?![0-9])' : '(?![a-z0-9])';
-  const variantGuard = blockVariantTail ? `(?![^a-z0-9]*(?:${VARIANT_TAIL_RE_SOURCE})(?![a-z0-9]))` : '';
+  const variantGuard = blockVariantTail ? VARIANT_GUARD : '';
   return `(?<![a-z0-9])${chars}${endBoundary}${variantGuard}`;
+}
+
+// Words that start another product line between a brand and a number
+// ("Galaxy Tab S9" is not the "Galaxy S9"), so they are never a series word.
+const LINE_WORDS = Object.freeze(new Set(['tab', 'watch', 'buds', 'pad', 'book', 'note', 'fold', 'flip', 'fit', 'band', 'tv', 'case', 'vs', 'and', 'or', 'like', 'the']));
+const LINE_WORDS_RE_SOURCE = [...LINE_WORDS, ...MODEL_VARIANT_WORDS].join('|');
+
+// CP-718: a two-word "Brand Model" name also matches "Brand Series Model"
+// ("Antec Constellation C8 Case Review" names the Antec C8). One letters-only
+// series word may sit between; a line word or variant word may not.
+function interposedPattern(ours) {
+  if (ours.length !== 2 || ours.some(isModelCode)) return null;
+  const line = modelLine(ours);
+  if (!line || line.preVariant || line.postVariant || line.series !== ours[0]) return null;
+  const esc = (w) => w.replace(REGEXP_SPECIAL_RE, '\\$&');
+  const endBoundary = DIGIT_RE.test(line.number.at(-1) ?? '') ? '(?![0-9])' : '(?![a-z0-9])';
+  return `(?<![a-z0-9])${esc(line.series)}[^a-z0-9]+(?!(?:${LINE_WORDS_RE_SOURCE})(?![a-z0-9]))[a-z]{3,}[^a-z0-9]+${esc(line.number)}${endBoundary}${VARIANT_GUARD}`;
 }
 
 function hasKeyMatch(text, product) {
@@ -271,7 +295,9 @@ function hasKeyMatch(text, product) {
   const ours = nameTokens(product);
   const blockVariantTail = ours.filter(isModelCode).length === 0;
   const body = String(text ?? '');
-  return keys.some((key) => new RegExp(keyPattern(key, blockVariantTail), 'i').test(body));
+  if (keys.some((key) => new RegExp(keyPattern(key, blockVariantTail), 'i').test(body))) return true;
+  const interposed = interposedPattern(ours);
+  return interposed ? new RegExp(interposed, 'i').test(body) : false;
 }
 
 /** True when the url path or the title names this product (see productKeys). */
@@ -871,6 +897,29 @@ const TEST_READ_CONCURRENCY = 2;
 const KEYED_TEST_READ_CONCURRENCY = MAX_TEST_PAGE_READS;
 // Host labels whose reads hold no test text: video and social pages.
 export const NO_READ_LABELS = new Set(['youtube', 'youtu', 'tiktok', 'instagram', 'facebook', 'x', 'twitter', 'pinterest', 'threads']);
+// CP-718: hosts that answer every page read with a block page (Reddit's
+// network policy). Their search snippets stay as evidence; a read would only
+// use up a slot.
+export const BLOCKED_READ_LABELS = new Set(['reddit', 'redd']);
+// CP-718: page reads per site. TechPowerUp splits one review into ten pages,
+// and all ten took the test page reads, so GamersNexus and KitGuru were never read.
+export const MAX_READS_PER_SITE = 2;
+
+function skipsRead(url) {
+  const label = hostLabel(url);
+  return NO_READ_LABELS.has(label) || BLOCKED_READ_LABELS.has(label);
+}
+
+// Keeps the first MAX_READS_PER_SITE picks of each site, in order.
+function capPerSite(picks) {
+  const perSite = new Map();
+  return picks.filter((p) => {
+    const site = hostLabel(p.source.url);
+    const used = perSite.get(site) || 0;
+    perSite.set(site, used + 1);
+    return used < MAX_READS_PER_SITE;
+  });
+}
 // A url or title with one of these words is a test or review page.
 const TEST_PAGE_RE = /\breviews?\b|\btested\b|\btests?\b|\bhands[- ]on\b|\bmeasure/i;
 
@@ -909,8 +958,9 @@ export async function searchClaimTests({ claims, product, termsFor, env, search 
 /**
  * Snippet-only independent pages worth a full read, best first, at most max:
  * pages whose url or title names this product and no other model, not the
- * maker's or a retailer's, not video or social pages, one per page. Test and
- * review pages come first, then the input order. Does not change the input.
+ * maker's or a retailer's, not video, social, or read-blocked pages
+ * (BLOCKED_READ_LABELS), one per page, at most MAX_READS_PER_SITE per site.
+ * Test and review pages come first, then the input order. Does not change the input.
  */
 export function testPagesToRead(sources, product, max = MAX_TEST_PAGE_READS) {
   const seen = new Set();
@@ -918,13 +968,13 @@ export function testPagesToRead(sources, product, max = MAX_TEST_PAGE_READS) {
   for (const [index, source] of (Array.isArray(sources) ? sources : []).entries()) {
     const key = evidenceKey(source?.url);
     if (!source?.url || seen.has(key) || String(source.content ?? '').length >= THIN_EVIDENCE_CHARS) continue;
-    if (ownPageKind(source.url, product) || NO_READ_LABELS.has(hostLabel(source.url))) continue;
+    if (ownPageKind(source.url, product) || skipsRead(source.url)) continue;
     if (!namesProduct(source, product) || namesOtherModel(source, product)) continue;
     seen.add(key);
     const { path } = pathAndTitleWords(source);
     picks.push({ source, rank: TEST_PAGE_RE.test(`${path} ${source.title ?? ''}`) ? 0 : 1, index });
   }
-  return picks.sort((a, b) => a.rank - b.rank || a.index - b.index).slice(0, max).map((p) => p.source);
+  return capPerSite(picks.sort((a, b) => a.rank - b.rank || a.index - b.index)).slice(0, max).map((p) => p.source);
 }
 
 // Gather page reads per product check, and the credibility score a page
@@ -935,8 +985,9 @@ const GATHER_READ_MIN_SCORE = 45;
 /**
  * The gather's page reads for a product check, best first, at most `max`:
  * snippet-only pages that can be independent evidence (not the maker's or a
- * retailer's site, not video or social pages, not titled for another model
- * of the line), one per page, with a credibility score of at least
+ * retailer's site, not video, social, or read-blocked pages, not titled for
+ * another model of the line), one per page and at most MAX_READS_PER_SITE
+ * per site, with a credibility score of at least
  * `minScore`. Pages whose url, title, or snippet names this product come
  * first, then the others; each group by credibility score. Before this,
  * the gather read the most credible pages of any topic first (RSS items
@@ -950,13 +1001,12 @@ export function evidencePagesToRead(sources, product, { max = MAX_GATHER_READS, 
     const key = evidenceKey(source?.url);
     if (!source?.url || seen.has(key) || String(source.content ?? '').length >= THIN_EVIDENCE_CHARS) continue;
     const score = source.credibility?.score ?? 0;
-    if (score < minScore || ownPageKind(source.url, product) || NO_READ_LABELS.has(hostLabel(source.url))) continue;
+    if (score < minScore || ownPageKind(source.url, product) || skipsRead(source.url)) continue;
     if (namesOtherModel(source, product)) continue;
     seen.add(key);
     picks.push({ source, rank: aboutProduct(source, product) ? 0 : 1, score, index });
   }
-  return picks
-    .sort((a, b) => a.rank - b.rank || b.score - a.score || a.index - b.index)
+  return capPerSite(picks.sort((a, b) => a.rank - b.rank || b.score - a.score || a.index - b.index))
     .slice(0, Math.max(0, max))
     .map((p) => p.source);
 }

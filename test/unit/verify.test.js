@@ -11,6 +11,7 @@ import * as resolveModule from '../../worker/engine/verify-resolve.js';
 import * as toolsModule from '../../worker/engine/tools.js';
 import * as llmModule from '../../worker/engine/llm.js';
 import * as rerankModule from '../../worker/engine/verify-rerank.js';
+import * as quantityModule from '../../worker/lib/quantity.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
 import { runVerifySpeedTests } from './verify-speed.test.js';
 
@@ -949,7 +950,7 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
   await guarded(d9, async () => {
     const system = String(verifyModule.STANCE_SYSTEM ?? '');
     ok(`${d9}: units are converted before a compare`, /Convert units before you compare \(mm\/in, g\/oz, W, mAh, dB, Hz, %\)/.test(system));
-    ok(`${d9}: a value within about 3% agrees`, /within normal measurement tolerance \(about 3%\)/.test(system));
+    ok(`${d9}: a value within about 10% agrees`, /within normal measurement tolerance \(about 10%\)/.test(system));
     ok(`${d9}: a typical figure does not contradict an "up to" maximum`, /does not contradict a stated maximum or peak \("up to"\)/.test(system));
     ok(`${d9}: a contradiction needs a measurement of the same quantity`, /own measurement of the same quantity disagrees/.test(system));
   });
@@ -1757,8 +1758,11 @@ async function runCp779Tests({ eq, report }) {
       applyStanceBackstops(item('We measured 6 mm of driver travel and the battery died early.'), claim, 'Apple AirPods Pro 2'), 'contradict');
     eq(`${label}: within 3% without "up to" → neutral`,
       applyStanceBackstops({ ...item('We weighed it at 5.4 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
-    eq(`${label}: 8% off a non-"up to" claim stays contradict`,
-      applyStanceBackstops({ ...item('We weighed it at 5.75 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'contradict');
+    // CP-718: the tolerance is 10%, so 8% off is close, and 15% off is not.
+    eq(`${label}: 8% off a non-"up to" claim is close → neutral`,
+      applyStanceBackstops({ ...item('We weighed it at 5.75 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: 15% off a non-"up to" claim stays contradict`,
+      applyStanceBackstops({ ...item('We weighed it at 6.1 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'contradict');
     // QA (CP-779): the spec quoted back is not a measurement, so a verbal
     // result next to it must keep the contradiction.
     for (const span of [
@@ -1773,6 +1777,67 @@ async function runCp779Tests({ eq, report }) {
       applyStanceBackstops(item('Apple says up to 6 hours, and we measured 5 hours, 43 minutes.'), claim, 'Apple AirPods Pro 2'), 'neutral');
     eq(`${label}: support is never changed by the near-spec rule`,
       applyStanceBackstops({ ...item('We measured 5h 43m of playback.'), stance: 'support' }, claim, 'Apple AirPods Pro 2'), 'support');
+  });
+
+  await guarded('CP-718 close figures are not contradictions', () => {
+    const label = 'CP-718 close figures';
+    const item = (span) => ({ stance: 'contradict', span, tags: ['hands-on'], url: 'https://example-review.com/x', title: 'Review' });
+    for (const [claim, span, product] of [
+      ['Provides 240 Air Watts of suction power in Powerful mode', 'generating 230 air watts of suction', 'Dyson V15 Detect'],
+      ['Provides 240 AW of suction', 'We measured 230AW at the wand', 'Dyson V15 Detect'],
+      ['Compact 181mm overall length', 'The DCD791 is 6 7/8 inches long', 'DeWalt DCD791'],
+      ['Tool length is 181mm', 'Length : 175 mm', 'DeWalt DCD791'],
+      ['Maximum PSU length is 155 mm with two HDD trays', 'limits your power supply length to a measured 165mm', 'Fractal Design North'],
+      ['Runs for up to 60 minutes on a single charge', 'In our test it ran for 50 minutes', 'Dyson V15 Detect'],
+      ['Bin volume of 0.77 L', 'The bin holds 0.75 litres in our test', 'Dyson V15 Detect'],
+    ]) {
+      eq(`${label}: ${JSON.stringify(span)} vs ${JSON.stringify(claim)} → neutral`, applyStanceBackstops(item(span), claim, product), 'neutral');
+    }
+    for (const [claim, span, product] of [
+      ['Screen reaches up to 3000 nits peak brightness', 'we measured around 2331 nits', 'Google Pixel 9 Pro'],
+      ['Weighs 15.9 pounds', 'It weighs 13 lbs on our scale', 'Ninja Creami'],
+      ['Bin volume of 0.77 L', 'The bin capacity measures in at 0.5L', 'Dyson V15 Detect'],
+    ]) {
+      eq(`${label}: ${JSON.stringify(span)} vs ${JSON.stringify(claim)} stays contradict`, applyStanceBackstops(item(span), claim, product), 'contradict');
+    }
+    eq(`${label}: the tolerance is 10%`, quantityModule.NEAR_SPEC_TOLERANCE, 0.1);
+    eq(`${label}: "6 7/8 inches" parses to mm`, Math.round(quantityModule.extractQuantities('6 7/8 inches')[0]?.value), 175);
+  });
+
+  await guarded('CP-718 spec-sheet figures nobody tests', () => {
+    const label = 'CP-718 spec-sheet figures';
+    for (const text of [
+      'Charge time of 4.5 hours',
+      'Charges up to 55% in about 30 minutes using a Google 45W USB-C charger',
+      'Fast charging up to 55% in about 30 minutes using a 45W USB-C charger',
+      'Takes 4.5 hours to fully charge',
+      'Bin volume of 0.77 L',
+      'Dust bin capacity is 0.77 litres',
+      'Large 0.76 L bin empties hygienically',
+      'Maximum inflation pressure of 51 psi',
+      'Original tread depth of 10/32 inch.',
+      'New tread depth of 10/32 inch',
+      'Overall tire diameter of 27.1 inches with a 7.5-inch rim width fitment',
+      'Speed rating H, rated for sustained speeds up to 130 mph.',
+    ]) {
+      eq(`${label}: isTestableClaim drops ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), false);
+    }
+    for (const text of [
+      'Runs for up to 60 minutes on a single charge',
+      'Up to 31 hours of battery life in GPS mode',
+      'Supports fast Qi-certified wireless charging and Battery Share reverse wireless charging',
+      'Stops shorter than 4 leading competitive tires in wet braking tests',
+      'Carries the 3-Peak Mountain Snowflake (3PMSF) severe-snow certification',
+      'Pressure washer delivers 2000 PSI of cleaning power',
+      'Includes a 16-oz CREAMi pint container',
+      'Weighs 3.1 kg',
+    ]) {
+      eq(`${label}: isTestableClaim keeps ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), true);
+    }
+    const prompt = String(verifyModule.CLAIM_EXTRACTION_SYSTEM);
+    eq(`${label}: the extraction prompt bans charge times`, /never extract[\s\S]*charging or recharge times/i.test(prompt), true);
+    eq(`${label}: the extraction prompt bans tread depth and inflation pressure`, /tire inflation pressure, tread depth/i.test(prompt), true);
+    eq(`${label}: the extraction prompt no longer asks for charging time`, /\(battery life figure[^)]*charging time/i.test(prompt), false);
   });
 
   await guarded('CP-779 exact dimension sets are untestable', () => {

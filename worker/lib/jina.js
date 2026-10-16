@@ -101,6 +101,16 @@ function buildJinaHeaders(apiKey, url, extraHeaders) {
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Jina's header lines when the target site refused it ("Warning: Target URL
+// returned error 403: Forbidden"). Only the head of the reply is checked.
+const TARGET_REFUSED_RE = /^Warning: Target URL returned error (?:401|403|429|451|503)\b/m;
+const TARGET_REFUSED_HEAD_CHARS = 800;
+
+/** True when Jina's reply says the target site refused the read. */
+export function isTargetRefused(text) {
+  return typeof text === 'string' && TARGET_REFUSED_RE.test(text.slice(0, TARGET_REFUSED_HEAD_CHARS));
+}
+
 /**
  * Fetch full page content as markdown via Jina Reader.
  * Free tier: ~20 req/min. Returns clean markdown with headings, lists, tables preserved.
@@ -174,6 +184,12 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
       const text = await response.text();
       // Jina sometimes returns boilerplate for blocked/empty pages
       if (text.length < 100) return await fetchDirect(url, fetchImpl, stop, maxChars);
+      // CP-718: the site refused Jina (TechPowerUp's 403); a direct fetch may pass.
+      if (isTargetRefused(text)) {
+        console.log(`[jina] target refused Jina for ${url}, trying a direct fetch`);
+        const direct = await fetchDirect(url, fetchImpl, stop, maxChars);
+        return direct || text.slice(0, maxChars);
+      }
       return text.slice(0, maxChars);
     } catch (err) {
       if (stop?.aborted) {

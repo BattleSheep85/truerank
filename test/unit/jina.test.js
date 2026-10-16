@@ -156,6 +156,31 @@ export async function runJinaTests() {
   // ── rerankPassages (Jina rerank API) ───────────────────────────────────
   await runRerankCases({ eq, ok, report });
 
+  // ── CP-718: the target site refused Jina (TechPowerUp 403) → direct fetch ──
+  {
+    const refused = 'Title: 403 - Access Denied\n\nURL Source: https://www.techpowerup.com/review/antec-c8/4.html\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\nAccess denied';
+    const directHtml = '<html><body><article>' + 'The case fits a 360 mm radiator on top with room to spare. '.repeat(4) + '</article></body></html>';
+    const quietLog = console.log;
+    console.log = () => {};
+    try {
+      const passes = await fetchPageContent('https://www.techpowerup.com/review/antec-c8/4.html', '', {
+        fetchImpl: scriptedFetch([jsonResponse(200, refused)], jsonResponse(200, directHtml)),
+        sleepImpl: noopSleep,
+      });
+      ok('CP-718 refused: the direct fetch text is used', passes.includes('360 mm radiator'));
+      const bothBlocked = await fetchPageContent('https://www.techpowerup.com/review/antec-c8/4.html', '', {
+        fetchImpl: scriptedFetch([jsonResponse(200, refused)], jsonResponse(403, '')),
+        sleepImpl: noopSleep,
+      });
+      eq('CP-718 refused: a failed direct fetch keeps the Jina reply', bothBlocked, refused);
+    } finally {
+      console.log = quietLog;
+    }
+    eq('CP-718 refused: detects the 403 warning', jina.isTargetRefused(refused), true);
+    eq('CP-718 refused: a normal page is not refused', jina.isTargetRefused('Title: Review\n\nMarkdown Content:\nWarning: Target URL returned error 403 is in the body far below'.padStart(900, ' ')), false);
+    eq('CP-718 refused: non-string is not refused', jina.isTargetRefused(null), false);
+  }
+
   return report;
 }
 

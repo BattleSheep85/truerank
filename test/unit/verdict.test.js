@@ -664,5 +664,48 @@ export function runVerdictTests() {
     ok('CP-777 community: three Reddit threads add three pages of weight', Math.abs(threads.contradict - 1.8) < EPS);
   }
 
+  // CP-718 round 2: one ordinary page cannot contradict a claim on its own.
+  {
+    const opts = { policy: 'verification' };
+    const page = (url, stance, credibility = 60, tags = ['hands-on']) => ({ url, stance, credibility, independence: 60, tags });
+    const gpuClaim = { id: 'c2', type: 'spec', text: 'Fits graphics cards up to 440mm in length' };
+
+    // 1. A lone listicle about another case (live Antec C8 run) stays undecided.
+    const lone = verdictForClaim(gpuClaim, [page('https://whoismcafee.com/best-pc-cases', 'contradict', 30, ['hands-on', 'listicle'])], opts);
+    eq('CP-718 one page: a lone mid-credibility page does not contradict', lone.status, 'unsubstantiated');
+    eq('CP-718 one page: the page stays listed as evidence', lone.contradicting.length, 1);
+
+    // 2. Two pages of one site are still one site.
+    const oneSite = verdictForClaim(gpuClaim, [
+      page('https://www.gsmarena.com/a', 'contradict'),
+      page('https://m.gsmarena.com/a', 'contradict'),
+    ], opts);
+    ok('CP-718 one site: a site and its mobile mirror do not contradict', oneSite.status !== 'contradicted');
+
+    // 3. Two independent sites contradict.
+    const two = verdictForClaim(gpuClaim, [
+      page('https://www.gsmarena.com/a', 'contradict'),
+      page('https://ag4tech.com/b', 'contradict'),
+    ], opts);
+    eq('CP-718 two sites: two independent sites contradict', two.status, 'contradicted');
+
+    // 4. One strong expert test contradicts on its own.
+    const expert = verdictForClaim(gpuClaim, [page('https://www.rtings.com/x', 'contradict', 90, ['hands-on', 'expert-domain'])], opts);
+    eq('CP-718 strong expert: one credibility-90 lab test contradicts', expert.status, 'contradicted');
+    ok('CP-718 strong expert: threshold is exported', verdictLib.STRONG_CONTRADICTOR_CREDIBILITY === 85);
+
+    // 5. A lone contradiction still blocks "verified".
+    const supported = verdictForClaim(gpuClaim, [
+      page('https://www.kitguru.net/a', 'support', 90, ['hands-on', 'expert-domain']),
+      page('https://www.gamersnexus.net/b', 'support', 90, ['hands-on', 'expert-domain']),
+      page('https://blog.example.com/c', 'contradict'),
+    ], opts);
+    eq('CP-718 lone contradiction: support wins, but only partially-verified', supported.status, 'partially-verified');
+
+    // 6. The default policy keeps the old single-source rule.
+    const legacy = verdictForClaim('waterproof to 100m', [{ url: 'https://expert.com', stance: 'contradict', credibility: 80, independence: 70 }]);
+    eq('CP-718 default policy: one source still contradicts', legacy.status, 'contradicted');
+  }
+
   return report;
 }

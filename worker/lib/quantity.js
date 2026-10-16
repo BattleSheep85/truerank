@@ -5,16 +5,20 @@
 // to 6 hours"). isNearSpecValue lets the backstop catch that case without an
 // LLM: it compares the span's figures with the claim's figures, unit by unit.
 
-// Relative gap treated as measurement noise (matches STANCE_SYSTEM's "about 3%").
-export const NEAR_SPEC_TOLERANCE = 0.03;
+// Relative gap treated as close enough to the spec (matches STANCE_SYSTEM's
+// "about 10%"). CP-718: at 3%, 230 vs 240 AW, 175 vs 181 mm, and "up to
+// 5 hours" vs 4.5 hours were contradictions, and repeat runs swung on them.
+export const NEAR_SPEC_TOLERANCE = 0.10;
 // An "up to" / maximum claim also agrees with a typical figure this far below it.
-export const UP_TO_TOLERANCE = 0.10;
+export const UP_TO_TOLERANCE = 0.20;
 
 const NUM = '(\\d+(?:\\.\\d+)?)';
 const HOUR = '(?:h|hrs?|hours?)';
 const MINUTE = '(?:m|mins?|minutes?)';
 // "5 hours, 43 minutes", "5h 43m", "5 hr and 43 min".
 const COMPOUND_TIME_RE = new RegExp(`${NUM}\\s*-?\\s*${HOUR}\\b[\\s,]*(?:and\\s+)?${NUM}\\s*${MINUTE}\\b`, 'gi');
+// "6 7/8 inches" (CP-718).
+const FRACTION_INCH_RE = /(\d+)\s+(\d+)\/(\d+)\s*-?\s*inch(?:es)?\b/gi;
 
 // unit token → [dimension, factor to the dimension's base unit]
 const UNITS = new Map([
@@ -27,9 +31,14 @@ const UNITS = new Map([
   ['mah', ['charge', 1]], ['wh', ['energy', 1]],
   ['db', ['loudness', 1]], ['hz', ['frequency', 1]], ['khz', ['frequency', 1000]],
   ['nits', ['luminance', 1]], ['%', ['percent', 1]],
+  ['aw', ['airpower', 1]], ['air watts', ['airpower', 1]], ['air watt', ['airpower', 1]],
+  ['airwatts', ['airpower', 1]], ['airwatt', ['airpower', 1]],
+  ['l', ['volume', 1000]], ['liter', ['volume', 1000]], ['liters', ['volume', 1000]],
+  ['litre', ['volume', 1000]], ['litres', ['volume', 1000]], ['ml', ['volume', 1]],
+  ['nm', ['torque', 1]], ['rpm', ['speed', 1]], ['psi', ['pressure', 1]],
 ]);
 // Bare "in" and "m" are left out on purpose: "6 in our test" is not inches.
-const SINGLE_RE = /(\d+(?:\.\d+)?)\s*-?\s*(hours?|hrs?|h|minutes?|mins?|mm|cm|inch(?:es)?|grams|kg|g|oz|lbs?|watts|kw|w|mah|wh|db|khz|hz|nits|%)(?![a-z])/gi;
+const SINGLE_RE = /(\d+(?:\.\d+)?)\s*-?\s*(air\s*watts?|aw|hours?|hrs?|h|minutes?|mins?|mm|cm|inch(?:es)?|grams|kg|g|oz|lbs?|watts|kw|w|mah|ml|wh|db|khz|hz|nits|liters?|litres?|l|nm|rpm|psi|%)(?![a-z])/gi;
 const UP_TO_RE = /\bup\s+to\b|\bmax(?:imum)?\b|\bpeak\b/i;
 
 /**
@@ -39,12 +48,17 @@ const UP_TO_RE = /\bup\s+to\b|\bmax(?:imum)?\b|\bpeak\b/i;
 export function extractQuantities(text) {
   if (typeof text !== 'string' || !text) return [];
   const out = [];
-  const rest = text.replace(COMPOUND_TIME_RE, (_m, h, m) => {
-    out.push({ dim: 'time', value: Number(h) * 60 + Number(m) });
-    return ' ';
-  });
+  const rest = text
+    .replace(COMPOUND_TIME_RE, (_m, h, m) => {
+      out.push({ dim: 'time', value: Number(h) * 60 + Number(m) });
+      return ' ';
+    })
+    .replace(FRACTION_INCH_RE, (_m, whole, num, den) => {
+      if (Number(den) > 0) out.push({ dim: 'length', value: (Number(whole) + Number(num) / Number(den)) * 25.4 });
+      return ' ';
+    });
   for (const [, num, unit] of rest.matchAll(SINGLE_RE)) {
-    const entry = UNITS.get(unit.toLowerCase());
+    const entry = UNITS.get(unit.toLowerCase().replace(/\s+/g, ' '));
     if (entry) out.push({ dim: entry[0], value: Number(num) * entry[1] });
   }
   return out;

@@ -331,11 +331,39 @@ function buyerOnlyContradiction(contradictItems, weigh) {
   );
 }
 
+// CP-718: a contradiction needs this many independent sites, or one
+// strong expert test (credibility >= STRONG_CONTRADICTOR_CREDIBILITY).
+const MIN_INDEPENDENT_CONTRADICTORS = 2;
+export const STRONG_CONTRADICTOR_CREDIBILITY = 85;
+
+// True when one non-buyer hands-on/expert source of high credibility can
+// contradict on its own weight.
+function isStrongContradictor(ev, weigh) {
+  if (!ev || isBuyerReviewItem(ev)) return false;
+  const tags = ev.tags || [];
+  if (NON_INDEPENDENT_TAGS.some((t) => tags.includes(t))) return false;
+  if (!tags.includes('hands-on') && !tags.includes('expert-domain')) return false;
+  return Number(ev.credibility) >= STRONG_CONTRADICTOR_CREDIBILITY && weigh(ev) >= CONTRADICT_MIN;
+}
+
+/**
+ * CP-718: one ordinary page cannot contradict a claim on its own (a listicle
+ * about another case, a shortened spec list, one blog's figure): it takes
+ * MIN_INDEPENDENT_CONTRADICTORS independent sites, or one strong expert
+ * test. Repeat runs found such single pages by chance, so scores swung.
+ */
+function contradictionCorroborated(contradictItems, weigh) {
+  if (independentCorroborators(contradictItems, weigh) >= MIN_INDEPENDENT_CONTRADICTORS) return true;
+  return contradictItems.some((ev) => isStrongContradictor(ev, weigh));
+}
+
 /**
  * CP-723: under the verification policy, a buyer-only contradiction cannot
  * overturn a measured spec, and cannot beat hands-on/expert support.
+ * CP-718: nor can an uncorroborated one (contradictionCorroborated).
  */
 function contradictionBlocked(claim, supportItems, contradictItems, weigh) {
+  if (!contradictionCorroborated(contradictItems, weigh)) return true;
   if (!buyerOnlyContradiction(contradictItems, weigh)) return false;
   return isMeasuredSpecClaim(claim) || hasHandsOnCorroborator(supportItems, weigh);
 }

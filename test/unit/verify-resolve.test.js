@@ -184,6 +184,37 @@ export async function runVerifyResolveTests() {
     evidencePagesToRead(mixedSources, 'Antec C8').map((s) => s.url),
     [c8Page.url],
   );
+  // CP-718: GamersNexus ("Antec C8 ARGB") and KitGuru ("Antec Constellation C8") name the Antec C8.
+  const page = (url, title) => ({ url, title });
+  eq('CP-718 lighting: "Antec C8 ARGB" names the Antec C8', namesProduct(page('https://gamersnexus.net/cases/antec-c8-argb-case-review', 'Antec C8 ARGB Case Review'), 'Antec C8'), true);
+  eq('CP-718 lighting: "Antec C8 ARGB" is not another model', namesOtherModel(page('https://gamersnexus.net/cases/antec-c8-argb-case-review', 'Antec C8 ARGB Case Review'), 'Antec C8'), false);
+  eq('CP-718 lighting: "Antec C8 ARGB Wood" is still another model', namesProduct(page('https://x.com/r', 'Antec C8 ARGB Wood Review'), 'Antec C8'), false);
+  eq('CP-718 lighting: "Antec C8 Wood" is still another model', namesOtherModel(page('https://x.com/r', 'Antec C8 Wood Review'), 'Antec C8'), true);
+  eq('CP-718 series word: "Antec Constellation C8" names the Antec C8', namesProduct(page('https://www.kitguru.net/components/cases/antec-constellation-c8-case-review/', 'Antec Constellation C8 Case Review - KitGuru'), 'Antec C8'), true);
+  eq('CP-718 series word: "Antec Constellation C8 Wood" does not', namesProduct(page('https://x.com/r', 'Antec Constellation C8 Wood Review'), 'Antec C8'), false);
+  eq('CP-718 series word: "Antec C5 vs C8" does not name it twice-removed', namesProduct(page('https://x.com/r', 'Antec Flux vs Lian Li C8'), 'Antec C8'), false);
+  eq('CP-718 series word: "Galaxy Tab S9" is not the Galaxy S9', namesProduct(page('https://x.com/r', 'Samsung Galaxy Tab S9 review'), 'Galaxy S9'), false);
+  eq('CP-718 series word: three-word names keep the strict match', namesProduct(page('https://x.com/r', 'Samsung Galaxy Ultra S25 review'), 'Samsung Galaxy S25'), false);
+
+  // CP-718: ten TechPowerUp pages of one review took every read; Reddit reads are always blocked.
+  const tpuPages = [1, 2, 3, 4, 5, 6].map((n) => ({
+    url: `https://www.techpowerup.com/review/antec-c8/${n}.html`, title: 'Antec C8 Review | TechPowerUp', content: 'snippet', credibility: { score: 90 },
+  }));
+  const otherReviews = [
+    { url: 'https://gamersnexus.net/cases/surprisingly-good-antec-c8-argb-case-review', title: 'Antec C8 ARGB Case Review', content: 'snippet', credibility: { score: 85 } },
+    { url: 'https://www.kitguru.net/components/cases/antec-constellation-c8-case-review/', title: 'Antec Constellation C8 Case Review', content: 'snippet', credibility: { score: 80 } },
+  ];
+  const redditPage = { url: 'https://www.reddit.com/r/buildapc/comments/1kwyfmf/antec_c8_review', title: 'Antec C8 review?', content: 'snippet', credibility: { score: 70 } };
+  const tpuFirst = [...tpuPages, redditPage, ...otherReviews];
+  const testPicks = testPagesToRead(tpuFirst, 'Antec C8').map((s) => s.url);
+  eq('CP-718 testPagesToRead: at most 2 pages per site', testPicks.filter((u) => u.includes('techpowerup')).length, 2);
+  eq('CP-718 testPagesToRead: GamersNexus and KitGuru get reads', otherReviews.every((s) => testPicks.includes(s.url)), true);
+  eq('CP-718 testPagesToRead: Reddit is not read', testPicks.some((u) => u.includes('reddit')), false);
+  const gatherPicks = evidencePagesToRead(tpuFirst, 'Antec C8').map((s) => s.url);
+  eq('CP-718 evidencePagesToRead: at most 2 pages per site', gatherPicks.filter((u) => u.includes('techpowerup')).length, 2);
+  eq('CP-718 evidencePagesToRead: Reddit is not read', gatherPicks.some((u) => u.includes('reddit')), false);
+  eq('CP-718 evidencePagesToRead: the other reviews are read', otherReviews.every((s) => gatherPicks.includes(s.url)), true);
+
   eq(
     'rankClaimCandidates: checking Antec C8 keeps only c8 maker page, dropping c8-wood',
     rankClaimCandidates([c8WoodMakerPage, c8MakerPage], 'Antec C8').map((s) => s.url),
