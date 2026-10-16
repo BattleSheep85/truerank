@@ -258,6 +258,13 @@ export function runProductLinkUnitTests() {
     eq(`CP-777 trimProductType: a one-letter model suffix stays ("${name}")`, trimProductType(name), name);
   }
   eq('CP-777 trimProductType: a one-letter model suffix stays before a type word', trimProductType('Logitech MX Master 3S mouse'), 'Logitech MX Master 3S mouse');
+  // An accessory case keeps "case": it is not the device.
+  for (const name of ['Apple iPhone 16 case', 'Nintendo Switch 2 case', 'Samsung Galaxy S25 phone case', 'Apple AirPods Pro 2 case', 'Apple iPad Air case']) {
+    eq(`CP-777 trimProductType: an accessory case stays ("${name}")`, trimProductType(name), name);
+  }
+  // "Phone" in a product line name stays; only a phone with a model number loses it.
+  eq('CP-777 trimProductType: "Asus ROG Phone" stays', trimProductType('Asus ROG Phone'), 'Asus ROG Phone');
+  eq('CP-777 trimProductType: "Nothing CMF Phone" stays', trimProductType('Nothing CMF Phone'), 'Nothing CMF Phone');
   eq('CP-777 trimProductType: a watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
   eq('CP-777 trimProductType: empty input gives ""', trimProductType('  '), '');
   eq('CP-777 trimProductType: non-string gives ""', trimProductType(null), '');

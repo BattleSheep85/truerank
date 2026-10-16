@@ -9,6 +9,7 @@ import {
   verdictForClaim,
   overallVerdict,
   independentCorroborators,
+  buyerStoreKeyOf,
   CONTRADICT_MIN,
   WEAK_SUPPORT,
 } from '../../worker/lib/verdict.js';
@@ -645,6 +646,22 @@ export function runVerdictTests() {
       page('https://laziman.com/b', 'contradict'),
     ]);
     ok('CP-777 control: the default policy still sums every page', Math.abs(legacy.contradict - 0.9) < EPS);
+
+    // 7. Sites under a two-part country suffix stay apart (com.cn, co.kr, org.uk).
+    eq('CP-777 site key: zol.com.cn', buyerStoreKeyOf('https://detail.zol.com.cn/x'), 'zol');
+    eq('CP-777 site key: pconline.com.cn', buyerStoreKeyOf('https://www.pconline.com.cn/x'), 'pconline');
+    eq('CP-777 site key: review.co.kr', buyerStoreKeyOf('https://review.co.kr/x'), 'review');
+    eq('CP-777 site key: which.org.uk', buyerStoreKeyOf('https://www.which.org.uk/x'), 'which');
+    const cn = verdictForClaim(fansClaim, [
+      page('https://detail.zol.com.cn/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.pconline.com.cn/x', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    eq('CP-777 sites: two .com.cn outlets are two corroborators', cn.independentCount, 2);
+
+    // 8. Threads on a multi-author community site still add up, page by page.
+    const thread = (n) => ({ url: `https://www.reddit.com/r/x/comments/${n}/t`, stance: 'contradict', credibility: 75, independence: 60, tags: ['hands-on'] });
+    const threads = verdictForClaim(chuckClaim, [thread(1), thread(2), thread(3)], opts);
+    ok('CP-777 community: three Reddit threads add three pages of weight', Math.abs(threads.contradict - 1.8) < EPS);
   }
 
   return report;

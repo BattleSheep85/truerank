@@ -396,7 +396,7 @@ async function loadClaimsAndEvidence() {
   }
 
   // The production steps 1 to 5 (runVerification's collectClaimsAndEvidence).
-  process.stderr.write(`[verify] resolving, extracting, and gathering "${PRODUCT}"...\n`);
+  process.stderr.write(`[verify] resolving, extracting, and gathering "${SUBJECT}"...\n`);
   const collected = await collectClaimsAndEvidence({
     product: SUBJECT,
     productUrl: PRODUCT_URL,

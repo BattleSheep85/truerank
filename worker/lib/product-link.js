@@ -72,6 +72,15 @@ const PRODUCT_TYPE_TAILS = Object.freeze([
   'cordless drill', 'power supply', 'computer case', 'pc case', 'cell phone', 'air fryer',
   'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires', 'vacuum', 'drill',
 ].map((phrase) => phrase.split(' ')));
+// "case" after one of these is an accessory, not a PC case ("iPhone 16 case").
+const CASE_WORDS = Object.freeze(['case', 'chassis']);
+const DEVICE_WORDS = Object.freeze([
+  'iphone', 'ipad', 'airpods', 'galaxy', 'pixel', 'switch', 'kindle', 'macbook',
+  'airtag', 'gopro', 'steam', 'playstation', 'ps5', 'xbox', 'watch', 'phone', 'tablet', 'laptop',
+]);
+// "phone" leaves only after a model number ("Pixel 9 Pro phone"), so a line
+// name such as "Asus ROG Phone" keeps it.
+const PHONE_WORDS = Object.freeze(['phone', 'smartphone']);
 // trimProductType never leaves fewer words than this.
 const TYPE_TRIM_MIN_WORDS = 2;
 // A trailing number with a one-letter suffix is usually the model, not a spec
@@ -220,7 +229,19 @@ function lowerWord(word) {
 function typeTailLength(lower) {
   const tail = PRODUCT_TYPE_TAILS.find((phrase) => phrase.length <= lower.length
     && phrase.every((w, i) => lower[lower.length - phrase.length + i] === w));
-  return tail ? tail.length : 0;
+  if (!tail || !isGenericTail(tail, lower.slice(0, -tail.length))) return 0;
+  return tail.length;
+}
+
+// False when the tail word is part of what the product is: an accessory
+// case, or "Phone" in a line name.
+function isGenericTail(tail, rest) {
+  const word = tail.at(-1);
+  if (CASE_WORDS.includes(word) && tail.length === 1) {
+    return !rest.some((w) => DEVICE_WORDS.includes(w));
+  }
+  if (PHONE_WORDS.includes(word)) return rest.some((w) => DIGIT_RE.test(w));
+  return true;
 }
 
 // True when the last word is a spec (128GB, 20V), not a model suffix (3S).

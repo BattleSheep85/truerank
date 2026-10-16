@@ -178,6 +178,14 @@ const SHARED_HOSTS = Object.freeze([
   'github.io', 'wixsite.com', 'weebly.com', 'netlify.app', 'vercel.app', 'pages.dev',
 ]);
 
+// Generic second-level labels of country domains (zol.com.cn, review.co.kr,
+// which.org.uk): the site label sits one step further left (CP-777).
+const GENERIC_SECOND_LEVEL = Object.freeze(['com', 'co', 'org', 'net', 'gov', 'edu', 'ac', 'ne', 'or']);
+
+// Community sites where every page has its own author (CP-777): each page
+// still adds its own weight, as before.
+const MULTI_AUTHOR_SITES = Object.freeze(['reddit', 'youtube', 'medium', 'quora']);
+
 function sharedHostOf(host) {
   return SHARED_HOSTS.find((shared) => host.endsWith(`.${shared}`)) || null;
 }
@@ -195,7 +203,9 @@ export function buyerStoreKeyOf(url) {
   const labels = host.split('.').filter(Boolean);
   if (labels.length < 2) return labels[0] || '';
   const lastTwo = labels.slice(-2).join('.');
-  const suffixLength = TWO_PART_PUBLIC_SUFFIXES.includes(lastTwo) ? 2 : 1;
+  const twoPart = TWO_PART_PUBLIC_SUFFIXES.includes(lastTwo)
+    || (labels.length > 2 && labels.at(-1).length === 2 && GENERIC_SECOND_LEVEL.includes(labels.at(-2)));
+  const suffixLength = twoPart ? 2 : 1;
   return labels[labels.length - suffixLength - 1] || labels[0];
 }
 
@@ -283,7 +293,7 @@ export function hasHandsOnCorroborator(supporting, weigh = verificationWeight) {
 // MAX_BUYER_REVIEW_HOST_WEIGHT, and every other site adds only its strongest
 // page (CP-777: four pages of one blog repeating one sentence, or four
 // regional mirrors of one review, are one vote, not four). A page without a
-// valid URL counts on its own.
+// valid URL, or on a MULTI_AUTHOR_SITES site, counts on its own.
 function sumCappedWeight(items, weigh, groupBySite) {
   const buyerHostTotals = new Map();
   const siteBest = new Map();
@@ -300,7 +310,7 @@ function sumCappedWeight(items, weigh, groupBySite) {
       total += allowed;
     } else {
       const site = buyerStoreKeyOf(ev.url);
-      if (!site) total += w;
+      if (!site || MULTI_AUTHOR_SITES.includes(site)) total += w;
       else siteBest.set(site, Math.max(siteBest.get(site) || 0, w));
     }
   }
