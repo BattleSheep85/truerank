@@ -1,0 +1,28 @@
+[
+  {
+    "results": [
+      {
+        "sources": "[\"https://reddit.com/r/pcmasterrace/comments/1j4vvi5/best_fan_setup_for_antec_c8_case_with_aircooled\"]",
+        "result": "{\"status\":\"ok\",\"product\":\"Antec C8\",\"productUrl\":null,\"subjectClaimSources\":[\"https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH\",\"https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-c8-white/p/N82E16811129307\"],\"overall\":{\"score\":null,\"label\":\"Not enough independent evidence\",\"checkedCount\":1,\"claimCount\":8},\"claims\":[{\"id\":\"c1\",\"text\":\"Supports E-ATX motherboards up to 280mm wide, plus ATX, Micro-ATX and ITX.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c2\",\"text\":\"Maximum GPU length supported is 440mm, with width clearance for wider RTX 40 series cards.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c3\",\"text\":\"Maximum CPU cooler height is 175mm.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c4\",\"text\":\"Supports 360mm radiators simultaneously on the top, bottom and side mounts.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c5\",\"text\":\"Accommodates up to 10 fans at once (e.g., 2x160mm top, 2x160mm bottom, 1x140mm rear).\",\"type\":\"spec\",\"status\":\"partially-verified\",\"confidence\":0.45,\"support\":0.45,\"contradict\":0,\"supporting\":[{\"url\":\"https://reddit.com/r/pcmasterrace/comments/1j4vvi5/best_fan_setup_for_antec_c8_case_with_aircooled\",\"stance\":\"support\",\"credibility\":55,\"independence\":75,\"span\":\"I used Liam Li Infinity fans, 3 120, 3 120 reverse 1 140, and 3 140 reverse. I put the 3 120 reverse on the side and 3 140 on the bottom, both for intake. 3 120 on top connected to an AIO and 1 140 on the rear, both for exhaust.\",\"tags\":[\"community\"],\"weight\":0.45}],\"contradicting\":[],\"independentCount\":1,\"judgeModel\":\"minimax/minimax-m3\",\"claimType\":\"spec\"},{\"id\":\"c6\",\"text\":\"Front I/O includes a USB Type-C port rated at 10Gbps plus two USB 3.0 ports.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c7\",\"text\":\"Case dimensions are 464 x 303 x 476mm and it weighs 10.48kg.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"},{\"id\":\"c8\",\"text\":\"Chassis is built from 0.8mm/1.0mm steel with 4mm tempered glass panels and tool-free quick-release front, top and side panels.\",\"type\":\"spec\",\"status\":\"unsubstantiated\",\"confidence\":0,\"support\":0,\"contradict\":0,\"supporting\":[],\"contradicting\":[],\"independentCount\":0,\"judgeModel\":\"xiaomi/mimo-v2.6-flash\",\"claimType\":\"spec\"}],\"evidenceCount\":164,\"costUsd\":0.03644757269999999}"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ORD",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5142
+      },
+      "duration": 0.5142,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 40062976,
+      "rows_read": 1,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

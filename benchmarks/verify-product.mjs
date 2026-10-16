@@ -86,6 +86,10 @@ const TOOL_ENV = Object.freeze({
   BRAVE_API_KEY: devVars.BRAVE_API_KEY,
   TAVILY_API_KEY: devVars.TAVILY_API_KEY,
   EXA_API_KEY: devVars.EXA_API_KEY,
+  // Production leads with SearXNG; pass SEARXNG_URL (and LITELLM_GATE_TOKEN for
+  // the public gate) in the environment to search the same way.
+  SEARXNG_URL: process.env.SEARXNG_URL,
+  LITELLM_GATE_TOKEN: process.env.LITELLM_GATE_TOKEN,
 });
 
 // REPLAY mode never gathers, so it only needs the OpenRouter key (for the

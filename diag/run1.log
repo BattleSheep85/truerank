@@ -1,0 +1,281 @@
+[llm] route=openrouter
+[models] extract=xiaomi/mimo-v2.6-flash stance=xiaomi/mimo-v2.6-flash fallback=minimax/minimax-m3 concurrency=12
+[verify-knobs] {"verifyResolveReadMs":0,"verifyTestReadMs":0,"verifyGatherReadMs":0,"verifyPlannerMs":0,"verifyStanceCallMs":0,"verifyClaimPatienceMs":0,"verifyHedgeMs":10000,"verifyExtractHedgeMs":5000,"verifyOverlapGather":true}
+[verify] resolving, extracting, and gathering "Antec C8"...
+[llm] calling model=mistralai/mistral-medium-3.1 effort=low tools=0
+[serper] HTTP 400 q="Antec C8" body={"message":"Not enough credits","statusCode":400}
+[serper] out of credit (HTTP 400), skipping it for 10 minutes
+[serper] HTTP 400 q="Antec C8 specs" body={"message":"Not enough credits","statusCode":400}
+[brave] HTTP 402 q="Antec C8" body={"type":"ErrorResponse","error":{"id":"195f29cc-ccd6-4119-8134-4d3a84f4961f","status":402,"detail":"Prepaid credit balance is insufficient for this re
+[brave] out of credit (HTTP 402), skipping it for 10 minutes
+[brave] HTTP 402 q="Antec C8 specs" body={"type":"ErrorResponse","error":{"id":"43a9cd24-2939-48e8-908a-75e2813dfe0c","status":402,"detail":"Prepaid credit balance is insufficient for this re
+[exa] q="Antec C8" → 10
+[exa] q="Antec C8 specs" → 10
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[verify] extract: no reply from xiaomi/mimo-v2.6-flash after 5000 ms, sent a second request
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[exa] HTTP 429 q="Antec C8 vs competitors cooling efficiency" body={"requestId":"72602534aefb5fb5722ead5de7a37276","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 vs Phanteks Eclipse G360A" body={"requestId":"9b70e9dd22db01c407591f7d74e976a2","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 official product page specs" body={"requestId":"dcbfeb4021333dde4c9d396211553af9","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 aluminum vga graphics card holder included review test" body={"requestId":"96f2c3f65516f965bc2abeff276c619c","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 dimensions weight material" body={"requestId":"a783ddb3973fc68008df3270628a8bfa","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 liquid cooling support 240mm 280mm" body={"requestId":"f8799c3270b9bd1d4a187385cc7345ed","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 ATX mid-tower case features" body={"requestId":"df0dd998cdf8342acd04d7bf9b89bf36","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 vs Corsair 4000D" body={"requestId":"c5254bcd155656875a5adb1408c8cc8f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 silent operation user feedback" body={"requestId":"59fec43c9a59b0b90f30f999ea3224fe","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 top bottom fan mounts each accommodate review test" body={"requestId":"830a0fe62f52521c786d0ba8d5172504","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 fan configuration cooling tests" body={"requestId":"605e64dda8e46daa24a29dd82f00d946","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 airflow benchmarks" body={"requestId":"f903c66aebda023689044137bd0cefbf","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 steel vs plastic construction" body={"requestId":"bf357c1884b42ecd08793267b21b5c7d","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 I/O ports fan support radiator clearance" body={"requestId":"ee85dad0c737e342480604c37f0f5de0","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 noise levels dB review" body={"requestId":"b6696c1e8887c29c786b768d7862d711","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 stock fans noise test" body={"requestId":"77797f4d1d2bdfeae89fdf05c351a3ed","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 metal thickness user reports" body={"requestId":"9c02fb3d62ad94d5bf4960832bfed5ec","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 noise vs Noctua fans" body={"requestId":"e6d36554eb176829bc93016210f4b08e","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 tempered glass panel quality" body={"requestId":"3f1316fcc03e980f82a5c2fbbc8187fc","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 vs Fractal Design Meshify C" body={"requestId":"208e65859c139c45150ca953a6b2605f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 thermal performance review" body={"requestId":"979c30f70f11575addce348afa565851","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[tavily] HTTP 433 q="Antec C8 liquid cooling support 240mm 280mm" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 official product page specs" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 ATX mid-tower case features" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 dimensions weight material" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 aluminum vga graphics card holder included review test" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 top bottom fan mounts each accommodate review test" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 vs Corsair 4000D" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 noise levels dB review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 I/O ports fan support radiator clearance" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 metal thickness user reports" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 fan configuration cooling tests" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 vs competitors cooling efficiency" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 silent operation user feedback" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 airflow benchmarks" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 vs Phanteks Eclipse G360A" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 steel vs plastic construction" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 noise vs Noctua fans" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 thermal performance review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 tempered glass panel quality" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 stock fans noise test" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 vs Fractal Design Meshify C" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] HTTP 429 q="Antec C8 tool-less design user experience" body={"requestId":"7aa552e4e368e46fb1ebfe50e318a563","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 cable management review" body={"requestId":"aa30924bd8edb6efc4181f6d5ff87e86","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 acoustic performance" body={"requestId":"459b685a1eed5a9fd84a8106a488bac4","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 design aesthetics user opinions" body={"requestId":"b0d538c5a9e6f26009d5da2102d73f45","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 motherboard tray installation" body={"requestId":"5e5e1cbc21d0f37a4a87c26aea627102","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 RGB lighting review" body={"requestId":"fc65b7405c123ac7b700ac2e64de771f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 PSU shroud ease of use" body={"requestId":"bd0de27b0a8ac239a52d62257ca51fa6","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 front panel design" body={"requestId":"4acd0b4d74db5ceeeec49da1b48fe45d","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 color options availability" body={"requestId":"97c87f6a1842b66074b309f6d2b6337c","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 price vs performance 2024" body={"requestId":"a3ebbc1c471b29bd453b9d43f50755ee","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 minimalist case look" body={"requestId":"29b139fda213cf9a7160c7f5065d7faa","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 budget case value review" body={"requestId":"da4458b8268274cc379d9396c1fc4fa1","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 worth it reddit" body={"requestId":"b2622a2718793e7131d88d37752324b9","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 problems issues" body={"requestId":"9fb5e525a041453249ac34ec5e02896f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 defects user reports" body={"requestId":"5b44661daab7b2300564a3e9f1d0c0bc","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 common complaints reddit" body={"requestId":"55bcad1b1f7bc02c6179ca575cd01c45","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 price comparison Amazon Newegg" body={"requestId":"52a19a4bc3127d6944049babfc1f34f6","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[tavily] HTTP 433 q="Antec C8 cable management review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 acoustic performance" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 motherboard tray installation" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 design aesthetics user opinions" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 PSU shroud ease of use" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 color options availability" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 worth it reddit" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 RGB lighting review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 front panel design" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 common complaints reddit" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 tool-less design user experience" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 price vs performance 2024" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 minimalist case look" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 defects user reports" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 budget case value review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 price comparison Amazon Newegg" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 problems issues" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] q="best mid-tower cases 2024 Antec C8 comparison" → 10
+[exa] q="Antec C8 case supports 360mm radiators mounted simultaneously review test" → 10
+[exa] q="Antec C8 front usb type port review test" → 10
+[exa] HTTP 429 q="Antec C8 Gamers Nexus review" body={"requestId":"27853f821d14451a25837c3e9a92dd44","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 warranty support experiences" body={"requestId":"4f3670f1bee6393d816232e1eb9393a8","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 expert hands-on testing" body={"requestId":"20d8e8e16420046f3b5840ffffedcb41","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 Hardware Canucks review" body={"requestId":"e2540f6da21419bb91a9ee2944449e9c","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 TechPowerUp review" body={"requestId":"5c47bdafb01de305f0db66390f3f029f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 CPU cooler height limit" body={"requestId":"03c9c037c54c5cb78c1bf695f61b9054","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="r/selfhosted PC case recommendations" body={"requestId":"4ad6a38ca4645ef601c59ddeca54cedf","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="FOSS alternatives for PC case customization" body={"requestId":"a1f4b41a1cbf7d7a05e09f719f1c750c","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 ATX motherboard fit" body={"requestId":"c574f0c9a2b2ee496841781fcd01840f","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 RTX 4090 compatibility" body={"requestId":"ed23f2ef36b076283a6855c3dde781a2","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 Tom's Hardware review" body={"requestId":"f0c212c8252758f35562e501c098b961","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] q="Antec C8 case specifications 2024" → 9
+[exa] q="Antec C8 durability long-term use" → 10
+[exa] HTTP 429 q="Antec C8 PSU length support" body={"requestId":"00d16248b428234ed617d0c50e3802d8","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] q="Antec C8 vs Lian Li Lancool 215" → 9
+[exa] HTTP 429 q="open-source PC case design software" body={"requestId":"43b2a487f2a4f33911e6c741c6c65e4b","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="self-hosted case management tools" body={"requestId":"30230c60cfe5b33d574e9d51b08c7e50","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] HTTP 429 q="Antec C8 GPU clearance max length" body={"requestId":"1fc20ae3c4826b05da780402d4803b94","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] q="Antec C8 build quality review" → 9
+[tavily] HTTP 433 q="Antec C8 Gamers Nexus review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 warranty support experiences" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] q="Antec C8 panels open toolless slide button design review test" → 10
+[exa] HTTP 429 q="Antec C8 rtings measured test" body={"requestId":"e632e16cec61c028a927eb4026bbbac7","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[exa] q="Antec C8 side panel made 4mm thick tempered review test" → 10
+[exa] q="Antec C8 motherboard tray supports atx boards 280mm review test" → 10
+[tavily] HTTP 433 q="Antec C8 expert hands-on testing" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 CPU cooler height limit" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 TechPowerUp review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="r/selfhosted PC case recommendations" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 Hardware Canucks review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="self-hosted case management tools" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="open-source PC case design software" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 Tom's Hardware review" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 GPU clearance max length" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="FOSS alternatives for PC case customization" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 ATX motherboard fit" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 rtings measured test" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] HTTP 429 q="Antec C8 teardown battery test" body={"requestId":"af97ba304247999384d8d4d29cb9aeb4","error":"Rate limit exceeded: 10 requests per second for your team. Wait at least 1 second before retr
+[tavily] HTTP 433 q="Antec C8 PSU length support" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[tavily] HTTP 433 q="Antec C8 RTX 4090 compatibility" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] q="Antec C8 bottom cut out uses interchangeable 120mm review test" → 10
+[exa] q="Antec C8 build difficulty reddit" → 4
+[tavily] HTTP 433 q="Antec C8 teardown battery test" body={"detail":{"error":"This request exceeds the pay-as-you-go limit. You can increase your limit on the Tavily dashboard."}}
+[exa] q="best value mid-tower case under $100 Antec C8" → 10
+[exa] q="Antec C8 broken parts complaints" → 9
+[exa] q="awesome-selfhosted hardware monitoring" → 10
+[verify-resolve] evidence read returned block/captcha page for https://ligadosnasdicas.com.br/reviews/product/293173 (161 chars)
+[jina] ERROR https://www.techpowerup.com/review/antec-c8/ (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://www.techpowerup.com/review/antec-c8/4.html (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://www.techpowerup.com/review/antec-c8/3.html (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://manualspro.net/425163-antec-c8-fans-included-compatible-instruction-manual (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://www.manua.ls/antec/c8/manual (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://piscomu.com/4487 (attempt 1): The operation was aborted due to timeout
+[verify] test pages: 8 reads, 4 filled in 11472 ms
+[verify-resolve] evidence read returned block/captcha page for https://casepeace.com/best-e-atx-case/ (535 chars)
+[jina] ERROR https://fi.pcpartpicker.com/b/PrY9TW (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://ipcstore.com/antec-c8-full-tower-black-14194491 (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://singularitycomputers.com/introducing-antec-c8-front-d5-reservoir-distribution-plate/ (attempt 1): The operation was aborted due to timeout
+[jina:direct] HTTP 403 for https://fi.pcpartpicker.com/b/PrY9TW
+[jina:direct] HTTP 403 for https://singularitycomputers.com/introducing-antec-c8-front-d5-reservoir-distribution-plate/
+[jina] ERROR https://nanokomputer.com/collections/full-tower-case (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://www.tweaktown.com/reviews/11235/lian-li-lancool-217-inf-mid-tower-chassis/index.html (attempt 1): The operation was aborted due to timeout
+[jina:direct] HTTP 403 for https://www.tweaktown.com/reviews/11235/lian-li-lancool-217-inf-mid-tower-chassis/index.html
+[jina] ERROR https://www.pcgamer.com/hardware/pc-cases/lian-li-lancool-217-case-review/ (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://www.thefpsreview.com/2026/06/09/lian-li-lancool-217-black-genuine-walnut-wood-case-review/ (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://mehtabrothers.in/blogs/news/the-ultimate-pc-cabinet-buying-guide-for-indian-gamers-2026-choosing-your-perfect-gaming-case (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://review.kakaku.com/review/K0001606665/ (attempt 1): The operation was aborted due to timeout
+[parallel] read 35 pages in 14756 ms, 35 with text
+[parallel] 13 aspects, 62 searches, 51 sources, no notes
+[resolve] queries: ["Antec C8","Antec C8 specs"]
+[resolve] found other-product: https://www.antec.com/product/case/c8
+[resolve] found other-product: https://antec.com/product/case/c8-argb
+[resolve] found other-product: https://www.antec.com/product/case/c8-white-argb
+[resolve] found retailer: https://www.newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[resolve] found other-product: https://www.antec.com/product/case-
+[resolve] found retailer: https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] found other-product: https://www.antec.com/product/case/c8
+[resolve] found retailer: https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] 20 search results, 2 candidates
+[resolve] candidate https://www.newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[resolve] candidate https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] claim source https://www.newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306 chars=951
+[resolve] claim source https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH chars=988
+[resolve] 2 claim source(s)
+[extract-claims] 8 claims
+[tests] query: Antec C8 case supports 360mm radiators mounted simultaneously review test
+[tests] query: Antec C8 top bottom fan mounts each accommodate review test
+[tests] query: Antec C8 side panel made 4mm thick tempered review test
+[tests] query: Antec C8 motherboard tray supports atx boards 280mm review test
+[tests] query: Antec C8 bottom cut out uses interchangeable 120mm review test
+[tests] query: Antec C8 front usb type port review test
+[tests] query: Antec C8 aluminum vga graphics card holder included review test
+[tests] query: Antec C8 panels open toolless slide button design review test
+[tests] 68 results, 8 test page reads, 4 filled
+[gather] 51 sources, 0 notes
+[gather] sources by provider: {"web":51}
+[evidence] 29 independent source(s) of 119, 19 with page text
+[diag] wrote ./diag/antec-c8.diag.json
+[stance] judging 8 claims, 12 at once...
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[verify] judge c1: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c2: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c3: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c4: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c5: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c6: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c7: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c8: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c6: xiaomi/mimo-v2.6-flash unsubstantiated in 12104 ms
+[verify] judge c7: xiaomi/mimo-v2.6-flash unsubstantiated in 15304 ms
+[verify] judge c3: xiaomi/mimo-v2.6-flash unsubstantiated in 15542 ms
+[verify] judge c3: minimax/minimax-m3 unsubstantiated in 6422 ms
+[verify] judge c7: minimax/minimax-m3 unsubstantiated in 6492 ms
+[verify] judge c6: minimax/minimax-m3 unsubstantiated in 8131 ms
+[verify] judge c5: minimax/minimax-m3 unsubstantiated in 8679 ms
+[verify] judge c8: minimax/minimax-m3 unsubstantiated in 8720 ms
+[verify] judge c4: minimax/minimax-m3 unsubstantiated in 8893 ms
+[verify] judge c2: xiaomi/mimo-v2.6-flash unsubstantiated in 20614 ms
+[verify] judge c2: minimax/minimax-m3 unsubstantiated in 11036 ms
+[verify] judge c8: xiaomi/mimo-v2.6-flash unsubstantiated in 24586 ms
+[verify] judge c5: xiaomi/mimo-v2.6-flash unsubstantiated in 27740 ms
+[verify] judge c1: xiaomi/mimo-v2.6-flash unsubstantiated in 30060 ms
+[verify] judge c1: minimax/minimax-m3 unsubstantiated in 22490 ms
+[verify] judge c4: xiaomi/mimo-v2.6-flash unsubstantiated in 38859 ms
+[stance] c1: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c2: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c3: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c4: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c5: 15 sources judged, 1 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c6: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c7: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c8: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[determinism] re-running verdictForClaim on pinned evidence...
+══════════════════════════════════════════════════════════════════
+TRUTH AUDIT — Antec C8
+Overall: null/100 — Not enough independent evidence
+Claims: 8   Evidence sources: 29   Spent: $0.0369
+══════════════════════════════════════════════════════════════════
+
+[unsubstantiated] (conf=0) Case supports 360mm radiators mounted simultaneously on the top, bottom, and side positions
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Top and bottom fan mounts each accommodate three 140mm fans or two 160mm fans
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Side panel is made of 4mm-thick tempered glass
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Motherboard tray supports E-ATX boards up to 280mm wide, as well as ATX, Micro-ATX and Mini-ITX
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0.18) Bottom cut-out uses interchangeable 120mm/140mm fan brackets
+      ↑ [cred=50 indep=60 weight=0.18] https://www.techpowerup.com/review/antec-c8/4.html — "with the pre-installed 140 mm mounting bracket. It comes with a white instruction sticker, which most users will likely peel right off. This bracket may be switched out for the wider one in the accessories box, in case you are opting for 120 mm units or a 240/360 mm radiator."
+
+[unsubstantiated] (conf=0) Front I/O includes a USB Type-C port
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) An aluminum VGA (graphics card) holder is included with the case
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Panels open via a toolless/slide-button design without screws
+      (no source supports or contradicts the claim)
+
+──────────────────────────────────────────────────────────────────
+[verify] timing gather=26.9 extract=10.0 judge=38.9 total=75.8
+[cost] total LLM USD=0.0369
+verdict pass reproducible: ✓
+[fatal] TypeError [ERR_INVALID_FILE_URL_HOST]: File URL host must be "localhost" or empty on linux
+    at mkdirSync (node:fs:1411:5)
+    at main (file:///home/agent/multica_workspaces/chris-6c6887c6000b/cp-778-a86895540500/worktree/benchmarks/verify-product.mjs:468:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

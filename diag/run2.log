@@ -1,0 +1,252 @@
+[llm] route=openrouter
+[models] extract=xiaomi/mimo-v2.6-flash stance=xiaomi/mimo-v2.6-flash fallback=minimax/minimax-m3 concurrency=12
+[verify-knobs] {"verifyResolveReadMs":0,"verifyTestReadMs":0,"verifyGatherReadMs":0,"verifyPlannerMs":0,"verifyStanceCallMs":0,"verifyClaimPatienceMs":0,"verifyHedgeMs":10000,"verifyExtractHedgeMs":5000,"verifyOverlapGather":true}
+[verify] resolving, extracting, and gathering "Antec C8"...
+[llm] calling model=mistralai/mistral-medium-3.1 effort=low tools=0
+[serper] HTTP 400 q="Antec C8" body={"message":"Not enough credits","statusCode":400}
+[serper] out of credit (HTTP 400), skipping it for 10 minutes
+[serper] HTTP 400 q="Antec C8 specs" body={"message":"Not enough credits","statusCode":400}
+[searxng] q="Antec C8 specs" → raw 64, kept 15
+[searxng] q="Antec C8" → raw 52, kept 15
+[jina] ERROR https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306 (attempt 1): The operation was aborted due to timeout
+[jina:direct] HTTP 403 for https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[verify-resolve] focused read failed for https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306: The operation was aborted due to timeout
+[verify-resolve] claim page too-short in 25005 ms (173 chars) https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[verify] extract: no reply from xiaomi/mimo-v2.6-flash after 5000 ms, sent a second request
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[searxng] q="Antec C8 vs Corsair 4000D Airflow" → raw 73, kept 15
+[searxng] q="Antec C8 durability long-term use" → raw 66, kept 15
+[searxng] q="Antec C8 I/O ports and fan configuration" → raw 62, kept 15
+[searxng] q="Antec C8 top bottom fan mounts each accommodate review test" → raw 59, kept 15
+[searxng] q="Antec C8 supports atx motherboards addition microatx mini review test" → raw 60, kept 15
+[searxng] q="Antec C8 supported motherboard sizes ATX mATX" → raw 63, kept 15
+[searxng] q="Antec C8 build quality review" → raw 55, kept 15
+[searxng] q="Antec C8 rear fan mount supports 140mm addition review test" → raw 66, kept 15
+[searxng] q="Antec C8 fan included specs RPM noise" → raw 65, kept 15
+[searxng] q="Antec C8 silent operation fan noise" → raw 59, kept 15
+[searxng] q="Antec C8 2x inch 4x internal drive bays review test" → raw 64, kept 15
+[searxng] q="Antec C8 official product page specs" → raw 65, kept 15
+[searxng] q="Antec C8 case specifications 2024" → raw 57, kept 15
+[searxng] q="best mid-tower cases 2024 vs Antec C8" → raw 63, kept 15
+[searxng] q="Antec C8 steel vs plastic construction" → raw 58, kept 15
+[searxng] q="Antec C8 constructed 8mm high strength steel panels review test" → raw 63, kept 15
+[searxng] q="Antec C8 vs Fractal Design Meshify C" → raw 73, kept 15
+[searxng] q="Antec C8 front one usb gen type port review test" → raw 57, kept 15
+[searxng] q="Antec C8 tempered glass panel quality" → raw 60, kept 15
+[searxng] q="Antec C8 sound dampening features" → raw 61, kept 15
+[searxng] q="Antec C8 radiator support 240mm 280mm" → raw 69, kept 15
+[searxng] q="Antec C8 dimensions weight material" → raw 62, kept 15
+[searxng] q="Antec C8 noise levels dB review" → raw 58, kept 15
+[searxng] q="Antec C8 cable management and routing" → raw 60, kept 15
+[searxng] q="Antec C8 supports 360mm radiators simultaneously top bottom review test" → raw 60, kept 15
+[searxng] q="Antec C8 noisy under load" → raw 64, kept 15
+[searxng] q="Antec C8 vs Phanteks Eclipse G360A" → raw 69, kept 15
+[searxng] q="Antec C8 vs Lian Li Lancool 215" → raw 68, kept 15
+[searxng] q="Antec C8 airflow benchmarks" → raw 64, kept 15
+[searxng] q="Antec C8 cooling vs competitors" → raw 65, kept 15
+[searxng] q="Antec C8 thermal performance review" → raw 54, kept 15
+[searxng] q="Antec C8 panels use toolless quick release design review test" → raw 63, kept 15
+[searxng] q="Antec C8 easy to build in review" → raw 62, kept 15
+[searxng] q="Antec C8 quiet PC build compatibility" → raw 66, kept 15
+[searxng] q="Antec C8 tool-less design" → raw 60, kept 15
+[searxng] q="Antec C8 hard drive SSD installation" → raw 65, kept 15
+[searxng] q="Antec C8 GPU clearance and PSU fit" → raw 67, kept 15
+[verify-resolve] evidence read returned block/captcha page for https://gearsagebook.com/antec-c8-full-tower-pc-case-high-airflow-dual-chamber-e-atx (584 chars)
+[searxng] q="Antec C8 beginner-friendly case" → raw 61, kept 15
+[searxng] q="Antec C8 design and looks review" → raw 57, kept 15
+[searxng] q="Antec C8 RGB lighting options" → raw 66, kept 15
+[searxng] q="Antec C8 color variants availability" → raw 61, kept 15
+[searxng] q="Antec C8 minimalist aesthetic" → raw 60, kept 15
+[searxng] q="Antec C8 front panel design" → raw 62, kept 15
+[searxng] q="Antec C8 price 2024" → raw 60, kept 15
+[searxng] q="Antec C8 best budget mid-tower case" → raw 66, kept 15
+[searxng] q="Antec C8 value vs performance" → raw 65, kept 15
+[searxng] q="Antec C8 price comparison Amazon Newegg" → raw 66, kept 15
+[searxng] q="Antec C8 Gamers Nexus review" → raw 54, kept 15
+[searxng] q="Antec C8 TechPowerUp review" → raw 54, kept 15
+[searxng] q="Antec C8 Tom's Hardware review" → raw 61, kept 15
+[searxng] q="Antec C8 worth the price" → raw 70, kept 15
+[searxng] q="Antec C8 Hardware Canucks review" → raw 59, kept 15
+[searxng] q="Antec C8 expert hands-on testing" → raw 63, kept 15
+[verify-resolve] evidence read returned block/captcha page for https://techpowerup.com/review/antec-c8 (389 chars)
+[searxng] q="Antec C8 issues and complaints Reddit" → raw 73, kept 15
+[searxng] q="Antec C8 common problems" → raw 69, kept 15
+[searxng] q="Antec C8 failure modes long-term" → raw 64, kept 15
+[searxng] q="Antec C8 defective units reports" → raw 69, kept 15
+[searxng] q="Antec C8 warranty and support experiences" → raw 66, kept 15
+[searxng] q="Antec C8 GPU clearance max length" → raw 64, kept 15
+[searxng] q="Antec C8 CPU cooler height limit" → raw 65, kept 15
+[searxng] q="Antec C8 PSU size compatibility" → raw 59, kept 15
+[searxng] q="Antec C8 RAM clearance with cooler" → raw 67, kept 15
+[searxng] q="Antec C8 water cooling support" → raw 67, kept 15
+[jina] ERROR https://techpowerup.com/review/antec-c8/3.html (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://techpowerup.com/review/antec-c8/10.html (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://techpowerup.com/review/antec-c8/4.html (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://techpowerup.com/review/antec-c8/8.html (attempt 1): The operation was aborted due to timeout
+[searxng] q="self-hosted case management software" → raw 66, kept 15
+[searxng] q="open-source PC case design tools" → raw 60, kept 15
+[searxng] q="best FOSS for hardware monitoring in cases" → raw 71, kept 15
+[searxng] q="r/selfhosted PC case recommendations" → raw 73, kept 15
+[verify] test pages: 8 reads, 2 filled in 8869 ms
+[searxng] q="awesome-selfhosted hardware management" → raw 59, kept 15
+[searxng] q="Antec C8 rtings measured test" → raw 59, kept 15
+[searxng] q="Antec C8 teardown battery test" → raw 59, kept 15
+[verify-resolve] evidence read returned block/captcha page for https://forums.tomshardware.com/threads/antec-c8-upgrade-black-or-white.3885273 (214 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/buildapc/comments/1cjdahr/antec_c8_optimal_fan_configuration (796 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/PcBuild/comments/1hrzqg4/help_choosing_pc_case_lian_li_o11_vision_compact (809 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/buildapc/comments/1cjb03a/antec_vs_fractal_cabinets (787 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/pcmasterrace/comments/1c7cux8/upgraded_my_case_to_the_antec_c8_and_loving_it (812 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/Antec_Official/comments/1h67z50/antec_c8_with_micro_atx_motherboard (803 chars)
+[jina] ERROR https://reddit.com/r/Antec_Official/comments/1kygx1d/antec_c8_optimal_rear_fan_configuration (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/FractalDesign/comments/1hx33ai/either_a_north_xl_or_an_antec_c8_for_my_new_build (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/buildapc/comments/1d2chc2/hows_this_should_i_go_for_the_build_or_you_guys (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/buildapc/comments/hzqe4e/aio_options_for_meshify_c_case (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/buildapc/comments/oo6ald/antec_or_lian_li_case_for_first_build (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/buildapc/comments/1her71z/help_me_choose_a_case (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/pcmasterrace/comments/1penh4j/lian_li_217_wood_vs_antec_c8_fish_tank_which_look (attempt 1): The operation was aborted due to timeout
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/watercooling/comments/1dye77o/antec_c8 (774 chars)
+[verify-resolve] evidence read returned block/captcha page for https://pangoly.com/en/product/antec-c8 (1138 chars)
+[verify-resolve] evidence read returned block/captcha page for https://pangoly.com/en/product/antec-c8-white (1144 chars)
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/Antec_Official/comments/1h5eh65/antec_c8_vertical_gpu_cpu_air_cooler (804 chars)
+[jina] ERROR https://reddit.com/r/buildapc/comments/1kwyfmf/whats_your_opinion_on_the_antec_c8_case (attempt 1): The operation was aborted due to timeout
+[verify-resolve] evidence read returned block/captcha page for https://manuals.plus/m/182d3c0731942fb68f188a1048dfa27e2df2e37af63d4d8bc96e6767da4bb6ee (845 chars)
+[jina] ERROR https://reddit.com/r/Antec_Official/comments/1h5dj1j/antec_c8_or_antec_flux_pro (attempt 1): The operation was aborted due to timeout
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/Antec_Official/comments/1q1con9/i_am_so_disappointed_and_frustrated_by_this_antec (817 chars)
+[jina] ERROR https://reddit.com/r/Antec_Official/comments/1j4aqrn/antec_c8_fans_not_working (attempt 1): The operation was aborted due to timeout
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/PcBuildHelp/comments/1ldahrr/antec_c8_5090_width_clearance (794 chars)
+[jina] ERROR https://reddit.com/r/Antec_Official/comments/1gvuj82/antec_c8_curved_build (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://reddit.com/r/PcBuildHelp/comments/1ictci4/side_clip_antec_c8_case (attempt 1): The operation was aborted due to timeout
+[verify-resolve] evidence read returned block/captcha page for https://reddit.com/r/Scythe_official/comments/1kc9j9e/mugen_6_black_edition_vibration_at_80_fan_speed (902 chars)
+[verify-resolve] evidence read returned block/captcha page for https://manuals.plus/m/d132e6c3b5ba1fd687c262789c91feacb704c0d7edbdca019f44f975f2e192fd (844 chars)
+[jina] ERROR https://reddit.com/r/buildapc/comments/1nczpi0/feeling_defeated (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://techbenchpro.com/hardware/case/antec-c8 (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://ovrak.in/products/c8-cabinet (attempt 1): The operation was aborted due to timeout
+[jina] ERROR https://device.report/manual/13069559 (attempt 1): The operation was aborted due to timeout
+[jina:direct] HTTP 403 for https://device.report/manual/13069559
+[parallel] read 50 pages in 20851 ms, 37 with text
+[parallel] 13 aspects, 62 searches, 378 sources, no notes
+[resolve] queries: ["Antec C8","Antec C8 specs"]
+[resolve] found other-product: https://antec.com/product/case/c8
+[resolve] found retailer: https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] found other-product: https://amazon.com/Antec-C8-ARGB-Dual-Chamber-Compatible/dp/B0CT2LSSHK
+[resolve] found other-product: https://antec.com/product/case/c8-argb
+[resolve] found retailer: https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[resolve] found retailer: https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-c8-white/p/N82E16811129307
+[resolve] found other-product: https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-glass-computer-case-black-c8-argb/p/N82E16811129310
+[resolve] found retailer: https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3NQ8TC
+[resolve] found other-product: https://antec.com/product/case/c8
+[resolve] found other-product: https://antec.com/product/case/c8-argb
+[resolve] found retailer: https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] found other-product: https://antec.com/product/case/c8-curve-wood
+[resolve] found other-product: https://antec.com/
+[resolve] found retailer: https://microcenter.com/product/701827/antec-c8-tempered-glass-eatx-full-tower-computer-case-black
+[resolve] 30 search results, 5 candidates
+[resolve] candidate https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH
+[resolve] candidate https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[resolve] candidate https://microcenter.com/product/701827/antec-c8-tempered-glass-eatx-full-tower-computer-case-black
+[resolve] candidate https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-c8-white/p/N82E16811129307
+[resolve] candidate https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3NQ8TC
+[resolve] rejected too-short chars=173 https://newegg.com/antec-e-atx-full-tower-case-steel-plastic-tempered-glass-computer-case-black-c8/p/N82E16811129306
+[resolve] claim source https://amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH chars=1193
+[resolve] claim source https://microcenter.com/product/701827/antec-c8-tempered-glass-eatx-full-tower-computer-case-black chars=1198
+[resolve] 2 claim source(s)
+[extract-claims] 8 claims
+[tests] query: Antec C8 supports atx motherboards addition microatx mini review test
+[tests] query: Antec C8 constructed 8mm high strength steel panels review test
+[tests] query: Antec C8 supports 360mm radiators simultaneously top bottom review test
+[tests] query: Antec C8 top bottom fan mounts each accommodate review test
+[tests] query: Antec C8 rear fan mount supports 140mm addition review test
+[tests] query: Antec C8 front one usb gen type port review test
+[tests] query: Antec C8 2x inch 4x internal drive bays review test
+[tests] query: Antec C8 panels use toolless quick release design review test
+[tests] 128 results, 8 test page reads, 2 filled
+[gather] 378 sources, 0 notes
+[gather] sources by provider: {"web":378}
+[evidence] 158 independent source(s) of 506, 19 with page text
+[diag] wrote /home/agent/multica_workspaces/chris-6c6887c6000b/cp-778-a86895540500/worktree/diag/antec-c8.diag.json
+[stance] judging 8 claims, 12 at once...
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[llm] calling model=xiaomi/mimo-v2.6-flash effort=none tools=0
+[verify] judge c1: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c2: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c3: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c4: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c5: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c6: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c7: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c8: no xiaomi/mimo-v2.6-flash verdict after 10000 ms, minimax/minimax-m3 starts now
+[llm] calling model=minimax/minimax-m3 effort=none tools=0
+[verify] judge c8: xiaomi/mimo-v2.6-flash partially-verified in 16884 ms
+[verify] judge c7: xiaomi/mimo-v2.6-flash unsubstantiated in 19864 ms
+[verify] judge c2: minimax/minimax-m3 unsubstantiated in 11164 ms
+[verify] judge c8: minimax/minimax-m3 partially-verified in 11342 ms
+[verify] judge c5: minimax/minimax-m3 unsubstantiated in 11625 ms
+[verify] judge c2: xiaomi/mimo-v2.6-flash unsubstantiated in 22134 ms
+[verify] judge c7: minimax/minimax-m3 unsubstantiated in 12564 ms
+[verify] judge c4: minimax/minimax-m3 unsubstantiated in 13414 ms
+[verify] judge c5: xiaomi/mimo-v2.6-flash unsubstantiated in 23906 ms
+[verify] judge c6: minimax/minimax-m3 unsubstantiated in 14038 ms
+[verify] judge c3: xiaomi/mimo-v2.6-flash unsubstantiated in 24104 ms
+[verify] judge c3: minimax/minimax-m3 unsubstantiated in 15027 ms
+[verify] judge c1: minimax/minimax-m3 unsubstantiated in 16141 ms
+[verify] judge c6: xiaomi/mimo-v2.6-flash unsubstantiated in 26768 ms
+[verify] judge c1: xiaomi/mimo-v2.6-flash unsubstantiated in 26846 ms
+[verify] judge c4: xiaomi/mimo-v2.6-flash unsubstantiated in 46004 ms
+[stance] c1: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c2: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c3: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c4: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c5: 15 sources judged, 1 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c6: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c7: 15 sources judged, 0 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[stance] c8: 15 sources judged, 1 support, 0 contradict, judge=xiaomi/mimo-v2.6-flash
+[determinism] re-running verdictForClaim on pinned evidence...
+══════════════════════════════════════════════════════════════════
+TRUTH AUDIT — Antec C8
+Overall: null/100 — Not enough independent evidence
+Claims: 8   Evidence sources: 158   Spent: $0.0371
+══════════════════════════════════════════════════════════════════
+
+[unsubstantiated] (conf=0) Supports E-ATX motherboards (in addition to ATX, microATX, and Mini-ITX).
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Constructed with 0.8mm high-strength steel panels and 4mm non-drilled steel-tempered glass side/front panels.
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Supports 360mm radiators simultaneously on the top, bottom, and side mounting positions.
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Top and bottom fan mounts each accommodate three 140mm fans or two 160mm fans.
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0.18) Rear fan mount supports a 140mm fan (in addition to 120mm).
+      ↑ [cred=50 indep=60 weight=0.18] https://theaterfi.re/post/1265433 — "i have 3x 140 on the bottom, 3x 140 on the top, 1x 140 on the rear"
+
+[unsubstantiated] (conf=0) Front I/O includes one USB 3.2 Gen 2 Type-C port, two USB 3.2 Gen 1 Type-A ports, and one headphone/microphone combo jack.
+      (no source supports or contradicts the claim)
+
+[unsubstantiated] (conf=0) Provides 2x 3.5-inch and 4x 2.5-inch internal drive bays.
+      (no source supports or contradicts the claim)
+
+[partially-verified] (conf=0.6) Panels use a toolless quick-release design for assembly and disassembly without tools.
+      ↑ [cred=75 indep=60 weight=0.6] https://harija.moe/posts/antec-c8-3-months — "All panels (i.e., sides, top and front) are quick release, meaning no screws are needed to remove them"
+
+──────────────────────────────────────────────────────────────────
+[verify] timing gather=38.6 extract=43.5 judge=46.1 total=128.2
+[cost] total LLM USD=0.0371
+verdict pass reproducible: ✓
+[output] wrote /home/agent/multica_workspaces/chris-6c6887c6000b/cp-778-a86895540500/worktree/diag/verify-antec-c8.json
