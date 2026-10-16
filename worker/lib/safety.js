@@ -69,7 +69,11 @@ const HTML_TAG_PATTERN = /<\s*\/?\s*[a-z][a-z0-9_-]*(?:\s+[^>]*)?>/i;
 const FULL_URL_PATTERN = /^\s*https?:\/\/\S+\s*$/i;
 const SPECIAL_CHARS_PATTERN = /[(){}[\];|<>]/g;
 const LONG_RUN_PATTERN = /[^\s]{25,}/;
-const WORD_TOKEN_PATTERN = /[a-zA-Z0-9]{3,}/g;
+// Alphanumeric run; rule 7 classifies each run once, so no token counts twice.
+const ALNUM_RUN_PATTERN = /[a-zA-Z0-9]+/g;
+// Model-number token: 2+ alnum chars with at least one letter and one digit ("C8", "A7", "M4").
+const MODEL_TOKEN_PATTERN = /^(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]{2,}$/i;
+const MIN_WORD_TOKEN_LENGTH = 3;
 
 /**
  * Check if a query looks like code, a URL, a scanner probe, or an attack payload
@@ -83,7 +87,8 @@ const WORD_TOKEN_PATTERN = /[a-zA-Z0-9]{3,}/g;
  * 4. an http(s):// URL as the whole query (unless allowUrl: true)
  * 5. more than 3 of these characters `(){}[];|<>` combined
  * 6. a run of 25+ characters with no space
- * 7. nonsense ratio (fewer than 2 dictionary-shaped word tokens of 3+ letters)
+ * 7. nonsense ratio (fewer than 2 word tokens, where a word token is 3+ letters/digits
+ *    or a model number of 2+ chars with a letter and a digit, such as "C8")
  *
  * @param {string} query
  * @param {{ allowUrl?: boolean }} [options]
@@ -131,11 +136,16 @@ export function isProbeQuery(query, options = {}) {
   // 6. Run of 25+ characters with no space
   if (LONG_RUN_PATTERN.test(raw)) return true;
 
-  // 7. Nonsense ratio: fewer than 2 dictionary-shaped word tokens of 3+ letters/digits
-  const words = raw.match(WORD_TOKEN_PATTERN) || [];
+  // 7. Nonsense ratio: fewer than 2 word tokens (3+ letters/digits, or a model number like "C8")
+  const runs = raw.match(ALNUM_RUN_PATTERN) || [];
+  const words = runs.filter(isWordToken);
   if (words.length < 2) return true;
 
   return false;
+}
+
+function isWordToken(run) {
+  return run.length >= MIN_WORD_TOKEN_LENGTH || MODEL_TOKEN_PATTERN.test(run);
 }
 
 function normalize(query) {

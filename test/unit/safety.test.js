@@ -96,5 +96,23 @@ export function runSafetyTests() {
   eq('probe URL with SQL payload is still blocked in verify mode', screenQuery('https://example.com/UNION SELECT 1,2,3', { allowUrl: true }).blocked, true);
   eq('javascript scheme is still blocked in verify mode', screenQuery('javascript:alert(1)', { allowUrl: true }).blocked, true);
 
+  // ── 8. CP-723: short product names with a 2-char model number ─────────────
+  eq('CP-723 allow short product name: "Antec C8"', screenQuery('Antec C8').blocked, false);
+  eq('CP-723 allow short product name: "Sony A7"', screenQuery('Sony A7').blocked, false);
+  eq('CP-723 allow short product name in verify mode: "Antec C8"', screenQuery('Antec C8', { allowUrl: true }).blocked, false);
+
+  const cp723ProbeQueries = [
+    { q: 'a 1 2', desc: 'single-char tokens only' },
+    { q: 'C8', desc: 'lone 2-char model token' },
+    { q: 'x1', desc: 'lone 2-char model token' },
+    { q: 'ab 12', desc: 'letters-only and digits-only short tokens' },
+  ];
+
+  for (const { q, desc } of cp723ProbeQueries) {
+    const res = screenQuery(q);
+    eq(`CP-723 still block probe (${desc}): "${q}"`, res.blocked, true);
+    eq(`CP-723 probe reason for (${desc}): "${q}"`, res.reason, 'probe');
+  }
+
   return report;
 }
