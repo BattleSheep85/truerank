@@ -1609,7 +1609,8 @@ export function harvestBuyerReviews(sources, product, opts = {}) {
   let totalHarvested = 0;
 
   for (const source of list) {
-    if (!source?.url || totalHarvested >= maxReviews) break;
+    if (totalHarvested >= maxReviews) break;
+    if (!source?.url) continue;
     // If source is already a pre-built buyer-review source, keep its reviews under its host.
     const kind = ownPageKind(source.url, product);
     const isPrebuiltBuyerReview = source.source === 'buyer-review';
