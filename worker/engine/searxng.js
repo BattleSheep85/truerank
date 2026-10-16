@@ -13,6 +13,11 @@ export const SEARXNG_TIMEOUT_MS = 11000;
 export const SEARXNG_MAX_RESULTS = 15;
 // Fewer cleaned results than this means a weak answer: let a paid provider run.
 export const SEARXNG_MIN_USABLE = 3;
+// SearXNG category for image engines (bing images, startpage images).
+export const SEARXNG_IMAGES_CATEGORY = 'images';
+// "1000×1000", "1200x1050", "3000 x 3000", "1500 X 851".
+const RESOLUTION_RE = /^\s*(\d+)\s*[x×X]\s*(\d+)\s*$/;
+const NO_RESOLUTION = Object.freeze({ width: 0, height: 0 });
 
 export const BLOCKED_DOMAINS = new Set([
   'pinterest.com', 'alibaba.com', 'aliexpress.com', 'taobao.com', 'tiktok.com',
@@ -223,6 +228,7 @@ function edgeGateHeader(rawToken) {
 function buildSearchUrl(query, baseUrl, opts) {
   const params = new URLSearchParams({ q: query, format: 'json' });
   if (opts.topic === 'news') params.set('categories', 'news');
+  else if (typeof opts.categories === 'string' && opts.categories) params.set('categories', opts.categories);
   // No time_range: SearXNG drops engines that cannot filter by date, which
   // shrinks the answer. Freshness is a ranking bonus instead.
   return `${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`;
@@ -252,6 +258,36 @@ async function fetchSearxngJson(query, baseUrl, opts) {
 }
 
 const resultsOf = (data) => (Array.isArray(data?.results) ? data.results : []);
+
+// SearXNG image `resolution` string as { width, height }; { 0, 0 } when the
+// value is missing, malformed, or not two positive integers.
+export function parseResolution(value) {
+  if (typeof value !== 'string') return { ...NO_RESOLUTION };
+  const match = RESOLUTION_RE.exec(value);
+  if (!match) return { ...NO_RESOLUTION };
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (width <= 0 || height <= 0) return { ...NO_RESOLUTION };
+  return { width, height };
+}
+
+// Image results in the Serper image shape ({ imageUrl, imageWidth,
+// imageHeight }), SearXNG order, no ranking (the image resolver ranks).
+// [] for zero results, null on any failure.
+export async function searxngImageSearch(query, baseUrl, opts = {}) {
+  if (!baseUrl) return null;
+  const data = await fetchSearxngJson(query, baseUrl, { ...opts, categories: SEARXNG_IMAGES_CATEGORY });
+  if (data === null) return null;
+  const raw = resultsOf(data);
+  const images = raw
+    .filter((r) => typeof r?.img_src === 'string' && r.img_src !== '')
+    .map((r) => {
+      const { width, height } = parseResolution(r.resolution);
+      return { imageUrl: r.img_src, imageWidth: width, imageHeight: height };
+    });
+  console.log(`[searxng] images q="${query}" → raw ${raw.length}, kept ${images.length}`);
+  return images;
+}
 
 // Cleaned, reranked results, or null so the caller falls through to the next
 // provider (not configured, HTTP error, network error, timeout, bad JSON, or

@@ -1,14 +1,20 @@
 /**
  * Product image resolver: fill in image_url for products that lack one.
  *
- * One Serper Images query per missing product. Candidates are ranked by
+ * One image query per missing product. Provider order: Serper Images when
+ * SERPER_API_KEY is set, else SearXNG images when SEARXNG_URL is set (a failed
+ * SearXNG query retries on Brave when BRAVE_API_KEY is set), else Brave Image
+ * Search. Candidates are ranked by
  * host quality (Amazon's CDN allows hotlinking and is product-accurate;
  * retailer CDNs next; everything else last) and minimum dimensions. The
  * render path serves images through the /api/img/:id proxy, so even
  * hotlink-hostile hosts work — ranking is about accuracy, not loadability.
  *
- * Brave fallback: with no SERPER_API_KEY but a BRAVE_API_KEY, the query goes
- * to the Brave Image Search API, paced on the engine's shared Brave slot. Brave
+ * SearXNG results carry a "W×H" resolution string, parsed to the Serper image
+ * shape so pickBestImage applies the same size filter.
+ *
+ * Brave fallback: with no SERPER_API_KEY and no SEARXNG_URL but a BRAVE_API_KEY,
+ * the query goes to the Brave Image Search API, paced on the engine's shared Brave slot. Brave
  * results are mapped to the Serper image shape so pickBestImage filters both
  * the same way. If Brave refuses the endpoint (401/403/422, for example a plan
  * without image search), the run logs once and leaves the remaining products as they are.
@@ -18,6 +24,7 @@
  */
 
 import { waitForBraveSlot } from '../engine/tools.js';
+import { searxngImageSearch } from '../engine/searxng.js';
 
 const SERPER_IMAGES_ENDPOINT = 'https://google.serper.dev/images';
 const BRAVE_IMAGES_ENDPOINT = 'https://api.search.brave.com/res/v1/images/search';
@@ -25,7 +32,7 @@ const BRAVE_IMAGES_COUNT = 5;
 // Brave answers these when the key or plan cannot use the image endpoint.
 const BRAVE_IMAGES_REFUSED = new Set([401, 403, 422]);
 const TIMEOUT_MS = 8000;
-// Cap per run: one Serper query each → ≤8 extra subrequests.
+// Cap per run: one image query each → ≤8 extra subrequests.
 const MAX_RESOLVE = 8;
 const MIN_DIM = 200;
 
@@ -120,15 +127,27 @@ async function searchImageBrave(query, apiKey, state) {
   return pickBestImage(braveImagesToSerperShape(data?.results));
 }
 
-// Serper when its key is set (unchanged behavior), else Brave, else null.
+// SearXNG image results ranked by pickBestImage. A failed query (null)
+// retries once on Brave when a Brave key is set; otherwise no image.
+async function searxngThenBraveImages(query, { searxngUrl, gateToken, braveKey, braveState }) {
+  const results = await searxngImageSearch(query, searxngUrl, { gateToken });
+  if (results === null) return braveKey ? searchImageBrave(query, braveKey, braveState) : '';
+  return pickBestImage(results);
+}
+
+// Serper when its key is set (unchanged behavior), else SearXNG images (Brave
+// per-query backup), else Brave, else null. One Brave state per run.
 function imageSearchFromEnv(env) {
   const serperKey = env?.SERPER_API_KEY;
   if (serperKey) return (query) => searchImage(query, serperKey);
   const braveKey = env?.BRAVE_API_KEY;
-  if (braveKey) {
-    const state = { refused: false };
-    return (query) => searchImageBrave(query, braveKey, state);
+  const braveState = { refused: false };
+  const searxngUrl = env?.SEARXNG_URL;
+  if (searxngUrl) {
+    const gateToken = env?.LITELLM_GATE_TOKEN;
+    return (query) => searxngThenBraveImages(query, { searxngUrl, gateToken, braveKey, braveState });
   }
+  if (braveKey) return (query) => searchImageBrave(query, braveKey, braveState);
   return null;
 }
 
@@ -156,7 +175,7 @@ export async function resolveImages(env, products, onProgress) {
   if (!search) return products;
 
   // Pick up to MAX_RESOLVE products needing an image, then resolve them CONCURRENTLY
-  // (each is one Serper call; sequential resolution blew the queue-consumer wall-clock on
+  // (each is one image query: Serper, else SearXNG with a Brave backup, else Brave; sequential resolution blew the queue-consumer wall-clock on
   // rich comprehensive result sets and left runs stuck 'processing').
   const out = products.slice();
   const targets = [];
