@@ -299,6 +299,11 @@ async function runConnectionGateCases({ eq, ok, longBody }) {
         Date.now = realNow;
       }
     }
+    {
+      let signalSeen = null;
+      const out = await jina.gatedFetchText(async (_url, init) => { signalSeen = init.signal; return jsonResponse(200, 'ok'); }, 'https://example.com/x');
+      eq('gatedFetchText: no timeoutMs uses the default timer', [out, signalSeen instanceof AbortSignal], [{ ok: true, status: 200, text: 'ok' }, true]);
+    }
   } finally {
     console.log = quietLog;
   }

@@ -110,7 +110,7 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * the request gets its slot. Returns { ok, status, text }; throws on a
  * network error, a timeout, or a stop (also while it waits).
  */
-export async function gatedFetchText(fetchImpl, url, { headers, timeoutMs, signal, gate, onSlot } = {}) {
+export async function gatedFetchText(fetchImpl, url, { headers, timeoutMs = JINA_TIMEOUT_MS, signal, gate, onSlot } = {}) {
   return gated(gate, signal, async () => {
     onSlot?.();
     const response = await fetchImpl(url, {
