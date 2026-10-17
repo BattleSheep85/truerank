@@ -12,6 +12,7 @@
 // off-Cloudflare worker where concurrency and depth are not capped.
 
 import { runSearch, readPageInto } from './tools.js';
+import { urlKey } from './searxng.js';
 import { buildSynthesisPrompt } from './prompts.js';
 import { callLLM, callLLMStreaming } from './llm.js';
 import { validateResearchResult } from './validate.js';
@@ -237,10 +238,15 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   }
   await emit(onEvent, 'status', `Searching ${tasks.length} queries across ${aspects.length} angles in parallel...`);
 
-  // 2. Parallel search burst → dedup by url.
+  // 2. Parallel search burst → dedup by URL key (same page from two providers counts once).
   const searchResults = await runPool(tasks.map((t) => () => runSearch(t.q, t.provider, toolEnv, recency)), SEARCH_CONCURRENCY);
   const byUrl = new Map();
-  for (const arr of searchResults) for (const s of (arr || [])) if (s?.url && !byUrl.has(s.url)) byUrl.set(s.url, s);
+  for (const arr of searchResults) {
+    for (const s of (arr || [])) {
+      const key = urlKey(s?.url);
+      if (key !== null && !byUrl.has(key)) byUrl.set(key, s);
+    }
+  }
   const sources = [...byUrl.values()];
   if (sources.length === 0) {
     // Honest non-result: never synthesize products from zero evidence. Empty
