@@ -26,7 +26,7 @@ Last updated: 2026-10-16
 
 - [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
 
-- [ ] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js.
+- [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
 
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 
@@ -1255,8 +1255,13 @@ consent gaps, and stale docs — NOT in core logic.
       products found…"), leaving users without the reason/next step. STALE, closed 2026-07-08: failure
       pages now surface the real stored result.error (see the 2026-07-08 "Review-board backlog cleared"
       section, Fixed list).
-- [ ] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
+- [x] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
       completions lose updates. Mitigated by the D1 SUM MAX-gate in budgetExhausted — make KV advisory.
+      Fixed in 67ee5c2 (CP-375): each cost is one atomic D1 upsert on `monthly_spend`
+      (schema/018_monthly_spend.sql); KV is a cache of that total. worker/pipeline/orchestrator.js.
+- [ ] HIGH (OPS): apply schema/018_monthly_spend.sql to dev and production D1 before or with the
+      deploy of 67ee5c2. Until then incrementMonthlyCost falls back to the old KV counter and logs
+      "D1 monthly spend add failed" on every run. worker/pipeline/orchestrator.js.
 
 ### Open, logged — LOW
 - [x] LOW (a11y): no skip-to-content link / no `<main id>` target (WCAG 2.4.1); primary header `<nav>` has
@@ -2479,8 +2484,10 @@ Funnel-freeze NOTE: GSC is now verified; still awaiting impressions before new f
 - [x] MEDIUM: WORKER_SECRET compared non-constant-time — SHA-256 timingSafeEqual.
 - [x] LOW: zero-source burst could synthesize hallucinated products — short-circuit to an
       honest non-result; worker poll-loop sleep-timer churn cleared; cron fallback → ctx.waitUntil + 6-min cap.
-- [ ] LOW (deferred): metrics.js token compare non-constant-time (read-only); synthesis can
-      double-charge on malformed-but-successful streamed JSON (add cost telemetry / JSON-repair).
+- [x] LOW (deferred): metrics.js token compare non-constant-time (read-only). Already fixed in code:
+      worker/pages/metrics.js uses a SHA-256 timingSafeEqual (CP-425, ticked in CP-791).
+- [ ] LOW (deferred): synthesis can double-charge on malformed-but-successful streamed JSON (add cost
+      telemetry / JSON-repair). Split out of the metrics.js item above.
 
 ## Debate-verdict remediation (2026-06-12, adversarial debate: 64/100 on-track)
 
