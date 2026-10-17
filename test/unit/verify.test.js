@@ -14,6 +14,7 @@ import * as rerankModule from '../../worker/engine/verify-rerank.js';
 import * as quantityModule from '../../worker/lib/quantity.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
 import { runVerifySpeedTests } from './verify-speed.test.js';
+import { createConnectionGate } from '../../worker/lib/connection-gate.js';
 
 const {
   isMarketingEcho,
@@ -664,6 +665,36 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     }));
     eq(`${d1}: a recency-filtered web search returns the results`, urls.recent, ['https://www.jbl.com/FLIP-7.html']);
     eq(`${d1}: an unfiltered web search returns the results`, urls.evergreen, ['https://www.jbl.com/FLIP-7.html']);
+  });
+
+  // CP-718 round 3: a search or page read of a check waits for a connection
+  // slot of the check's gate (env.connectionGate) before it opens a connection.
+  const g1 = 'searches and reads wait for a connection slot';
+  await guarded(g1, async () => {
+    const organic = [{ link: 'https://www.jbl.com/FLIP-7.html', title: 'JBL Flip 7', snippet: 'Portable waterproof speaker' }];
+    const gate = createConnectionGate(1);
+    const env = { SERPER_API_KEY: 'test-key', connectionGate: gate };
+    let release;
+    const held = gate.run(() => new Promise((r) => { release = r; }));
+    let calls = 0;
+    const page = { url: 'https://www.rtings.com/speaker/reviews/jbl/flip-7', title: 'JBL Flip 7 review', content: 'snippet' };
+    const out = await withFakeFetch(async (url) => {
+      calls++;
+      if (String(url).startsWith('https://r.jina.ai/')) return new Response(`JBL Flip 7 review. ${'We tested it. '.repeat(20)}`, { status: 200 });
+      return jsonResponse({ organic });
+    }, async () => {
+      const search = toolsModule.runSearch('JBL Flip 7', 'web', env, true);
+      const read = toolsModule.readPageInto(page, env);
+      await new Promise((r) => setTimeout(r, 5));
+      const before = calls;
+      release();
+      await held;
+      return { before, results: (await search).map((s) => s.url), read: await read };
+    });
+    eq(`${g1}: nothing fetched while the only slot is held`, out.before, 0);
+    eq(`${g1}: the search then returns its results`, out.results, ['https://www.jbl.com/FLIP-7.html']);
+    ok(`${g1}: the read then fills the page`, out.read.content.includes('We tested it.'));
+    eq(`${g1}: no slot held afterwards`, gate.active(), 0);
   });
 
   // Defect 2: resolution kept only gathered sources on credibility.js's short

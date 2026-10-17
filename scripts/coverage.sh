@@ -35,6 +35,7 @@ INCLUDES=(
   worker/lib/affiliate-gate.js
   worker/lib/llm-json.js
   worker/lib/pool.js
+  worker/lib/connection-gate.js
   worker/lib/mime.js
   worker/lib/smtp.js
   worker/lib/email-templates.js

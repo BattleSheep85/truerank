@@ -41,6 +41,7 @@ import { trimProductType } from '../lib/product-link.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
 import { deadlineSignal, deferred, delay, hedged } from '../lib/deadline.js';
+import { withConnectionGate } from '../lib/connection-gate.js';
 import { rerankClaimEvidence } from './verify-rerank.js';
 import { isNearSpecValue } from '../lib/quantity.js';
 import { readCachedClaims, writeCachedClaims } from '../lib/claim-cache.js';
@@ -1351,7 +1352,10 @@ function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, 
  * resolved, claims, claimSources, tests, gathered, scoredEvidence, costUsd,
  * marks: { startedAt, extractedAt, gatheredAt } }.
  */
-export async function collectClaimsAndEvidence({ product, productUrl, config, apiKey, env, onEvent, callLLM, extractCallLLM }) {
+export async function collectClaimsAndEvidence({ product, productUrl, config, apiKey, env: callerEnv, onEvent, callLLM, extractCallLLM }) {
+  // CP-718 round 3: the check's searches and page reads share a few
+  // connection slots, so a read's timer starts only when it can connect.
+  const env = withConnectionGate(callerEnv);
   const emit = onEvent || (() => {});
   const budget = verifyBudget(config);
   const startedAt = Date.now();
@@ -1392,7 +1396,7 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
     // 3. TEST PAGES and 4. GATHER, with the buyer reviews of the retailer
     //    claim pages read during them (readBuyerReviewPages, CP-778).
     const reviewsDone = extracted.claims.length > 0
-      ? readBuyerReviewPages(extracted.claimSources, product, { apiKey: env?.JINA_API_KEY || '', signal: evidenceReads.signal })
+      ? readBuyerReviewPages(extracted.claimSources, product, { apiKey: env?.JINA_API_KEY || '', signal: evidenceReads.signal, gate: env?.connectionGate })
       : Promise.resolve([]);
     const testsDone = findClaimTests({ claims: extracted.claims, product, env, readPage, readMs: budget.testReadMs });
     testsDone.finally(() => testsRead.resolve(true)).catch(() => {});

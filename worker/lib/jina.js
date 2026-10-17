@@ -1,5 +1,6 @@
 import { isFetchableUrl } from './url-guard.js';
 import { anySignal } from './deadline.js';
+import { gated } from './connection-gate.js';
 
 const JINA_TIMEOUT_MS = 8000;
 const DIRECT_TIMEOUT_MS = 8000;
@@ -101,6 +102,29 @@ function buildJinaHeaders(apiKey, url, extraHeaders) {
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * One request through the connection gate (worker/lib/connection-gate.js):
+ * it waits for a slot, then opens the connection and starts its timeoutMs
+ * timer, and frees the slot once the body is read. An error body is
+ * cancelled, so its connection closes. `onSlot` (optional) is called when
+ * the request gets its slot. Returns { ok, status, text }; throws on a
+ * network error, a timeout, or a stop (also while it waits).
+ */
+export async function gatedFetchText(fetchImpl, url, { headers, timeoutMs, signal, gate, onSlot } = {}) {
+  return gated(gate, signal, async () => {
+    onSlot?.();
+    const response = await fetchImpl(url, {
+      signal: anySignal([AbortSignal.timeout(timeoutMs), signal]),
+      headers,
+    });
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {});
+      return { ok: false, status: response.status, text: '' };
+    }
+    return { ok: true, status: response.status, text: await response.text() };
+  });
+}
+
 // Jina's header lines when the target site refused it ("Warning: Target URL
 // returned error 403: Forbidden"). Only the head of the reply is checked.
 const TARGET_REFUSED_RE = /^Warning: Target URL returned error (?:401|403|429|451|503)\b/m;
@@ -139,16 +163,26 @@ export function isTargetRefused(text) {
  * `opts.signal` (optional) is the caller's stop signal, for example a verify
  * stage deadline (worker/lib/deadline.js). When it aborts, the read in
  * progress stops and no retry or direct fallback starts: the call returns ''.
+ *
+ * `opts.gate` (optional) is the check's connection gate
+ * (worker/lib/connection-gate.js): each request waits for a slot and starts
+ * its timer only then. Backoff waits hold no slot.
  */
 export async function fetchPageContent(url, apiKey, opts = {}) {
   if (!isFetchableUrl(url)) return '';
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleepImpl = opts.sleepImpl ?? defaultSleep;
   const stop = opts.signal;
+  const gate = opts.gate;
   const maxChars = Number.isInteger(opts.maxChars) && opts.maxChars > 0
     ? opts.maxChars
     : (isRetailerProductUrl(url) ? RETAILER_MAX_CONTENT_LENGTH : MAX_CONTENT_LENGTH);
-  const started = Date.now();
+  // The retry budget counts from the first request's slot, not the wait for it.
+  let started = null;
+  const onSlot = () => {
+    started ??= Date.now();
+  };
+  const retryTimeLeft = () => Date.now() - (started ?? Date.now()) < JINA_RETRY_BUDGET_MS;
 
   let sendKey = Boolean(apiKey) && !isKeyCoolingDown();
 
@@ -156,9 +190,12 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
     if (stop?.aborted) return '';
     const headers = buildJinaHeaders(sendKey ? apiKey : null, url, opts.headers);
     try {
-      const response = await fetchImpl(`https://r.jina.ai/${url}`, {
-        signal: anySignal([AbortSignal.timeout(JINA_TIMEOUT_MS), stop]),
+      const response = await gatedFetchText(fetchImpl, `https://r.jina.ai/${url}`, {
         headers,
+        timeoutMs: JINA_TIMEOUT_MS,
+        signal: stop,
+        gate,
+        onSlot,
       });
 
       if (!response.ok) {
@@ -173,22 +210,22 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
         }
         const canRetry = isRetryableStatus(response.status)
           && attempt < JINA_MAX_RETRIES
-          && Date.now() - started < JINA_RETRY_BUDGET_MS;
+          && retryTimeLeft();
         if (canRetry) {
           await sleepImpl(backoffMs(attempt + 1));
           continue;
         }
-        return await fetchDirect(url, fetchImpl, stop, maxChars);
+        return await fetchDirect(url, fetchImpl, stop, maxChars, gate);
       }
 
-      const text = await response.text();
+      const text = response.text;
       // Jina sometimes returns boilerplate for blocked/empty pages
-      if (text.length < 100) return await fetchDirect(url, fetchImpl, stop, maxChars);
+      if (text.length < 100) return await fetchDirect(url, fetchImpl, stop, maxChars, gate);
       // CP-718: the site refused Jina (TechPowerUp's 403); a direct fetch may pass.
       if (isTargetRefused(text)) {
         console.log(`[jina] target refused Jina for ${url}, trying a direct fetch`);
         // The refusal text is not the page: '' when the direct fetch fails too.
-        return await fetchDirect(url, fetchImpl, stop, maxChars);
+        return await fetchDirect(url, fetchImpl, stop, maxChars, gate);
       }
       return text.slice(0, maxChars);
     } catch (err) {
@@ -197,17 +234,17 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
         return '';
       }
       console.log(`[jina] ERROR ${url} (attempt ${attempt + 1}): ${err instanceof Error ? err.message : String(err)}`);
-      const canRetry = attempt < JINA_MAX_RETRIES && Date.now() - started < JINA_RETRY_BUDGET_MS;
+      const canRetry = attempt < JINA_MAX_RETRIES && retryTimeLeft();
       if (canRetry) {
         await sleepImpl(backoffMs(attempt + 1));
         continue;
       }
-      return await fetchDirect(url, fetchImpl, stop, maxChars);
+      return await fetchDirect(url, fetchImpl, stop, maxChars, gate);
     }
   }
   // Unreachable in practice (the loop always returns), but keep the contract
   // explicit: never throw, always resolve to a string.
-  return await fetchDirect(url, fetchImpl, stop, maxChars);
+  return await fetchDirect(url, fetchImpl, stop, maxChars, gate);
 }
 
 /**
@@ -215,11 +252,13 @@ export async function fetchPageContent(url, apiKey, opts = {}) {
  * readable text without any DOM library. Returns '' on any failure, or when
  * the caller's `stop` signal has aborted; never throws.
  */
-async function fetchDirect(url, fetchImpl = fetch, stop = undefined, maxChars = MAX_CONTENT_LENGTH) {
+async function fetchDirect(url, fetchImpl = fetch, stop = undefined, maxChars = MAX_CONTENT_LENGTH, gate = undefined) {
   if (!isFetchableUrl(url) || stop?.aborted) return '';
   try {
-    const response = await fetchImpl(url, {
-      signal: anySignal([AbortSignal.timeout(DIRECT_TIMEOUT_MS), stop]),
+    const response = await gatedFetchText(fetchImpl, url, {
+      timeoutMs: DIRECT_TIMEOUT_MS,
+      signal: stop,
+      gate,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -234,7 +273,7 @@ async function fetchDirect(url, fetchImpl = fetch, stop = undefined, maxChars = 
       return '';
     }
 
-    const html = await response.text();
+    const html = response.text;
     if (!html) return '';
     return extractReadableText(html, maxChars);
   } catch (err) {

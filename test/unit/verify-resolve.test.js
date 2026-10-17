@@ -17,6 +17,7 @@ import {
   extractBuyerReviews,
   harvestBuyerReviews,
   readBuyerReviewPages,
+  readClaimPages,
   reviewTextHash,
   sanitizeReviewSnippet,
   buildClaimTextBlock,
@@ -26,6 +27,7 @@ import {
   MAX_REVIEW_SNIPPET_CHARS,
 } from '../../worker/engine/verify-resolve.js';
 import { scoreSource } from '../../worker/lib/credibility.js';
+import { createConnectionGate } from '../../worker/lib/connection-gate.js';
 
 export async function runVerifyResolveTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -485,6 +487,8 @@ export async function runVerifyResolveTests() {
     'Great battery life 30h',
   );
 
+  await runConnectionGateCases({ eq, ok });
+
   ok('verify-resolve suite ran assertions', report.passed > 0);
 
   return report;
@@ -496,5 +500,77 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (r.failed > 0) {
     for (const f of r.failures) console.error('  FAIL', f);
     process.exit(1);
+  }
+}
+
+// CP-718 round 3: the focused read waits for a connection slot before it
+// opens its connection, and the run's gate reaches every focused read.
+async function runConnectionGateCases({ eq, ok }) {
+  const quietLog = console.log;
+  console.log = () => {};
+  try {
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      let started = false;
+      const read = readFocusedPage('https://www.example.com/acme-c8-review', async () => {
+        started = true;
+        return { ok: true, status: 200, text: async () => 'Acme C8 review text' };
+      }, '', { gate });
+      await new Promise((r) => setTimeout(r, 5));
+      eq('readFocusedPage gate: waits for a free slot', started, false);
+      release();
+      await held;
+      ok('readFocusedPage gate: reads once the slot frees', (await read).includes('Acme C8 review text'));
+      eq('readFocusedPage gate: slot freed', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      const stop = new AbortController();
+      let calls = 0;
+      const read = readFocusedPage('https://www.example.com/late', async () => { calls++; return { ok: true, status: 200, text: async () => 'x' }; }, '', { gate, signal: stop.signal });
+      stop.abort();
+      eq('readFocusedPage gate: stopped while waiting gives no text', await read, '');
+      eq('readFocusedPage gate: stopped while waiting never fetches', calls, 0);
+      release();
+      await held;
+    }
+    {
+      const gate = createConnectionGate(1);
+      let cancelled = 0;
+      const text = await readFocusedPage('https://www.example.com/gone', async () => ({
+        ok: false, status: 503, body: { cancel: async () => { cancelled++; } }, text: async () => '',
+      }), '', { gate });
+      eq('readFocusedPage gate: an HTTP error gives no text', text, '');
+      eq('readFocusedPage gate: the error body is cancelled', cancelled, 1);
+      eq('readFocusedPage gate: slot freed after an error', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(2);
+      const seen = [];
+      const amazon = { url: 'https://www.amazon.com/Antec-C8/dp/B0CP3MZXVH', title: 'Antec C8', content: 'Antec C8 spec text. '.repeat(80) };
+      await readBuyerReviewPages([amazon], 'Antec C8', { gate, focusedRead: async (_url, _f, _k, opts) => { seen.push(opts?.gate); return ''; } });
+      ok('readBuyerReviewPages: passes the gate to the focused read', seen.length === 1 && seen[0] === gate);
+    }
+    {
+      const gate = createConnectionGate(2);
+      const env = { connectionGate: gate };
+      const seenFocused = [];
+      const seenShared = [];
+      const candidates = [{ url: 'https://www.acme.com/c8', title: 'Acme C8', content: '' }];
+      await readClaimPages(candidates, env, {
+        wanted: 1,
+        maxReads: 1,
+        read: async (source, readEnv) => { seenShared.push(readEnv?.connectionGate); source.content = ''; },
+        focusedRead: async (_url, _f, _k, opts) => { seenFocused.push(opts?.gate); return ''; },
+      });
+      ok('readClaimPages: the shared read gets the env with the gate', seenShared.length === 1 && seenShared[0] === gate);
+      ok('readClaimPages: the focused read gets the env gate', seenFocused.length === 1 && seenFocused[0] === gate);
+    }
+  } finally {
+    console.log = quietLog;
   }
 }

@@ -244,6 +244,26 @@ describe('collectClaimsAndEvidence stage overlap', () => {
     expect(focusedUrls.filter((u) => u.includes('acme.com')).length).toBeLessThanOrEqual(1);
   });
 
+  it('gives every search and page read of one check the same connection gate (CP-718 round 3)', async () => {
+    mocks.runSearch.mockImplementation(routedSearch([]));
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url.includes('acme.com') || source.url.includes('amazon.com') ? SPEC_PAGE : REVIEW_TEXT;
+      return source;
+    });
+    const env = { JINA_API_KEY: '' };
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 }, { env });
+    expect(res.status).toBe('ok');
+    expect(env).toEqual({ JINA_API_KEY: '' }); // the caller's env is not changed
+    const gates = new Set([
+      ...mocks.runSearch.mock.calls.map((c) => c[2]?.connectionGate),
+      ...mocks.readPageInto.mock.calls.map((c) => c[1]?.connectionGate),
+    ]);
+    expect(gates.size).toBe(1);
+    const [gate] = gates;
+    expect(typeof gate?.run).toBe('function');
+    expect(gate.active()).toBe(0);
+  });
+
   it('needs_url spends no gather search', async () => {
     const searches = [];
     mocks.runSearch.mockImplementation(async (query) => {

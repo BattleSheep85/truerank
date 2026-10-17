@@ -16,6 +16,7 @@ import { isFetchableUrl } from '../lib/url-guard.js';
 import { MODEL_VARIANT_WORDS, distillProductName } from '../lib/product-link.js';
 import { buyerStoreKeyOf } from '../lib/verdict.js';
 import { afterAbort, anySignal, delay, runPoolUntil, POOL_GRACE_MS } from '../lib/deadline.js';
+import { gatedFetchText } from '../lib/jina.js';
 
 export { MODEL_VARIANT_WORDS, distillProductName };
 
@@ -654,21 +655,25 @@ const FOCUSED_READ_HEADERS = Object.freeze({
  * When the page is a structured retailer listing with carousels or customer
  * reviews, strips middle recommendation carousels and Buy Box chrome so spec
  * sections (`<= 25,000` chars) and bottom-of-page buyer reviews both survive.
- * `opts.signal` (optional) stops the read at a caller deadline.
+ * `opts.signal` (optional) stops the read at a caller deadline. `opts.gate`
+ * (optional): the check's connection gate; the read and its timer start
+ * when it holds a slot (worker/lib/connection-gate.js).
  */
 export async function readFocusedPage(url, fetchImpl = fetch, apiKey = '', opts = {}) {
   if (!isFetchableUrl(url) || opts.signal?.aborted) return '';
   const headers = apiKey ? { ...FOCUSED_READ_HEADERS, Authorization: `Bearer ${apiKey}` } : FOCUSED_READ_HEADERS;
   try {
-    const response = await fetchImpl(`https://r.jina.ai/${url}`, {
+    const response = await gatedFetchText(fetchImpl, `https://r.jina.ai/${url}`, {
       headers,
-      signal: anySignal([AbortSignal.timeout(FOCUSED_READ_TIMEOUT_MS), opts.signal]),
+      timeoutMs: FOCUSED_READ_TIMEOUT_MS,
+      signal: opts.signal,
+      gate: opts.gate,
     });
     if (!response.ok) {
       console.log(`[verify-resolve] focused read HTTP ${response.status} for ${url}`);
       return '';
     }
-    const raw = (await response.text()).slice(0, FOCUSED_READ_MAX_CHARS);
+    const raw = response.text.slice(0, FOCUSED_READ_MAX_CHARS);
     if (isBlockPage(raw)) {
       console.log(`[verify-resolve] focused read returned block/captcha page for ${url} (${raw.length} chars)`);
       return raw;
@@ -733,7 +738,7 @@ async function readClaimPage(candidate, env, read, focusedRead, signal, sharedWa
     .catch(() => ({ ...candidate }))
     .then((page) => ({ page, via: 'shared read' }));
   const focused = Promise.resolve()
-    .then(() => focusedRead(candidate.url, undefined, env?.JINA_API_KEY || '', { signal: stop }))
+    .then(() => focusedRead(candidate.url, undefined, env?.JINA_API_KEY || '', { signal: stop, gate: env?.connectionGate }))
     .then((text) => ({ ...candidate, content: String(text ?? '') }))
     .catch(() => ({ ...candidate, content: '' }))
     .then((page) => ({ page, via: 'focused read' }));
@@ -1661,14 +1666,14 @@ function hasBuyerReviewLines(text) {
  * a failed or stopped read adds nothing. Does not change the input.
  */
 export async function readBuyerReviewPages(claimSources, product, opts = {}) {
-  const { focusedRead = readFocusedPage, apiKey = '', signal } = opts;
+  const { focusedRead = readFocusedPage, apiKey = '', signal, gate } = opts;
   const list = Array.isArray(claimSources) ? claimSources : [];
   const picks = list.filter((source) => source?.url
     && ownPageKind(source.url, product) === 'retailer'
     && !hasBuyerReviewLines(source.content));
   if (picks.length === 0 || signal?.aborted) return [];
   const pages = await Promise.all(picks.map((source) => Promise.resolve()
-    .then(() => focusedRead(source.url, undefined, apiKey, { signal }))
+    .then(() => focusedRead(source.url, undefined, apiKey, { signal, gate }))
     .then((text) => ({ ...source, content: String(text ?? '') }))
     .catch(() => null)));
   const usable = pages.filter((page) => page && hasBuyerReviewLines(page.content));
