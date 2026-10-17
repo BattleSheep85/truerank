@@ -322,7 +322,8 @@ async function handleResubmit(env, reportId, productUrl) {
  */
 export async function handleVerifyStatus(reportId, env) {
     const row = await getResearchById(env.DB, reportId);
-    if (!row) {
+    // A retired row answers exactly like a missing one (CP-784).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
