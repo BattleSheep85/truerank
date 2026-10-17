@@ -11,8 +11,10 @@ import * as resolveModule from '../../worker/engine/verify-resolve.js';
 import * as toolsModule from '../../worker/engine/tools.js';
 import * as llmModule from '../../worker/engine/llm.js';
 import * as rerankModule from '../../worker/engine/verify-rerank.js';
+import * as quantityModule from '../../worker/lib/quantity.js';
 import { verdictForClaim } from '../../worker/lib/verdict.js';
 import { runVerifySpeedTests } from './verify-speed.test.js';
+import { createConnectionGate } from '../../worker/lib/connection-gate.js';
 
 const {
   isMarketingEcho,
@@ -490,6 +492,7 @@ export async function runVerifyTests() {
 
   // ── CP-723: stance data fence, buyer marker scope, url-less harvest source ──
   await runCp723Tests({ eq, ok, report });
+  await runCp779Tests({ eq, ok, report });
 
   return report;
 }
@@ -662,6 +665,36 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     }));
     eq(`${d1}: a recency-filtered web search returns the results`, urls.recent, ['https://www.jbl.com/FLIP-7.html']);
     eq(`${d1}: an unfiltered web search returns the results`, urls.evergreen, ['https://www.jbl.com/FLIP-7.html']);
+  });
+
+  // CP-718 round 3: a search or page read of a check waits for a connection
+  // slot of the check's gate (env.connectionGate) before it opens a connection.
+  const g1 = 'searches and reads wait for a connection slot';
+  await guarded(g1, async () => {
+    const organic = [{ link: 'https://www.jbl.com/FLIP-7.html', title: 'JBL Flip 7', snippet: 'Portable waterproof speaker' }];
+    const gate = createConnectionGate(1);
+    const env = { SERPER_API_KEY: 'test-key', connectionGate: gate };
+    let release;
+    const held = gate.run(() => new Promise((r) => { release = r; }));
+    let calls = 0;
+    const page = { url: 'https://www.rtings.com/speaker/reviews/jbl/flip-7', title: 'JBL Flip 7 review', content: 'snippet' };
+    const out = await withFakeFetch(async (url) => {
+      calls++;
+      if (String(url).startsWith('https://r.jina.ai/')) return new Response(`JBL Flip 7 review. ${'We tested it. '.repeat(20)}`, { status: 200 });
+      return jsonResponse({ organic });
+    }, async () => {
+      const search = toolsModule.runSearch('JBL Flip 7', 'web', env, true);
+      const read = toolsModule.readPageInto(page, env);
+      await new Promise((r) => setTimeout(r, 5));
+      const before = calls;
+      release();
+      await held;
+      return { before, results: (await search).map((s) => s.url), read: await read };
+    });
+    eq(`${g1}: nothing fetched while the only slot is held`, out.before, 0);
+    eq(`${g1}: the search then returns its results`, out.results, ['https://www.jbl.com/FLIP-7.html']);
+    ok(`${g1}: the read then fills the page`, out.read.content.includes('We tested it.'));
+    eq(`${g1}: no slot held afterwards`, gate.active(), 0);
   });
 
   // Defect 2: resolution kept only gathered sources on credibility.js's short
@@ -948,7 +981,7 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
   await guarded(d9, async () => {
     const system = String(verifyModule.STANCE_SYSTEM ?? '');
     ok(`${d9}: units are converted before a compare`, /Convert units before you compare \(mm\/in, g\/oz, W, mAh, dB, Hz, %\)/.test(system));
-    ok(`${d9}: a value within about 3% agrees`, /within normal measurement tolerance \(about 3%\)/.test(system));
+    ok(`${d9}: a value within about 10% agrees`, /within normal measurement tolerance \(about 10%\)/.test(system));
     ok(`${d9}: a typical figure does not contradict an "up to" maximum`, /does not contradict a stated maximum or peak \("up to"\)/.test(system));
     ok(`${d9}: a contradiction needs a measurement of the same quantity`, /own measurement of the same quantity disagrees/.test(system));
   });
@@ -1639,6 +1672,9 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'Battery: playback for 30 hours with ANC on.',
       'Fits radiators up to 360 mm in the top mount.',
       'Accommodates GPUs up to 400 mm.',
+      'Tool-less drive bays',
+      'Toolless 3.5-inch drive trays.',
+      'Achieved IP68 certification',
     ];
     for (const span of SPEC) {
       eq(`${label}: spanShowsFirstHand false for spec restatement (${JSON.stringify(span)})`, spanShowsFirstHand(span), false);
@@ -1648,6 +1684,8 @@ async function runStage2cVerifyTests({ eq, ok, report }) {
       'We used it for 3 weeks of commuting.',
       'The battery lasted 31 hours in our rundown test.',
       'Installed a 360 mm radiator in the top mount without trouble.',
+      'The tool-less drive bays snapped into place in seconds.',
+      'It achieved 41 dB of attenuation in our test.',
     ];
     for (const span of FIRST_HAND) {
       eq(`${label}: spanShowsFirstHand true for observation (${JSON.stringify(span)})`, spanShowsFirstHand(span), true);
@@ -1724,5 +1762,171 @@ async function runCp723Tests({ eq, ok, report }) {
     const harvested = resolveModule.harvestBuyerReviews([{ content: 'x' }, amzPage], 'Sony WH-1000XM6');
     eq(`${label}: a url-less first source does not stop the harvest`, harvested.length, 1);
     eq(`${label}: the amazon source is still harvested`, harvested[0]?.url, 'https://www.amazon.com/dp/B0DK85GRFZ#buyer-reviews');
+  });
+}
+
+async function runCp779Tests({ eq, report }) {
+  const guarded = async (name, fn) => {
+    try { await fn(); } catch (err) {
+      report.failed++;
+      report.failures.push(`${name}: threw ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  await guarded('CP-779 near-spec measurement', () => {
+    const label = 'CP-779 near-spec measurement';
+    const claim = 'Up to 6 hours of listening time with Active Noise Cancellation enabled';
+    const item = (span) => ({ stance: 'contradict', span, tags: ['hands-on', 'expert-domain'], url: 'https://www.soundguys.com/apple-airpods-pro-2-review', title: 'AirPods Pro 2 review' });
+    eq(`${label}: 5 h 43 min vs "up to 6 hours" → neutral`,
+      applyStanceBackstops(item('In our battery test the AirPods Pro 2 lasted 5 hours, 43 minutes with ANC on.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: compact "5h 43m" → neutral`,
+      applyStanceBackstops(item('We measured 5h 43m of playback.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: 4 hours 10 minutes vs 6 hours stays contradict`,
+      applyStanceBackstops(item('In our battery test the AirPods Pro 2 lasted 4 hours, 10 minutes with ANC on.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: a rated figure next to a far-off measurement stays contradict`,
+      applyStanceBackstops(item('Apple says 6 hours, but we measured only 4 hours in our test.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: near value in another unit (mm vs hours) stays contradict`,
+      applyStanceBackstops(item('We measured 6 mm of driver travel and the battery died early.'), claim, 'Apple AirPods Pro 2'), 'contradict');
+    eq(`${label}: within 3% without "up to" → neutral`,
+      applyStanceBackstops({ ...item('We weighed it at 5.4 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
+    // CP-718: the tolerance is 10%, so 8% off is close, and 15% off is not.
+    eq(`${label}: 8% off a non-"up to" claim is close → neutral`,
+      applyStanceBackstops({ ...item('We weighed it at 5.75 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: 15% off a non-"up to" claim stays contradict`,
+      applyStanceBackstops({ ...item('We weighed it at 6.1 g on our scale.'), }, 'Each earbud weighs 5.3 g', 'Apple AirPods Pro 2'), 'contradict');
+    // QA (CP-779): the spec quoted back is not a measurement, so a verbal
+    // result next to it must keep the contradiction.
+    for (const span of [
+      'Apple claims up to 6 hours, but in our test it barely lasted half that.',
+      'Apple advertises 6 hours, yet ours died after about an hour.',
+      'Apple says 6 hours; our pair managed just three hours.',
+    ]) {
+      eq(`${label}: quoted spec with a verbal result stays contradict: ${JSON.stringify(span)}`,
+        applyStanceBackstops(item(span), claim, 'Apple AirPods Pro 2'), 'contradict');
+    }
+    eq(`${label}: quoted spec next to a near measurement → neutral`,
+      applyStanceBackstops(item('Apple says up to 6 hours, and we measured 5 hours, 43 minutes.'), claim, 'Apple AirPods Pro 2'), 'neutral');
+    eq(`${label}: support is never changed by the near-spec rule`,
+      applyStanceBackstops({ ...item('We measured 5h 43m of playback.'), stance: 'support' }, claim, 'Apple AirPods Pro 2'), 'support');
+  });
+
+  await guarded('CP-718 close figures are not contradictions', () => {
+    const label = 'CP-718 close figures';
+    const item = (span) => ({ stance: 'contradict', span, tags: ['hands-on'], url: 'https://example-review.com/x', title: 'Review' });
+    for (const [claim, span, product] of [
+      ['Provides 240 Air Watts of suction power in Powerful mode', 'generating 230 air watts of suction', 'Dyson V15 Detect'],
+      ['Provides 240 AW of suction', 'We measured 230AW at the wand', 'Dyson V15 Detect'],
+      ['Compact 181mm overall length', 'The DCD791 is 6 7/8 inches long', 'DeWalt DCD791'],
+      ['Tool length is 181mm', 'Length : 175 mm', 'DeWalt DCD791'],
+      ['Maximum PSU length is 155 mm with two HDD trays', 'limits your power supply length to a measured 165mm', 'Fractal Design North'],
+      ['Runs for up to 60 minutes on a single charge', 'In our test it ran for 50 minutes', 'Dyson V15 Detect'],
+      ['Bin volume of 0.77 L', 'The bin holds 0.75 litres in our test', 'Dyson V15 Detect'],
+    ]) {
+      eq(`${label}: ${JSON.stringify(span)} vs ${JSON.stringify(claim)} → neutral`, applyStanceBackstops(item(span), claim, product), 'neutral');
+    }
+    for (const [claim, span, product] of [
+      ['Screen reaches up to 3000 nits peak brightness', 'we measured around 2331 nits', 'Google Pixel 9 Pro'],
+      ['Weighs 15.9 pounds', 'It weighs 13 lbs on our scale', 'Ninja Creami'],
+      ['Bin volume of 0.77 L', 'The bin capacity measures in at 0.5L', 'Dyson V15 Detect'],
+    ]) {
+      eq(`${label}: ${JSON.stringify(span)} vs ${JSON.stringify(claim)} stays contradict`, applyStanceBackstops(item(span), claim, product), 'contradict');
+    }
+    eq(`${label}: the tolerance is 10%`, quantityModule.NEAR_SPEC_TOLERANCE, 0.1);
+    eq(`${label}: "Nm" is not read (torque or nanometres)`, quantityModule.extractQuantities('70 Nm of torque on a 3 nm chip'), []);
+    eq(`${label}: "6 7/8 inches" parses to mm`, Math.round(quantityModule.extractQuantities('6 7/8 inches')[0]?.value), 175);
+  });
+
+  await guarded('CP-718 truncated stance replies are split and judged again', async () => {
+    const label = 'CP-718 stance split';
+    const evidence = [1, 2, 3, 4, 5, 6].map((n) => ({ url: `https://r${n}.example/review`, title: 'Review', content: 'We measured 60 minutes of runtime.' }));
+    const calls = [];
+    const callLLM = async (_key, _model, messages) => {
+      const urls = evidence.map((e) => e.url).filter((u) => messages[1].content.includes(u));
+      calls.push(urls.length);
+      if (calls.length === 1) {
+        return { choices: [{ finish_reason: 'length', message: { content: `{"verdicts":[{"url":"${urls[0]}","stance":"support","span":"We measured 60 minutes"}` } }], usage: { cost: 0.01 } };
+      }
+      const verdicts = urls.map((url) => ({ url, stance: 'neutral', span: '' }));
+      return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ verdicts }) } }], usage: { cost: 0.002 } };
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    let out;
+    try {
+      out = await verifyModule.classifyStance({ claim: { id: 'c1', text: 'Runs up to 60 minutes' }, evidence, apiKey: 'k', model: 'm', callLLM });
+    } finally {
+      console.warn = warn;
+    }
+    eq(`${label}: one call, then two halves of the 5 unjudged sources`, calls, [6, 3, 2]);
+    eq(`${label}: every source is judged`, out.rows.map((r) => r.url).sort(), evidence.map((e) => e.url).sort());
+    eq(`${label}: the first verdict is kept`, out.rows[0].stance, 'support');
+    eq(`${label}: cost adds up`, Math.abs(out.costUsd - 0.014) < 1e-9, true);
+
+    const calls2 = [];
+    const stopLLM = async (_k, _m, messages) => {
+      calls2.push(1);
+      const verdicts = evidence.slice(0, 2).map((e) => ({ url: e.url, stance: 'neutral', span: '' }));
+      return { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ verdicts }) } }] };
+    };
+    console.warn = () => {};
+    try {
+      await verifyModule.classifyStance({ claim: { id: 'c2', text: 'x' }, evidence, apiKey: 'k', model: 'm', callLLM: stopLLM });
+    } finally {
+      console.warn = warn;
+    }
+    eq(`${label}: a complete (not cut off) reply is not retried`, calls2.length, 1);
+  });
+
+  await guarded('CP-718 spec-sheet figures nobody tests', () => {
+    const label = 'CP-718 spec-sheet figures';
+    for (const text of [
+      'Charge time of 4.5 hours',
+      'Charges up to 55% in about 30 minutes using a Google 45W USB-C charger',
+      'Fast charging up to 55% in about 30 minutes using a 45W USB-C charger',
+      'Takes 4.5 hours to fully charge',
+      'Bin volume of 0.77 L',
+      'Dust bin capacity is 0.77 litres',
+      'Large 0.76 L bin empties hygienically',
+      'Maximum inflation pressure of 51 psi',
+      'Original tread depth of 10/32 inch.',
+      'New tread depth of 10/32 inch',
+      'Overall tire diameter of 27.1 inches with a 7.5-inch rim width fitment',
+      'Speed rating H, rated for sustained speeds up to 130 mph.',
+    ]) {
+      eq(`${label}: isTestableClaim drops ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), false);
+    }
+    for (const text of [
+      'Runs for up to 60 minutes on a single charge',
+      'Up to 31 hours of battery life in GPS mode',
+      'Supports fast Qi-certified wireless charging and Battery Share reverse wireless charging',
+      'Stops shorter than 4 leading competitive tires in wet braking tests',
+      'Carries the 3-Peak Mountain Snowflake (3PMSF) severe-snow certification',
+      'Pressure washer delivers 2000 PSI of cleaning power',
+      'Includes a 16-oz CREAMi pint container',
+      'Weighs 3.1 kg',
+      'A 10-minute fast charge gives 3 hours of playback',
+      'Charging case adds 24 hours, with 3 hours of playback in 10 minutes of charging',
+    ]) {
+      eq(`${label}: isTestableClaim keeps ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), true);
+    }
+    const prompt = String(verifyModule.CLAIM_EXTRACTION_SYSTEM);
+    eq(`${label}: the extraction prompt bans charge times`, /never extract[\s\S]*charging or recharge times/i.test(prompt), true);
+    eq(`${label}: the extraction prompt bans tread depth and inflation pressure`, /tire inflation pressure, tread depth/i.test(prompt), true);
+    eq(`${label}: the extraction prompt no longer asks for charging time`, /\(battery life figure[^)]*charging time/i.test(prompt), false);
+  });
+
+  await guarded('CP-779 exact dimension sets are untestable', () => {
+    const label = 'CP-779 dimension set';
+    for (const text of [
+      'Each AirPods Pro 2 earbud measures 30.9 x 21.8 x 24.0 mm.',
+      'Charging case dimensions: 45.2 by 60.6 by 21.7 mm',
+      'Case dimensions are 1.78 × 2.39 × 0.85 inches',
+    ]) {
+      eq(`${label}: isTestableClaim drops ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), false);
+    }
+    for (const text of ['Each earbud weighs 5.3 g', 'Supports GPUs up to 440 mm long', 'Up to 6 hours of listening time']) {
+      eq(`${label}: isTestableClaim keeps ${JSON.stringify(text)}`, verifyModule.isTestableClaim(text), true);
+    }
+    eq(`${label}: extraction prompt bans exact dimension sets`, /exact dimension sets/i.test(String(verifyModule.CLAIM_EXTRACTION_SYSTEM)), true);
   });
 }

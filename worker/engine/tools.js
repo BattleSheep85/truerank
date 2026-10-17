@@ -4,6 +4,7 @@ import { fetchPageContent } from '../lib/jina.js';
 import { scoreSource, extractAmazonProductUrls } from '../lib/credibility.js';
 import { fetchYoutubeDescription, isYouTube } from '../lib/youtube.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
+import { gated } from '../lib/connection-gate.js';
 import { searxngSearch } from './searxng.js';
 
 // ─── Provider primitives (Serper + HN Algolia) ───────────────────────────────
@@ -518,7 +519,9 @@ export async function runSearch(query, provider, env, recencySensitive) {
   const state = { searchCount: 0, fetchCount: 0, sources: [], notes: [] };
   const tc = { function: { name: 'web_search', arguments: JSON.stringify({ query, provider: provider || 'web' }) } };
   try {
-    await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive });
+    // A check's connection gate (worker/lib/connection-gate.js): the search
+    // holds one slot, so its provider timers start only when it can connect.
+    await gated(env?.connectionGate, undefined, () => executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive }));
   } catch (err) {
     // A single bad provider call never aborts the burst, but it is logged:
     // a silent catch here hid a broken web search for weeks.
@@ -774,7 +777,7 @@ async function executeReadPage(
   if (!url || !isFetchableUrl(url)) return ['Error: valid public HTTPS URL is required', 0];
 
   state.fetchCount++;
-  const content = await fetchPageContent(url, env?.JINA_API_KEY, signal ? { signal } : undefined);
+  const content = await fetchPageContent(url, env?.JINA_API_KEY, { signal, gate: env?.connectionGate });
 
   if (!content) {
     return [`Could not read ${url} — page may be paywalled, JS-only, or blocked. Use the snippet instead.`, 1];

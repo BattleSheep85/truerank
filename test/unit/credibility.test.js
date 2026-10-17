@@ -104,6 +104,11 @@ export function runCredibilityTests() {
     ['expert-rtings', isExpertDomain('https://www.rtings.com/tv/reviews/lg/c4'), true],
     ['expert-wirecutter', isExpertDomain('https://www.nytimes.com/wirecutter/reviews/best-monitors/'), true],
     ['expert-toms', isExpertDomain('https://tomshardware.com/gpus/rtx-5090-review'), true],
+    // CP-778: PC hardware labs with hands-on tests (Antec C8 got cred 50 from TechPowerUp).
+    ['expert-techpowerup', isExpertDomain('https://www.techpowerup.com/review/antec-c8/'), true],
+    ['expert-gamersnexus', isExpertDomain('https://gamersnexus.net/cases/surprisingly-good-antec-c8-argb-case-review'), true],
+    ['expert-techspot', isExpertDomain('https://www.techspot.com/review/2800-antec-c8/'), true],
+    ['expert-hwcanucks', isExpertDomain('https://www.hardwarecanucks.com/cases/antec-c8-review/'), true],
     ['not-expert', isExpertDomain('https://some-blog.com/best-tvs-2026'), false],
 
     ['community-reddit', isCommunityDomain('https://www.reddit.com/r/buildapc/comments/xyz'), true],
@@ -469,6 +474,26 @@ export function runCredibilityTests() {
   cases.push(['regression-no-embargo', plainHandsOnReview.tags.includes('embargo-nda'), false]);
   cases.push(['regression-independence-in-band',
     plainHandsOnReview.independence >= 60 && plainHandsOnReview.independence <= 75, true]);
+
+  // ── CP-779: a "we tested" phrase on an unlisted blog (thegadgetdigest.com,
+  // soundmali.com) must not outscore an established outlet's plain review (65).
+  const unlistedHandsOn = scoreSource({
+    url: 'https://thegadgetdigest.com/airpods-pro-2-review',
+    title: 'AirPods Pro 2 Review',
+    content: 'We tested the AirPods Pro 2 for a week. Great sound and ANC.',
+    sourceType: 'web',
+  });
+  const expertPlain = scoreSource({
+    url: 'https://www.soundguys.com/apple-airpods-pro-2-review',
+    title: 'AirPods Pro 2 review',
+    content: 'The AirPods Pro 2 have great ANC.',
+    sourceType: 'web',
+  });
+  cases.push(['cp779-unlisted-handsOn-tagged', unlistedHandsOn.tags.includes('hands-on'), true]);
+  cases.push(['cp779-unlisted-handsOn-below-75', unlistedHandsOn.score < 75, true]);
+  cases.push(['cp779-unlisted-handsOn-below-expert-plain', unlistedHandsOn.score < expertPlain.score, true]);
+  cases.push(['cp779-unlisted-handsOn-still-credible', unlistedHandsOn.score >= 45, true]);
+  cases.push(['cp779-expert-handsOn-unchanged', handsOnExpert.score, 90]);
 
   // Format badge sanity.
   const badge = formatCredibilityBadge(handsOnExpert);
