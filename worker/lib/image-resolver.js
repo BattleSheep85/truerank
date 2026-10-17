@@ -35,6 +35,8 @@ const TIMEOUT_MS = 8000;
 // Cap per run: one image query each → ≤8 extra subrequests.
 const MAX_RESOLVE = 8;
 const MIN_DIM = 200;
+// Candidates rankImages returns by default.
+const RANK_LIMIT = 3;
 
 // Hosts whose product imagery is reliable and accurately keyed to products.
 const PREFERRED_HOSTS = [
@@ -63,12 +65,12 @@ export function buildImageQuery(product) {
 }
 
 /**
- * Pick the best candidate from a Serper images response. Pure function so
- * the offline backfill script reuses the exact same ranking. Returns an
- * https URL or ''.
+ * Rank the candidates in a Serper images response, best first: https URLs of
+ * plausible size and shape, product CDNs ahead. Pure function so the offline
+ * backfill script reuses the exact same ranking. Returns up to `limit` URLs.
  */
-export function pickBestImage(images) {
-  if (!Array.isArray(images)) return '';
+export function rankImages(images, limit = RANK_LIMIT) {
+  if (!Array.isArray(images)) return [];
   const candidates = [];
   for (const im of images.slice(0, 10)) {
     let url = typeof im?.imageUrl === 'string' ? im.imageUrl.trim() : '';
@@ -86,7 +88,12 @@ export function pickBestImage(images) {
     candidates.push({ url, score: (preferred ? 1000 : 0) + Math.min(w * h, 4_000_000) / 10_000 });
   }
   const sorted = [...candidates].sort((a, b) => b.score - a.score);
-  return sorted[0]?.url || '';
+  return [...new Set(sorted.map((c) => c.url))].slice(0, limit);
+}
+
+/** The best candidate from a Serper images response: an https URL or ''. */
+export function pickBestImage(images) {
+  return rankImages(images, 1)[0] || '';
 }
 
 /**
@@ -106,9 +113,9 @@ export function braveImagesToSerperShape(results) {
 // One Brave Image Search call. `state` is shared by one resolveImages run so a
 // refused endpoint logs once and stops later calls in that run.
 async function searchImageBrave(query, apiKey, state) {
-  if (state.refused) return '';
+  if (state.refused) return [];
   await waitForBraveSlot();
-  if (state.refused) return '';
+  if (state.refused) return [];
   const params = new URLSearchParams({ q: query, count: String(BRAVE_IMAGES_COUNT) });
   const response = await fetch(`${BRAVE_IMAGES_ENDPOINT}?${params.toString()}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -118,26 +125,31 @@ async function searchImageBrave(query, apiKey, state) {
     if (BRAVE_IMAGES_REFUSED.has(response.status)) {
       if (!state.refused) console.log(`[image-resolver] brave images HTTP ${response.status}: endpoint not available, skipping images`);
       state.refused = true;
-      return '';
+      return [];
     }
     console.log(`[image-resolver] brave images HTTP ${response.status} q="${query}"`);
-    return '';
+    return [];
   }
   const data = await response.json().catch(() => null);
-  return pickBestImage(braveImagesToSerperShape(data?.results));
+  return braveImagesToSerperShape(data?.results);
 }
 
-// SearXNG image results ranked by pickBestImage. A failed query (null)
-// retries once on Brave when a Brave key is set; otherwise no image.
+// SearXNG image results. A failed query (null) retries once on Brave when a
+// Brave key is set; otherwise no candidates.
 async function searxngThenBraveImages(query, { searxngUrl, gateToken, braveKey, braveState }) {
   const results = await searxngImageSearch(query, searxngUrl, { gateToken });
-  if (results === null) return braveKey ? searchImageBrave(query, braveKey, braveState) : '';
-  return pickBestImage(results);
+  if (results === null) return braveKey ? searchImageBrave(query, braveKey, braveState) : [];
+  return results;
 }
 
-// Serper when its key is set (unchanged behavior), else SearXNG images (Brave
-// per-query backup), else Brave, else null. One Brave state per run.
-function imageSearchFromEnv(env) {
+/**
+ * The image search for env: (query) => Promise of candidates in the Serper
+ * image shape, or null when no provider is configured. Serper when its key is
+ * set, else SearXNG images (Brave per-query backup), else Brave. One Brave
+ * state per call, so a refused Brave endpoint stops later queries. Shared
+ * with scripts/backfill-images.mjs.
+ */
+export function imageCandidateSearch(env) {
   const serperKey = env?.SERPER_API_KEY;
   if (serperKey) return (query) => searchImage(query, serperKey);
   const braveKey = env?.BRAVE_API_KEY;
@@ -160,10 +172,10 @@ async function searchImage(query, apiKey) {
   });
   if (!response.ok) {
     console.log(`[image-resolver] serper HTTP ${response.status} q="${query}"`);
-    return '';
+    return [];
   }
   const data = await response.json().catch(() => null);
-  return pickBestImage(data?.images);
+  return Array.isArray(data?.images) ? data.images : [];
 }
 
 /**
@@ -171,7 +183,7 @@ async function searchImage(query, apiKey) {
  */
 export async function resolveImages(env, products, onProgress) {
   if (!Array.isArray(products) || products.length === 0) return products;
-  const search = imageSearchFromEnv(env);
+  const search = imageCandidateSearch(env);
   if (!search) return products;
 
   // Pick up to MAX_RESOLVE products needing an image, then resolve them CONCURRENTLY
@@ -186,7 +198,7 @@ export async function resolveImages(env, products, onProgress) {
   let resolved = 0;
   await Promise.all(targets.map(async (i) => {
     try {
-      const url = await search(buildImageQuery(out[i]));
+      const url = pickBestImage(await search(buildImageQuery(out[i])));
       if (url) { out[i] = { ...out[i], imageUrl: url }; resolved++; }
     } catch (err) {
       console.log(`[image-resolver] failed for "${out[i]?.name}": ${err instanceof Error ? err.message : String(err)}`);
