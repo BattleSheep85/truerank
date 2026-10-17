@@ -47,7 +47,7 @@ const UNIT_FOLLOW_WORDS = new Set([
 
 // Common retail SEO slug descriptor words that start the keyword tail after Brand + Series (+ Variant).
 const SLUG_DESCRIPTOR_WORDS = new Set([
-  'dual', 'chamber', 'compatible', 'full', 'mid', 'tower', 'atx', 'eatx', 'matx', 'itx',
+  'chamber', 'compatible', 'full', 'mid', 'tower', 'atx', 'eatx', 'matx', 'itx',
   'pc', 'computer', 'gaming', 'case', 'chassis', 'tempered', 'glass', 'front', 'panel',
   'all', 'season', 'radial', 'tire', 'tires', 'touring', 'passenger', 'suvs', 'truck',
   'wireless', 'bluetooth', 'noise', 'cancelling', 'canceling', 'active', 'over', 'ear',
@@ -55,7 +55,7 @@ const SLUG_DESCRIPTOR_WORDS = new Set([
   'unlocked', 'cell', 'phone', 'smartphone', 'android', 'mobile',
   'electric', 'pressure', 'cooker', 'slow', 'multi', 'multicooker', 'steamer', 'warmer',
   'professional', 'grade', 'blender', 'mixer', 'stand', 'tilt', 'head', 'kitchen', 'appliance',
-  'cordless', 'brushless', 'compact', 'drill', 'driver', 'impact', 'hammer', 'tool', 'kit',
+  'cordless', 'brushless', 'drill', 'driver', 'impact', 'hammer', 'tool', 'kit',
   'mens', 'womens', 'unisex', 'neutral', 'running', 'walking', 'trail', 'shoe', 'shoes', 'sneakers', 'footwear',
   'waterproof', 'portable', 'rechargeable', 'stainless', 'steel', 'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red',
   'with', 'for', 'and',
@@ -87,6 +87,16 @@ const TYPE_TRIM_MIN_WORDS = 2;
 // ("MX Master 3S", "iPhone 5c", "Pixel 4a 5G"). Volts and watts are the
 // exceptions ("DCD791 20V", "Nano 65W").
 const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
+
+// "Dual" and "compact" name a variant ("Torrent Compact") unless the next word
+// is the thing they describe ("Dual Chamber", "Compact Drill") (CP-781).
+const PAIRED_VARIANT_WORDS = new Set(['dual', 'compact']);
+const PAIRED_VARIANT_NOUNS = new Set([
+  'chamber', 'band', 'zone', 'motor', 'fuel', 'sim', 'port', 'usb', 'fan', 'fans',
+  'drill', 'driver', 'impact', 'tool', 'kit', 'size', 'monitor', 'screen', 'display',
+]);
+// Joins the parts of a hyphenated spec ("65-Inch", "2-Pack") (CP-783).
+const SPEC_JOIN_RE = /[-_]/g;
 
 const LINK_RE = /https?:\/\/\S+/i;
 const ALL_LINKS_RE = /https?:\/\/\S+/gi;
@@ -170,7 +180,7 @@ function isIdLike(words) {
 }
 
 function isSlugSpecToken(lower, i) {
-  const w = lower[i] ?? '';
+  const w = (lower[i] ?? '').replace(SPEC_JOIN_RE, '');
   if (!DIGIT_RE.test(w)) return false;
   if (ORDINAL_TOKEN_RE.test(w) || YEAR_TOKEN_RE.test(w) || SPEC_UNIT_TOKEN_RE.test(w) || TIRE_SIZE_RE.test(w) || MULTI_IN_ONE_RE.test(w)) {
     return true;
@@ -184,6 +194,20 @@ function isSlugSpecToken(lower, i) {
   return false;
 }
 
+function isPairedVariantAt(lower, i) {
+  return PAIRED_VARIANT_WORDS.has(lower[i]) && !PAIRED_VARIANT_NOUNS.has(lower[i + 1] ?? '');
+}
+
+function isVariantAt(lower, i) {
+  return MODEL_VARIANT_WORDS.has(lower[i]) || isPairedVariantAt(lower, i);
+}
+
+// A paired word ("dual") that describes the next word is a descriptor too.
+function isDescriptorAt(lower, i) {
+  if (PAIRED_VARIANT_WORDS.has(lower[i])) return !isPairedVariantAt(lower, i);
+  return SLUG_DESCRIPTOR_WORDS.has(lower[i]);
+}
+
 // Distills 6+ word retail SEO slugs into Brand + Series + Model + Variant.
 function distillSlugWords(words) {
   const capped = words.slice(0, SLUG_NAME_MAX_WORDS);
@@ -194,7 +218,7 @@ function distillSlugWords(words) {
   for (let i = 1; i <= Math.min(4, words.length - 1); i += 1) {
     if (DIGIT_RE.test(lower[i]) && !isSlugSpecToken(lower, i)) {
       let end = i + 1;
-      while (end < words.length && MODEL_VARIANT_WORDS.has(lower[end])) end += 1;
+      while (end < words.length && isVariantAt(lower, end)) end += 1;
       return words.slice(0, end);
     }
   }
@@ -204,7 +228,7 @@ function distillSlugWords(words) {
     const w = lower[i];
     if (w.length >= 5 && DIGIT_RE.test(w) && /[a-z]/.test(w) && !isSlugSpecToken(lower, i)) {
       let prefixEnd = 1;
-      while (prefixEnd < Math.min(4, i) && !SLUG_DESCRIPTOR_WORDS.has(lower[prefixEnd])) {
+      while (prefixEnd < Math.min(4, i) && !isDescriptorAt(lower, prefixEnd)) {
         prefixEnd += 1;
       }
       return [...words.slice(0, prefixEnd), words[i]];
@@ -213,7 +237,7 @@ function distillSlugWords(words) {
 
   // 3. No model number: stop before the first spec or SEO descriptor word (at index >= 2).
   for (let i = 2; i < words.length; i += 1) {
-    if (isSlugSpecToken(lower, i) || SLUG_DESCRIPTOR_WORDS.has(lower[i])) {
+    if (isSlugSpecToken(lower, i) || isDescriptorAt(lower, i)) {
       return words.slice(0, Math.min(i, 4));
     }
   }
