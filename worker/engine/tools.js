@@ -5,7 +5,7 @@ import { scoreSource, extractAmazonProductUrls } from '../lib/credibility.js';
 import { fetchYoutubeDescription, isYouTube } from '../lib/youtube.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { gated } from '../lib/connection-gate.js';
-import { searxngSearch } from './searxng.js';
+import { searxngSearch, urlKey } from './searxng.js';
 
 // ─── Provider primitives (Serper + HN Algolia) ───────────────────────────────
 // NOTE: Do NOT evaluate `new Date()` at module load. Cloudflare Workers freeze
@@ -705,9 +705,16 @@ async function executeSearch(
     }
   }
 
-  // Deduplicate against existing sources
-  const seenUrls = new Set(state.sources.map((s) => s.url));
-  const newResults = results.filter((r) => !seenUrls.has(r.url));
+  // Deduplicate against existing sources and within this answer by URL key,
+  // so the same page from two providers (www, http, trailing slash) counts once.
+  const seenKeys = new Set(state.sources.map((s) => urlKey(s.url)));
+  const newResults = results.filter((r) => {
+    const key = urlKey(r.url);
+    if (key === null) return true;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
 
   // Video provider: fetch YouTube descriptions in parallel. Descriptions carry
   // the affiliate-link evidence ("Buy here: amzn.to/...") that title+snippet
@@ -788,7 +795,8 @@ async function executeReadPage(
   // links, hands-on testing language, and listicle structure are usually
   // only detectable from the full text, not the search snippet.
   const amzUrls = extractAmazonProductUrls(content);
-  const existing = state.sources.find((s) => s.url === url);
+  const key = urlKey(url);
+  const existing = state.sources.find((s) => urlKey(s.url) === key);
   if (existing) {
     existing.content = content;
     existing.credibility = scoreSource({

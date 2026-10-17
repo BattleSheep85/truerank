@@ -79,6 +79,18 @@ describe('runParallelEngine', () => {
     expect(events.some((m) => m.includes('Report complete'))).toBe(true);
   });
 
+  it('merges url variants of one page from different providers (CP-710)', async () => {
+    let call = 0;
+    mocks.runSearch.mockImplementation(async () => {
+      call++;
+      const url = call % 2 ? 'https://rtings.com/nas' : 'http://www.rtings.com/nas/';
+      return [{ url, title: 'NAS Review', source: 'web', credibility: { score: 80, tags: ['expert-domain'] } }];
+    });
+    const res = await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, { recency_sensitive: false }, 'NAS', {});
+    expect(call).toBeGreaterThan(1);
+    expect(res.sources.map((s) => s.url)).toEqual(['https://rtings.com/nas']);
+  });
+
   it('zero sources → honest non-result (empty products, no synth call)', async () => {
     mocks.runSearch.mockImplementation(async () => []);
     const res = await runParallelEngine('obscure query xyz', CONFIG, 'key', {}, () => {}, { recency_sensitive: true }, 'Misc', {});
