@@ -284,8 +284,8 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
  */
 export async function claimNextPendingJob(env) {
     // Respect the monthly budget on the off-CF path too: don't claim new work
-    // once the month's recorded spend hits the cap. Uses D1 SUM(cost_usd) —
-    // immutable per row, so no lost-update race like the KV counter.
+    // once the month's recorded spend hits the cap. Uses the race-free D1
+    // spend (monthly_spend ledger, or research SUM(cost_usd)), not the KV cache.
     if (await monthlySpendUsd(env) >= monthlyBudgetUsd(env)) return null;
     // Exclude kind='verification' rows: they are RANKING-pipeline claims only
     // (this feeds runResearchPipeline via the off-CF worker). Verification rows
@@ -310,25 +310,57 @@ export async function claimNextPendingJob(env) {
 }
 
 /**
- * Increment the month-keyed KV spend counter by this run's cost. Read-add-put
- * is fine at this volume (one writer per run, low concurrency). 30-day TTL so
- * old months age out on their own. NaN/zero costs are no-ops.
+ * Add this run's cost to the month's spend. The add is one atomic D1 upsert on
+ * monthly_spend (schema/018), so runs that finish together never lose a cost
+ * (CP-375). The KV cost:YYYY-MM key is then set to the D1 total as a cache. If
+ * D1 fails, fall back to the old KV read-add-put so the cost is still counted.
+ * 30-day TTL so old months age out on their own. NaN/zero costs are no-ops.
  */
 export async function incrementMonthlyCost(env, cost) {
     if (!Number.isFinite(cost) || cost <= 0) return;
+    const month = monthKey();
+    const key = `cost:${month}`;
+    let total = null;
     try {
-        const key = `cost:${monthKey()}`;
-        const current = Number(await env.KV.get(key)) || 0;
-        await env.KV.put(key, String(current + cost), { expirationTtl: 30 * 86400 });
+        const row = await env.DB.prepare(
+            `INSERT INTO monthly_spend (month, total_usd, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(month) DO UPDATE SET total_usd = total_usd + excluded.total_usd,
+                 updated_at = excluded.updated_at
+             RETURNING total_usd`
+        ).bind(month, cost, nowEpoch()).first();
+        total = Number(row?.total_usd);
+    } catch (err) {
+        console.error('[orchestrator] D1 monthly spend add failed, using KV counter:', err instanceof Error ? err.message : String(err));
+    }
+    try {
+        if (!Number.isFinite(total)) {
+            total = (Number(await env.KV.get(key)) || 0) + cost;
+        }
+        await env.KV.put(key, String(total), { expirationTtl: 30 * 86400 });
     } catch (err) {
         console.error('[orchestrator] monthly cost update failed:', err instanceof Error ? err.message : String(err));
     }
 }
 
-// Month-to-date research spend from D1 (SUM of per-row cost_usd). cost_usd is
-// immutable once written, so SUM has no lost-update race under concurrent off-CF
-// completions — the accurate budget source (the KV counter is a soft cache).
+// Month-to-date spend from the D1 monthly_spend ledger (every cost, including
+// chat and failed runs). 0 when the row or table is missing.
+export async function monthlyLedgerUsd(env, month = monthKey()) {
+    try {
+        const row = await env.DB.prepare('SELECT total_usd FROM monthly_spend WHERE month = ?1')
+            .bind(month).first();
+        return Number(row?.total_usd) || 0;
+    } catch { return 0; }
+}
+
+// Month-to-date spend from D1: the larger of the ledger and SUM(cost_usd) over
+// completed research rows. Both are race-free. The research sum covers costs
+// recorded before the ledger existed (the month migration 018 shipped).
 export async function monthlySpendUsd(env) {
+    const [ledger, research] = await Promise.all([monthlyLedgerUsd(env), monthlyResearchSumUsd(env)]);
+    return Math.max(ledger, research);
+}
+
+async function monthlyResearchSumUsd(env) {
     try {
         const d = new Date();
         const start = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
@@ -359,10 +391,9 @@ export function monthlyBudgetUsd(env) {
 }
 
 // Authoritative budget gate for intake (POST /api/research, /api/chat). The KV
-// counter (cost:YYYY-MM) is a fast soft cache that can lag or lose concurrent
-// updates; D1 SUM(cost_usd) is race-free but only counts COMPLETED runs. Gating on
-// MAX(KV, D1) closes the split-brain where intake trusted only the racy KV value
-// while the off-CF claim path + cron fallback already gate on the accurate D1 sum.
+// counter (cost:YYYY-MM) is a fast cache of the D1 ledger and can lag it; the
+// D1 spend (ledger, or research SUM(cost_usd)) is race-free. Gating on
+// MAX(KV, D1) keeps intake, the off-CF claim path and the cron fallback in step.
 // Short-circuits on KV to avoid a D1 query on every request when already capped.
 export async function budgetExhausted(env) {
     const budget = monthlyBudgetUsd(env);
