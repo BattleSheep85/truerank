@@ -1,7 +1,7 @@
 // Unit tests for scripts/backfill-images.mjs (CP-715): the backfill uses the
 // image resolver's provider chain (SearXNG images, Brave backup) instead of
 // calling Serper only, and keeps its verify-then-write candidate order.
-import { backfillEnv, pickVerifiedImage } from '../../scripts/backfill-images.mjs';
+import { backfillEnv, pickVerifiedImage, parseLimit, isSearchOutage } from '../../scripts/backfill-images.mjs';
 import { imageCandidateSearch, rankImages, pickBestImage } from '../../worker/lib/image-resolver.js';
 
 const SEARX_URL = 'https://searx.example.test';
@@ -100,6 +100,16 @@ export async function runBackfillImagesTests() {
     chosen: '', ranked: [AMAZON_IMG, BLOG_IMG, 'https://shop.example/p.jpg'],
   });
   eq('pickVerifiedImage: no results', await pickVerifiedImage(async () => [], 'q', verify), { chosen: '', ranked: [] });
+
+  // parseLimit: a positive whole number, else the default; never NaN.
+  eq('parseLimit: no flag → default', parseLimit(['node', 'x']), 10000);
+  eq('parseLimit: --limit 20', parseLimit(['node', 'x', '--limit', '20']), 20);
+  eq('parseLimit: bad value → null', parseLimit(['node', 'x', '--limit', 'abc']), null);
+  eq('parseLimit: zero → null', parseLimit(['node', 'x', '--limit', '0']), null);
+
+  // isSearchOutage: a long run of empty searches means the provider is down.
+  eq('isSearchOutage: a few empty searches are normal', isSearchOutage(5), false);
+  eq('isSearchOutage: 26 empty searches in a row → outage', isSearchOutage(26), true);
 
   return report;
 }

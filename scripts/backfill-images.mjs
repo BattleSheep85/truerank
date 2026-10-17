@@ -10,10 +10,13 @@
 //   node scripts/backfill-images.mjs            # full run
 //   node scripts/backfill-images.mjs --limit 20 # trial batch
 //
-// Needs .cf-token (CLOUDFLARE_API_TOKEN) and, in .dev.vars or the environment,
-// SEARXNG_URL plus LITELLM_GATE_TOKEN (BWS LITELLM_EDGE_GATE). SearXNG is free.
+// Needs CLOUDFLARE_API_TOKEN (run under `bws-exec FRANK_CLOUDFLARE_API_TOKEN`
+// and export it as CLOUDFLARE_API_TOKEN; the leftover .cf-token file also
+// works) and, in .dev.vars or the environment, SEARXNG_URL plus
+// LITELLM_GATE_TOKEN (BWS LITELLM_EDGE_GATE). SearXNG is free.
 
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { buildImageQuery, imageCandidateSearch, rankImages } from '../worker/lib/image-resolver.js';
 
 const ACCOUNT_ID = '06c8d26cd83f87b95cd1d5467cb712a2';
@@ -22,6 +25,8 @@ const SEARCH_KEYS = ['SERPER_API_KEY', 'SEARXNG_URL', 'LITELLM_GATE_TOKEN', 'BRA
 const VERIFY_TIMEOUT_MS = 10000;
 const MIN_IMAGE_BYTES = 3000;
 const MAX_ERRORS = 25;
+// This many empty searches in a row means the search provider is down.
+const MAX_EMPTY_STREAK = 25;
 const PROGRESS_EVERY = 25;
 const DEFAULT_LIMIT = 10000;
 
@@ -39,6 +44,19 @@ function readEnvFile(path) {
 /** The image search settings: a .dev.vars value first, else the environment. */
 export function backfillEnv(fileVars, procEnv) {
   return Object.freeze(Object.fromEntries(SEARCH_KEYS.map((k) => [k, fileVars?.[k] || procEnv?.[k] || undefined])));
+}
+
+/** The --limit value: a positive whole number, the default without the flag, else null. */
+export function parseLimit(argv) {
+  const at = argv.indexOf('--limit');
+  if (at === -1) return DEFAULT_LIMIT;
+  const value = argv[at + 1] ?? '';
+  return /^\d+$/.test(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+/** True when the empty-search streak is too long to be bad luck. */
+export function isSearchOutage(emptyStreak) {
+  return emptyStreak > MAX_EMPTY_STREAK;
 }
 
 /**
@@ -69,7 +87,8 @@ async function verifiesAsImage(url) {
     if (!type.startsWith('image/')) return false;
     const buf = await res.arrayBuffer();
     return buf.byteLength >= MIN_IMAGE_BYTES;
-  } catch {
+  } catch (err) {
+    console.log(`  image check failed for ${url.slice(0, 60)}: ${err?.message || err}`);
     return false;
   }
 }
@@ -136,10 +155,16 @@ function countsLine(c) {
 
 async function fillImages(rows, search, d1) {
   let counts = { found: 0, 'verify-fail': 0, 'no-result': 0, errors: 0 };
+  let emptyStreak = 0;
   for (const [i, p] of rows.entries()) {
     try {
       const outcome = await fillOne(p, search, d1);
       counts = { ...counts, [outcome]: counts[outcome] + 1 };
+      emptyStreak = outcome === 'no-result' ? emptyStreak + 1 : 0;
+      if (isSearchOutage(emptyStreak)) {
+        console.error(`${emptyStreak} searches in a row found nothing — the search provider looks down (check SEARXNG_URL and LITELLM_GATE_TOKEN); aborting`);
+        break;
+      }
     } catch (err) {
       counts = { ...counts, errors: counts.errors + 1 };
       console.error(`  error on "${p.name}": ${err.message}`);
@@ -158,16 +183,23 @@ async function main() {
   process.on('unhandledRejection', (e) => console.error('unhandled:', e?.message || e));
 
   const cfToken = readEnvFile('.cf-token').CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
-  const search = imageCandidateSearch(backfillEnv(readEnvFile('.dev.vars'), process.env));
+  const env = backfillEnv(readEnvFile('.dev.vars'), process.env);
+  const search = imageCandidateSearch(env);
   if (!cfToken || !search) {
     console.error('need CLOUDFLARE_API_TOKEN (.cf-token) and SEARXNG_URL + LITELLM_GATE_TOKEN (.dev.vars or env; BRAVE_API_KEY or SERPER_API_KEY also work)');
     process.exit(1);
   }
-  const limitArg = process.argv.indexOf('--limit');
-  const limit = limitArg > -1 ? parseInt(process.argv[limitArg + 1], 10) : DEFAULT_LIMIT;
+  if (env.SEARXNG_URL && !env.LITELLM_GATE_TOKEN) {
+    console.warn('no LITELLM_GATE_TOKEN: the public SearXNG endpoint refuses requests without the edge gate');
+  }
+  const limit = parseLimit(process.argv);
+  if (limit === null) {
+    console.error('--limit needs a positive whole number');
+    process.exit(1);
+  }
   const d1 = makeD1(cfToken);
   const rows = process.argv.includes('--reverify') ? await rottedRows(d1, limit) : await missingRows(d1, limit);
   await fillImages(rows, search, d1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

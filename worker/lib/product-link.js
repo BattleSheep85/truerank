@@ -89,13 +89,20 @@ const TYPE_TRIM_MIN_WORDS = 2;
 const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
 
 // "Dual" and "compact" name a variant ("Torrent Compact") unless the next word
-// is the thing they describe ("Dual Chamber", "Compact Drill") (CP-781).
+// is the thing they describe ("Dual Chamber", "Compact Drill", "Dual Tower"):
+// a PAIRED_VARIANT_NOUNS word, or any descriptor word but a color or a filler
+// word (CP-781).
 const PAIRED_VARIANT_WORDS = new Set(['dual', 'compact']);
 const PAIRED_VARIANT_NOUNS = new Set([
-  'chamber', 'band', 'zone', 'motor', 'fuel', 'sim', 'port', 'usb', 'fan', 'fans',
-  'drill', 'driver', 'impact', 'tool', 'kit', 'size', 'monitor', 'screen', 'display',
+  'band', 'zone', 'motor', 'fuel', 'sim', 'port', 'usb', 'fan', 'fans', 'size',
+  'monitor', 'screen', 'display', 'charger', 'mini', 'micro', 'basket', 'burner',
 ]);
-// Joins the parts of a hyphenated spec ("65-Inch", "2-Pack") (CP-783).
+const NOT_DESCRIBED_WORDS = new Set([
+  'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red', 'tempered', 'with', 'for', 'and',
+]);
+// A number, a hyphen, and a unit ("65-Inch", "2-Pack") reads as one spec. A
+// range ("18-55mm") stays a model token (CP-783).
+const HYPHEN_SPEC_RE = /^\d+[-_][a-z]+$/;
 const SPEC_JOIN_RE = /[-_]/g;
 
 const LINK_RE = /https?:\/\/\S+/i;
@@ -180,7 +187,8 @@ function isIdLike(words) {
 }
 
 function isSlugSpecToken(lower, i) {
-  const w = (lower[i] ?? '').replace(SPEC_JOIN_RE, '');
+  const raw = lower[i] ?? '';
+  const w = HYPHEN_SPEC_RE.test(raw) ? raw.replace(SPEC_JOIN_RE, '') : raw;
   if (!DIGIT_RE.test(w)) return false;
   if (ORDINAL_TOKEN_RE.test(w) || YEAR_TOKEN_RE.test(w) || SPEC_UNIT_TOKEN_RE.test(w) || TIRE_SIZE_RE.test(w) || MULTI_IN_ONE_RE.test(w)) {
     return true;
@@ -195,7 +203,10 @@ function isSlugSpecToken(lower, i) {
 }
 
 function isPairedVariantAt(lower, i) {
-  return PAIRED_VARIANT_WORDS.has(lower[i]) && !PAIRED_VARIANT_NOUNS.has(lower[i + 1] ?? '');
+  if (!PAIRED_VARIANT_WORDS.has(lower[i])) return false;
+  const next = lower[i + 1] ?? '';
+  if (PAIRED_VARIANT_NOUNS.has(next)) return false;
+  return !SLUG_DESCRIPTOR_WORDS.has(next) || NOT_DESCRIBED_WORDS.has(next);
 }
 
 function isVariantAt(lower, i) {
