@@ -7,8 +7,9 @@
 --
 -- incrementMonthlyCost now adds each cost with one upsert on this table
 -- (INSERT ... ON CONFLICT DO UPDATE SET total_usd = total_usd + excluded).
--- D1 runs writes one at a time, so no add is lost. The KV key stays as a cache
--- of this total for the fast path and the metrics page.
+-- D1 runs writes one at a time, so no add is lost. A month's first row is
+-- seeded with the spend KV already held. The KV key stays as a fast counter
+-- that never drops below this total; the budget gates read the larger of both.
 --
 -- month       'YYYY-MM' in UTC, the same key the KV counter uses.
 -- total_usd   Every recorded cost for the month: research, verification, chat.

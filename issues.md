@@ -27,6 +27,7 @@ Last updated: 2026-10-16
 - [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
 
 - [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
+- [ ] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js.
 
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 

@@ -56,6 +56,26 @@ describe('incrementMonthlyCost', () => {
   });
 });
 
+describe('incrementMonthlyCost across the migration and D1 outages', () => {
+  it('seeds a new month row with the spend KV already holds', async () => {
+    await env.KV.put(kvKey(), '45');
+    await incrementMonthlyCost(env, 0.1);
+    expect(await monthlyLedgerUsd(env)).toBeCloseTo(45.1, 6);
+    expect(Number(await env.KV.get(kvKey()))).toBeCloseTo(45.1, 6);
+  });
+
+  it('keeps costs counted during a D1 outage after D1 comes back', async () => {
+    await incrementMonthlyCost(env, 1);
+    const noDb = { ...env, DB: { prepare() { throw new Error('D1 unavailable'); } } };
+    await incrementMonthlyCost(noDb, 2);
+    await incrementMonthlyCost(noDb, 3);
+    await incrementMonthlyCost(env, 0.5);
+    expect(Number(await env.KV.get(kvKey()))).toBeCloseTo(6.5, 6);
+    const capped = { ...env, MONTHLY_BUDGET_USD: '6.5' };
+    expect(await budgetExhausted(capped)).toBe(true);
+  });
+});
+
 describe('monthlySpendUsd', () => {
   it('uses the ledger when it holds more than the completed research rows', async () => {
     await incrementMonthlyCost(env, 4);

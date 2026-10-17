@@ -312,30 +312,31 @@ export async function claimNextPendingJob(env) {
 /**
  * Add this run's cost to the month's spend. The add is one atomic D1 upsert on
  * monthly_spend (schema/018), so runs that finish together never lose a cost
- * (CP-375). The KV cost:YYYY-MM key is then set to the D1 total as a cache. If
- * D1 fails, fall back to the old KV read-add-put so the cost is still counted.
- * 30-day TTL so old months age out on their own. NaN/zero costs are no-ops.
+ * (CP-375). A month's first row is seeded with the spend KV already holds, so
+ * costs from before the migration are kept. KV keeps its own running total
+ * (old read-add-put, used alone when D1 fails) and never drops below the D1
+ * total, so costs counted during a D1 outage survive the recovery. The gates
+ * read MAX(KV, D1). 30-day TTL so old months age out. NaN/zero costs are no-ops.
  */
 export async function incrementMonthlyCost(env, cost) {
     if (!Number.isFinite(cost) || cost <= 0) return;
     const month = monthKey();
     const key = `cost:${month}`;
-    let total = null;
+    let kvBefore = 0;
+    try { kvBefore = Number(await env.KV.get(key)) || 0; } catch { kvBefore = 0; }
+    let ledger = 0;
     try {
         const row = await env.DB.prepare(
-            `INSERT INTO monthly_spend (month, total_usd, updated_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(month) DO UPDATE SET total_usd = total_usd + excluded.total_usd,
-                 updated_at = excluded.updated_at
+            `INSERT INTO monthly_spend (month, total_usd, updated_at) VALUES (?1, ?4 + ?2, ?3)
+             ON CONFLICT(month) DO UPDATE SET total_usd = total_usd + ?2, updated_at = ?3
              RETURNING total_usd`
-        ).bind(month, cost, nowEpoch()).first();
-        total = Number(row?.total_usd);
+        ).bind(month, cost, nowEpoch(), kvBefore).first();
+        ledger = Number(row?.total_usd) || 0;
     } catch (err) {
         console.error('[orchestrator] D1 monthly spend add failed, using KV counter:', err instanceof Error ? err.message : String(err));
     }
     try {
-        if (!Number.isFinite(total)) {
-            total = (Number(await env.KV.get(key)) || 0) + cost;
-        }
+        const total = Math.max(kvBefore + cost, ledger);
         await env.KV.put(key, String(total), { expirationTtl: 30 * 86400 });
     } catch (err) {
         console.error('[orchestrator] monthly cost update failed:', err instanceof Error ? err.message : String(err));
@@ -391,8 +392,8 @@ export function monthlyBudgetUsd(env) {
 }
 
 // Authoritative budget gate for intake (POST /api/research, /api/chat). The KV
-// counter (cost:YYYY-MM) is a fast cache of the D1 ledger and can lag it; the
-// D1 spend (ledger, or research SUM(cost_usd)) is race-free. Gating on
+// counter (cost:YYYY-MM) is fast and holds costs counted while D1 was down, but
+// can lose a concurrent add; the D1 spend (ledger, or research SUM) is race-free. Gating on
 // MAX(KV, D1) keeps intake, the off-CF claim path and the cron fallback in step.
 // Short-circuits on KV to avoid a D1 query on every request when already capped.
 export async function budgetExhausted(env) {
