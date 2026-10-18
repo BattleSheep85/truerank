@@ -22,6 +22,7 @@ import { runAffiliateLinksTests } from '../test/unit/affiliate-links.test.js';
 import { runLibPureTests } from '../test/unit/lib-pure.test.js';
 import { runAsinResolverTests } from '../test/unit/asin-resolver.test.js';
 import { runVerdictTests } from '../test/unit/verdict.test.js';
+import { runClaimCacheTests } from '../test/unit/claim-cache.test.js';
 import { runVerifyTests } from '../test/unit/verify.test.js';
 import { runVerificationRenderTests } from '../test/unit/verification-render.test.js';
 import { runJinaTests } from '../test/unit/jina.test.js';
@@ -33,6 +34,7 @@ import { runBurstGateTests } from '../test/unit/burst-gate.test.js';
 import { runAffiliateGateTests } from '../test/unit/affiliate-gate.test.js';
 import { runLlmJsonTests } from '../test/unit/llm-json.test.js';
 import { runPoolTests } from '../test/unit/pool.test.js';
+import { runConnectionGateTests } from '../test/unit/connection-gate.test.js';
 import { runOpeningBookTests } from '../test/unit/opening-book.test.js';
 import { runRecallGatherTests } from '../test/unit/recall-gather.test.js';
 import { runEmailMimeTests } from '../test/unit/email-mime.test.js';
@@ -72,6 +74,7 @@ const suites = [
   ['llm', runLlmTests],
   ['asin-resolver', runAsinResolverTests],
   ['verdict', runVerdictTests],
+  ['claim-cache', runClaimCacheTests],
   ['verify', runVerifyTests],
   ['verify-resolve', runVerifyResolveTests],
   ['verification-render', runVerificationRenderTests],
@@ -84,6 +87,7 @@ const suites = [
   ['affiliate-gate', runAffiliateGateTests], // async suite (awaited below)
   ['llm-json', runLlmJsonTests],
   ['pool', runPoolTests], // async suite (awaited below)
+  ['connection-gate', runConnectionGateTests], // async suite (awaited below)
   ['opening-book', runOpeningBookTests], // async suite (awaited below)
   ['recall-gather', runRecallGatherTests], // async suite (awaited below)
   ['email-mime', runEmailMimeTests],
