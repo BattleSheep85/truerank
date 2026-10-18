@@ -34,6 +34,7 @@ import { runBurstGateTests } from '../test/unit/burst-gate.test.js';
 import { runAffiliateGateTests } from '../test/unit/affiliate-gate.test.js';
 import { runLlmJsonTests } from '../test/unit/llm-json.test.js';
 import { runPoolTests } from '../test/unit/pool.test.js';
+import { runStanceVotesTests } from '../test/unit/stance-votes.test.js';
 import { runConnectionGateTests } from '../test/unit/connection-gate.test.js';
 import { runOpeningBookTests } from '../test/unit/opening-book.test.js';
 import { runRecallGatherTests } from '../test/unit/recall-gather.test.js';
@@ -89,6 +90,7 @@ const suites = [
   ['affiliate-gate', runAffiliateGateTests], // async suite (awaited below)
   ['llm-json', runLlmJsonTests],
   ['pool', runPoolTests], // async suite (awaited below)
+  ['stance-votes', runStanceVotesTests],
   ['connection-gate', runConnectionGateTests], // async suite (awaited below)
   ['opening-book', runOpeningBookTests], // async suite (awaited below)
   ['recall-gather', runRecallGatherTests], // async suite (awaited below)

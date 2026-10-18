@@ -45,6 +45,7 @@ import { withConnectionGate } from '../lib/connection-gate.js';
 import { rerankClaimEvidence } from './verify-rerank.js';
 import { isNearSpecValue } from '../lib/quantity.js';
 import { readCachedClaims, writeCachedClaims } from '../lib/claim-cache.js';
+import { mergeStanceVotes } from './stance-votes.js';
 
 // Claim page text & retailer buyer-review helpers live in verify-resolve.js.
 // Re-exported here, where the harnesses and tests import them.
@@ -812,6 +813,22 @@ function neutralizeEvidenceTags(text) {
  * has its unjudged sources judged again in two smaller calls (CP-718).
  */
 export async function classifyStance(args) {
+  const votes = Number.isInteger(args.votes) && args.votes > 1 ? args.votes : 1;
+  if (votes === 1) return classifyStanceOnce(args);
+  // CP-789: the judge answers `votes` times; the majority stance per source
+  // counts (mergeStanceVotes). A failed vote drops out; all failed throws.
+  const settled = await Promise.allSettled(Array.from({ length: votes }, () => classifyStanceOnce(args)));
+  const done = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
+  if (done.length === 0) throw settled[0].reason;
+  if (done.length < votes) console.warn(`[verify] stance ${args.claim?.id}: ${votes - done.length} of ${votes} votes failed: ${errorText(settled.find((s) => s.status === 'rejected').reason)}`);
+  return {
+    rows: mergeStanceVotes(done.map((d) => d.rows)),
+    costUsd: done.reduce((sum, d) => sum + d.costUsd, 0),
+  };
+}
+
+// One stance reply for a claim (split and judged again when it was cut off).
+async function classifyStanceOnce(args) {
   const picked = Array.isArray(args.evidence) ? args.evidence : [];
   const first = await stanceCall({ ...args, evidence: picked });
   if (!first.truncated || first.rows.length >= picked.length || picked.length < MIN_SPLIT_SOURCES) {
@@ -926,9 +943,9 @@ export async function pickClaimEvidence({ claim, scoredEvidence, product, rerank
 }
 
 // Stance + backstops + verdict for one claim with one model.
-async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product, hardMs }) {
+async function judgeWithModel({ claim, picked, apiKey, model, callLLM, product, hardMs, votes = 1 }) {
   const started = Date.now();
-  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product, hardMs });
+  const { rows, costUsd } = await classifyStance({ claim, evidence: picked, apiKey, model, callLLM, product, hardMs, votes });
   const evidence = buildClaimEvidence(claim, picked, rows, product);
   const verdict = verdictForClaim(claim, evidence, VERDICT_OPTS);
   console.log(`[verify] judge ${claim.id}: ${model} ${verdict.status} in ${Date.now() - started} ms`);
@@ -975,15 +992,18 @@ const needsSecondOpinion = (outcome) => Boolean(outcome.error) || outcome.result
  * rule as without the hedge, whichever judge answers first (CP-789). A
  * decided primary verdict returns without waiting for the early fallback
  * (its cost counts only when it already finished).
+ * `votes` (optional, default 1): the primary judge answers that many times
+ * and the majority stance per source counts (classifyStance). The fallback
+ * judge answers once.
  * `rerank` (optional, see rerankOptions): with a product, the evidence comes
  * from reranked passages (pickClaimEvidence). `hardMs` (optional) caps each
  * stance call.
  * Returns { verdict, evidence, costUsd, judgeModel } (judgeModel = the model
  * whose verdict was used).
  */
-export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product, rerank, hardMs, hedgeMs = 0 }) {
+export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product, rerank, hardMs, hedgeMs = 0, votes = 1 }) {
   const picked = await pickClaimEvidence({ claim, scoredEvidence, product, rerank });
-  const judge = (judgeModel) => judgeWithModel({ claim, picked, apiKey, model: judgeModel, callLLM, product, hardMs });
+  const judge = (judgeModel) => judgeWithModel({ claim, picked, apiKey, model: judgeModel, callLLM, product, hardMs, votes: judgeModel === model ? votes : 1 });
   if (!fallbackModel || fallbackModel === model) return { ...(await judge(model)), judgeModel: model };
 
   const primaryRun = judgeOutcome(judge(model), model);
@@ -1031,8 +1051,9 @@ export const CLAIM_JUDGE_CONCURRENCY = 12;
  * Step 6, JUDGE: judgeClaim for every claim, at most `concurrency` at once.
  * Evidence is reranked when config.evidenceRerank is true and env carries
  * JINA_API_KEY (rerankOptions). config.verifyStanceCallMs (optional) caps
- * each stance call, and config.verifyHedgeMs (optional) starts the fallback
- * judge when the primary is slow (verifyBudget, judgeClaim).
+ * each stance call, config.verifyHedgeMs (optional) starts the fallback
+ * judge when the primary is slow (verifyBudget, judgeClaim), and
+ * config.stanceVotes (optional) sets how many times the primary answers.
  * Results keep the claim order. A claim that throws (an LLM error, a timeout,
  * an AbortError) does not stop the others: its slot is failedClaimResult.
  * Other slots are judgeClaim's result.
@@ -1052,6 +1073,7 @@ export async function judgeClaims({ claims, scoredEvidence, config, apiKey, call
       rerank,
       hardMs: stanceCallMs,
       hedgeMs,
+      votes: config.stanceVotes,
     }),
   );
   return runPool(thunks, concurrency, (error, i) => failedClaimResult(claims[i], error));

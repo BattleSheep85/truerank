@@ -517,6 +517,31 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
     await tick(60);
     eq('judgeClaim hedge: a fast primary verdict calls no fallback', order, ['primary']);
 
+    // Stance votes (CP-789): the primary judge answers `votes` times and the
+    // majority stance per source counts. The fallback judge answers once.
+    let n = 0;
+    const votingReplies = [supportReply, neutralReply, supportReply];
+    const voted = await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => votingReplies[n++] }));
+    eq('classifyStance votes: one call per vote', n, 3);
+    eq('classifyStance votes: the majority stance, costs summed', [voted.rows.map((r) => r.stance), voted.costUsd], [['support'], 0.003]);
+    n = 0;
+    const oneFails = await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => { n++; if (n === 1) throw new Error('upstream 502'); return n === 2 ? supportReply : contradictReply; } }));
+    eq('classifyStance votes: a failed vote drops out (a 1-1 tie is neutral)', oneFails.rows.map((r) => r.stance), ['neutral']);
+    let allFailed = null;
+    try {
+      await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => { throw new Error('down'); } }));
+    } catch (err) {
+      allFailed = err.message;
+    }
+    eq('classifyStance votes: every vote failed throws', allFailed, 'down');
+    const calls = { primary: 0, second: 0 };
+    const counted = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', votes: 3, product, callLLM: async (_k, model) => { calls[model]++; return model === 'primary' ? neutralReply : supportReply; } }));
+    eq('judgeClaim votes: the primary votes 3 times, the fallback once', [calls.primary, calls.second, counted.judgeModel], [3, 1, 'second']);
+    const perModel = { primary: 0, second: 0 };
+    await quiet(() => verifyModule.judgeClaims({ claims: [claim], scoredEvidence: scored, config: { stanceModel: 'primary', stanceFallbackModel: 'second', stanceVotes: 3 }, apiKey: 'k', product, callLLM: async (_k, model) => { perModel[model]++; return supportReply; } }));
+    eq('judgeClaims: config.stanceVotes sets the primary votes', perModel, { primary: 3, second: 0 });
+    eq('ENGINE_CONFIG: the primary stance judge votes 3 times', ENGINE_CONFIG.stanceVotes, 3);
+
     const noCap = [];
     await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', callLLM: async (_k, _m, _msgs, opts) => { noCap.push('hardMsOverride' in opts); return supportReply; } }));
     eq('classifyStance: no cap unless hardMs is set', noCap, [false]);

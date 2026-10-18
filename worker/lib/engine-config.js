@@ -48,6 +48,11 @@ export const ENGINE_CONFIG = {
   // gemini-3.5-flash-lite as fallback added 0 correct on set 2; glm-5.3-flash hit the length
   // cap live and pushed runs past the Worker time limit.
   stanceFallbackModel: 'minimax/minimax-m3',
+  // The primary judge answers each claim this many times and the majority
+  // stance per source counts (worker/engine/stance-votes.js, CP-789). mimo
+  // thinks before it answers, so one call is not repeatable even at
+  // temperature 0. About $0.0005 per extra call.
+  stanceVotes: 3,
   // Verify evidence: true reranks each claim's candidate passages with the Jina
   // reranker (worker/engine/verify-rerank.js) before the stance judge. Needs
   // JINA_API_KEY; without it, or on a rerank error, the term-ranked selection is used.
