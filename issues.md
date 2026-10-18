@@ -2273,8 +2273,20 @@ fixed prompt. Keep the swap gated.
       axes (citations/omissions), but the numeric-fabrication signal is decisive. [R3]
 - [ ] #5 add legit_recall (catches kimi dropping legit picks) + link_correctness
       (catches the trap-URL-on-legit-product mis-citation) auto-metrics. [deferred]
-- [ ] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
+- [x] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
       recalled product, location-with-no-address. [deferred]
+      Fixed 2026-10-18 (CP-407): benchmarks/synth-fixture-lie-surfaces.mjs +
+      test/unit/lie-surfaces.test.js (25 checks, production extraction synth).
+      The comparative fixture found a real lie: a source naming two products
+      gave each one the other's prices and specs (Bose got Sony's "30 hours").
+      Fixed in worker/engine/extract/scoring.js (ownedMatches): a number counts
+      for the product named in its clause, or nearest to it. On the 24 bench
+      products this removed 7 wrong prices and 3 wrong specs, all checked. On
+      the 8-query real corpus (benchmarks/results/corpus.json) spec entries
+      went 140 to 25 and prices 65 to 43; sampled drops were shared values
+      (every espresso machine had "54 mm"; now Gaggia Classic Pro 58 mm,
+      Bambino Plus 54 mm). Extraction time 1.3 s to 2.3 s for all 8 queries.
+      extract-eval gates unchanged.
 - [x] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
       on persist → live pages can't be audited against sources. Persist
       content.slice(0,200) per source + add a groundedness check to run-eval.mjs so
@@ -2284,8 +2296,14 @@ fixed prompt. Keep the swap gated.
       points of the page text, whitespace collapsed (toPersistedSources in
       worker/lib/utils.js). Older rows keep no snippet. The run-eval.mjs
       groundedness check is still open (new item below).
-- [ ] DOC cleanup: glm52-synth-bench-2026-06.md has contradictory judge counts
+- [x] DOC cleanup: glm52-synth-bench-2026-06.md has contradictory judge counts
       (54 vs 24) + two consensus tables; persist judge scores to results/. [R2]
+      Fixed 2026-10-18 (CP-409): "Data check" section added. 24 judged the
+      2-scenario pass, 54 the 6-scenario pass; every groundedness fraction,
+      cost and latency re-scored from results/ and matches. The judge scores
+      were never saved (Claude sessions), so they cannot be persisted now; the
+      doc says so and marks the 0.82 vs 0.90 conflict. Spend total corrected
+      from about $1.11 to about $2.65 (the two re-benches were missing).
 - [x] INSIGHT (model selection): honesty here is NOT predicted by raw intelligence
       (AA Index) OR generic instruction-following (AA IFBench — Claude clusters LOW
       ~55% there yet opus fabricated 0%). It IS predicted by FACTS-Grounding +
@@ -2440,9 +2458,15 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
       — read them, don't blindly trust. Direct moat lift.
 - [ ] MED: Add non-product (service/local/experience) queries to golden-query eval —
       it's 10/10 buyable products today, blind to the facets most likely broken.
-- [ ] LOW: Recompress og.png 210KB→~60KB (hygiene); delete dead db.js legacy helpers
+- [x] LOW: Recompress og.png 210KB→~60KB (hygiene); delete dead db.js legacy helpers
       (insertProductV2/completeResearch lack the idempotency latch = footgun);
       log when the decompose fallback fires (silent quality degradation).
+      Fixed 2026-10-18 (CP-416): og.png is a 256-color palette PNG, 206 KB to
+      38 KB, 1200x630, largest pixel change 3 of 255. The db.js helpers were
+      already deleted on 2026-06-25 (test copies live in
+      test/integration/_helpers.js). The decompose fallback already logs
+      "[parallel] planner gave no aspects, using the fixed aspects"
+      (worker/engine/parallel-engine.js decompose).
 
 ### STRATEGIC BETS (M/L, high impact)
 - [ ] HIGH/L: Ingest GSC Search Analytics → D1 via cron (the literal funnel-freeze
@@ -2569,9 +2593,12 @@ Source: 5-stance repo-grounded debate + judge. Full prescription executed same d
 - [x] MEDIUM: Scaled-content risk — thin-page gate in publicResearchFilter
       (≥3 products, ≥2 for comparative) now excludes thin pages from sitemap/browse/
       hubs/suggest, and research pages < threshold render noindex.
-- [ ] LOW: BullshitBench numbers (opus-4.8 94%, planner 15%) exist only as code
+- [x] LOW: BullshitBench numbers (opus-4.8 94%, planner 15%) exist only as code
       comments — harness was external (petergpt.github.io); not reproducible from this
       repo. Accept as provenance-noted, or rebuild a local trap-question eval later.
+      Fixed 2026-10-18 (CP-426): benchmarks/bullshitbench-numbers-2026-06.md
+      records every number, where it came from (commit 0dc8b3a), and the local
+      benches that replaced it.
 - [ ] NOTE: Funnel-feature freeze in effect until first real traffic data (judge
       recommendation): no new accounts-tier features, /find iterations, or chat
       expansion before GSC shows impressions.
@@ -2637,7 +2664,7 @@ All verified end-to-end on local dev (build green, 10/10 checks).
 - [x] Phase 5 (gated): keyword_queue + 122 seeded high-intent keywords; scheduled() flywheel tick claims 1 keyword/run, max FLYWHEEL_DAILY_MAX=6/day, refuses to run without SERPER_API_KEY and stops at the monthly budget cap. Category hub pages at /best/:category (static guides win via ASSETS-first probe); hubs linked from browse + sitemap.
 - [x] Phase 6: token-gated GET /metrics (503 unconfigured / 401 bad bearer): spend vs budget, runs by status/tier, top pages, per-product affiliate clicks, guide clicks, subscribers, keyword queue. Set METRICS_TOKEN via wrangler secret put.
 - [x] HIGH: DuckDuckGo fallback repaired (was anti-bot blocked): browser-like headers + parser rewrite, verified against live responses. Engine has free web search again even before SERPER_API_KEY arrives.
-- [ ] LOW: /metrics emits snake_case keys (top_pages, affiliate_clicks) — consumers should use those names.
+- [x] LOW: /metrics emits snake_case keys (top_pages, affiliate_clicks) — consumers should use those names. Fixed 2026-10-18 (CP-428): docs/metrics-api.md lists every key; test/integration/metrics.spec.js pins them.
 - [x] SERPER_API_KEY provided 2026-06-11, validated live, in .dev.vars (gitignored). Full-tier verification run: 6 products with verdicts/prices/ratings sourced from Tom's Hardware/Wirecutter/RTINGS/Reddit, credibility tags on sources (hands-on/expert-domain/community), 6 Review JSON-LD blocks, 6 click-tracked CTAs, cost $0.108 (matches the $0.099 bench estimate). REMAINING: `wrangler secret put SERPER_API_KEY` at first deploy (needs CF auth).
 - [x] MEDIUM (RESOLVED via worker/lib/asin-resolver.js): No direct /dp/ ASIN links yet — expert review pages link Amazon through affiliate redirects the extractor strips, so products fall back to tagged search links (still earn commission via /api/go). Improvement idea for a later round: post-synthesis ASIN resolution via one Serper `site:amazon.com` query per top product.
 - [x] RESOLVED (.cf-token deploys + sets secrets): CLOUDFLARE_API_TOKEN or `wrangler login` needed for Phase 3 (D1 migration + chrisputer.tech cutover) and for pushing secrets.
@@ -2663,7 +2690,7 @@ verified live. One real instant-tier run executed (cost $0.0102, correctly recor
 - [x] LOW: Canonical-dedup ROW_NUMBER CTE repeated across suggest/browse/sitemap. Extracted into `worker/lib/listable.js` (2026-08-03). Every caller (browse listing, browse count, sitemap, Atom feed, home, category hub, autocomplete) now builds its SQL from one filter + one cluster-winner rule. See the 2026-08-03 pagination section above.
 - [x] LOW: maybe304() duplicated between index.js and sitemap.js — unified via isNotModified() in worker/lib/utils.js; both call sites import it (2026-06-16).
 - [x] LOW: Static guide URLs hardcoded in sitemap.js + GUIDES_LASTMOD in index.js — derived from worker/lib/guides.js manifest (STATIC_GUIDES/STATIC_GUIDE_SLUGS/GUIDES_LASTMOD); add a guide in one place (2026-06-16).
-- [ ] LOW: research.result JSON shape is an implicit contract across orchestrator/report.js/research-page.js — Phase 2 engine swap defines the canonical shape.
+- [x] LOW: research.result JSON shape is an implicit contract across orchestrator/report.js/research-page.js — Phase 2 engine swap defines the canonical shape. Fixed 2026-10-18 (CP-429): docs/research-result-schema.md (ranking, rejection, error and verification shapes, writers and readers); test/unit/research-result-shape.test.js checks 18 real synth outputs against it.
 - [ ] LOW: Filtered/fake source evidence no longer persisted (only kept source URLs) — Phase 2 credibility layer stores tags+scores per source.
 
 ---
@@ -2743,3 +2770,10 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] LOW (API): GET /api/report returns the new source snippets (about 20 KB per report). Strip them in the handler if the payload or quoting becomes a concern. worker/handlers/report.js
 - [ ] LOW (OPS): two runs of the same query that start together both miss the SearXNG cache (no in-flight dedupe). worker/engine/searxng.js
 - [ ] LOW (architecture): worker/lib/keywords.js still imports budgetExhausted from worker/pipeline/orchestrator.js. Move the budget helpers to a lib module. worker/lib/keywords.js
+- [ ] LOW (OPS): a SearXNG answer where some engines were blocked but 3 or more results came back counts as usable, so it stays cached for 4 hours with the thinner result set (QA note on PR #13). worker/engine/searxng.js
+
+## 2026-10-18 — fix batch 6 findings (CP-796)
+- [ ] MEDIUM (Product, extraction recall): on the recalled-car-seat fixture the extraction synth finds only UPPAbaby Mesa Max (Chicco KeyFit 35, the expert top pick, is not harvested), and validateResearchResult's category gate then drops Mesa Max too, so the run would fail with zero products. benchmarks/synth-fixture-lie-surfaces.mjs RECALLED_SCENARIO, worker/engine/extract/candidates.js, worker/engine/validate.js
+- [ ] MEDIUM (Product, extraction recall): on the "best pizza in Austin" fixture the extraction synth finds no restaurant (Via 313, Home Slice Pizza, Bufalina) and shows no picks. Honest, but local queries get nothing. worker/engine/extract/candidates.js
+- [ ] LOW (Product, extraction): some real-corpus prices still look off after the CP-407 fix (Apple AirPods $250, Anker Soundcore Life A1 $13.99 on the earbuds query): a price in a clause that names the product is taken even when it is a bundle, a sale or another model's price. worker/engine/extract/scoring.js
+- [ ] LOW (Product, extraction): Bose QuietComfort Ultra gets no con although two sources say it clamps hard and gets warm (comparative fixture). worker/engine/extract/scoring.js
