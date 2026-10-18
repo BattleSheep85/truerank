@@ -85,6 +85,10 @@ export function runEvalScoreTests() {
     eq('local: Search Amazon on a coffee shop fails', hardFailures(amazon), ['amazon_free']);
     const clean = scorePage(page({ pick: 'SEY Coffee, Brooklyn', cards: [card(1, 'SEY Coffee, Brooklyn')], ctas: cleanAmazonCta }), g, CHECKS, NOW);
     eq('local: a plain amazon.com link (clean-links render) fails too', clean.amazon_free, false);
+    const amazonSource = scorePage(page({ pick: 'SEY Coffee, Brooklyn', cards: [card(1, 'SEY Coffee, Brooklyn')], ctas: googleCta + '<a href="https://www.amazon.com/some-guide" rel="nofollow">amazon.com</a>' }), g, CHECKS, NOW);
+    eq('local: an amazon.com page in the Sources list is not a buy button', amazonSource.amazon_free, true);
+    const wordOnly = scorePage(page({ pick: 'Brooklyner Cafe', cards: [card(1, 'Brooklyner Cafe')] }), g, CHECKS, NOW);
+    eq('local: the place must be a whole word ("Brooklyner" is not "Brooklyn")', wordOnly.location_ok, false);
   }
 
   // ── experience ───────────────────────────────────────────────────────────

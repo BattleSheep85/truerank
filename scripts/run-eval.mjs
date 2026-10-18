@@ -63,8 +63,9 @@ async function runAndWait(query) {
 // source count, disclosure text, CTA links). No structured API, no auth, no
 // spend. Scoring lives in scripts/lib/eval-score.mjs so it is unit-tested.
 async function scoreSlug(slug, golden) {
-  const html = await (await fetch(`${BASE}/research/${slug}`)).text();
-  return { slug, ...scorePage(html, golden, config.checks) };
+  const res = await fetch(`${BASE}/research/${slug}`);
+  if (!res.ok) return { error: `page answered HTTP ${res.status}` };
+  return { slug, ...scorePage(await res.text(), golden, config.checks) };
 }
 
 const results = [];
@@ -81,6 +82,7 @@ for (const g of config.queries) {
     continue;
   }
   const score = await scoreSlug(slug, g);
+  if (score.error) { results.push({ query: g.query, status: 'failed', slug, error: score.error }); continue; }
   results.push({ query: g.query, status: 'scored', ...score, hard_failures: hardFailures(score) });
 }
 
@@ -98,7 +100,7 @@ const summary = {
   pick_accuracy: ratio(scored, 'pick_correct'),
   disclosure: ratio(scored, 'disclosure_present'),
   depth_ok: ratio(scored, 'products_ok'),
-  fresh_ok: scored.length ? `${scored.filter((r) => r.fresh_ok !== false).length}/${scored.length}` : 'n/a',
+  fresh_ok: ratio(scored, 'fresh_ok'),
   // CP-415: non-product pages (service, local, experience).
   amazon_free: ratio(scored, 'amazon_free'),
   service_layout: ratio(scored, 'service_layout'),

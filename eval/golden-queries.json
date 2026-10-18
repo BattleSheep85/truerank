@@ -19,10 +19,10 @@
     { "query": "best cast iron skillet", "accepted_winners": ["lodge", "field company", "stargazer", "smithey"] },
     { "query": "best robot vacuum for pet hair", "accepted_winners": ["roborock", "roomba", "irobot", "eufy", "shark", "dreame", "deebot", "ecovacs"] },
     { "query": "best portable bluetooth speaker", "accepted_winners": ["jbl", "bose soundlink", "sonos roam", "ue boom", "ultimate ears", "anker soundcore", "tribit"] },
-    { "query": "best tax preparation service for freelancers", "kind": "service", "accepted_winners": ["turbotax", "h&r block", "freetaxusa", "taxact", "taxslayer", "keeper", "cash app taxes"] },
+    { "query": "best tax preparation service for freelancers", "kind": "service", "accepted_winners": ["turbotax", "h&r block", "freetaxusa", "taxact", "taxslayer", "keeper tax", "cash app taxes"] },
     { "query": "best coffee shops in brooklyn", "kind": "local", "location_any": ["brooklyn"] },
     { "query": "best pho in wichita", "kind": "local", "location_any": ["wichita"] },
-    { "query": "best day hikes near denver colorado", "kind": "experience", "location_any": ["denver", "boulder", "golden", "evergreen", "morrison", "colorado"] },
+    { "query": "best day hikes near denver colorado", "kind": "experience", "location_any": ["denver", "boulder", "evergreen", "morrison", "colorado"] },
     { "query": "best national parks to visit in winter", "kind": "experience" }
   ]
 }

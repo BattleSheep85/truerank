@@ -21,18 +21,21 @@ const OUR_PICK_RE = /class="ourpick-name[^"]*"[^>]*>([^<]+)</;
 const PRODUCT_CARD_RE = /<article class="product[\s"][^>]*id="product-\d+"/g;
 const SOURCES_RE = /Sources \((\d+)\)/;
 const DATE_RE = /datetime="(\d{4}-\d{2}-\d{2})/g;
-// An Amazon CTA is a tracked /api/go/...&network=amazon link, a plain amazon.com
-// link (clean-links render), or a "Buy on Amazon" / "Search Amazon" label. Not
-// the product-cta-amazon CSS class: the Google hand-off button reuses it.
-const AMAZON_CTA_RE = /network=amazon|href="https?:\/\/(?:www\.)?amazon\.|>\s*(?:Buy on|Search) Amazon\b/;
+// An Amazon CTA is a tracked /api/go/...&network=amazon link or a "Buy on
+// Amazon" / "Search Amazon" label (clean-links renders keep the label). Not the
+// product-cta-amazon CSS class (the Google hand-off reuses it), and not a bare
+// amazon.com href (the Sources list may link an amazon.com page).
+const AMAZON_CTA_RE = /network=amazon|>\s*(?:Buy on|Search) Amazon\b/;
 const SERVICE_HEADING_RE = />\s*Recommendations\s*</;
-const FIRST_CARD_RE = /id="product-1"([\s\S]*?)(?=id="product-2"|<\/article>)/;
+const FIRST_CARD_RE = /id="product-1"([\s\S]*?)<\/article>/;
 const DAY_MS = 86_400_000;
 
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&#x27;': "'" };
 const decode = (s) => String(s || '').replace(/&(?:amp|lt|gt|quot|#39|#x27);/g, (e) => ENTITIES[e]);
 const textOf = (html) => decode(String(html || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').toLowerCase();
 const containsAny = (text, list) => list.some((w) => text.includes(String(w).toLowerCase()));
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hasWord = (text, list) => list.some((w) => new RegExp(`(?:^|[^a-z0-9])${reEscape(String(w).toLowerCase())}(?:$|[^a-z0-9])`).test(text));
 
 function newestAgeDays(html, now) {
   const dates = [...html.matchAll(DATE_RE)].map((m) => Date.parse(m[1])).filter(Number.isFinite);
@@ -65,7 +68,7 @@ function baseChecks(html, golden, checks, now) {
 function locationOk(html, topPick, places) {
   if (!Array.isArray(places) || !places.length) return null;
   const firstCard = (html.match(FIRST_CARD_RE) || [])[1] || '';
-  return containsAny(`${topPick.toLowerCase()} ${textOf(firstCard)}`, places);
+  return hasWord(`${topPick.toLowerCase()} ${textOf(firstCard)}`, places);
 }
 
 export function scorePage(html, golden, checks, now = Date.now()) {

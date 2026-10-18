@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { buildSynthesisPrompt } from '../worker/engine/prompts.js';
 import { SYNTH_SCENARIOS, SYNTH_CONFIGS } from './synth-fixture.mjs';
 import { EXTRA_SCENARIOS } from './synth-fixture-glm-extra.mjs';
-import { legitRecall, linkCorrectness } from './lib/synth-recall-links.mjs';
+import { legitRecall, linkCorrectness, nameMatches } from './lib/synth-recall-links.mjs';
 
 // EXPANDED=1 → run all 6 scenarios (2 original + 4 extra) across the decision
 // configs only (kimi-OFF vs glm-OFF + opus anchor); default = original 2-scenario,
@@ -224,9 +224,9 @@ for (const cfg of CONFIGS) {
     const parsed = extractJson(r.content);
     const prods = parsed && Array.isArray(parsed.products) ? parsed.products : [];
     const names = prods.map((x) => (x?.name || '').toString());
-    const trapIdx = names.findIndex((n) => n.toLowerCase().includes(sc.trap.toLowerCase()));
+    const trapIdx = names.findIndex((n) => nameMatches(n, sc.trap));
     const legitTopRank = (() => {
-      for (let i = 0; i < names.length; i++) if (sc.legit.some((L) => names[i].toLowerCase().includes(L.toLowerCase()))) return i + 1;
+      for (let i = 0; i < names.length; i++) if (sc.legit.some((L) => nameMatches(names[i], L))) return i + 1;
       return null;
     })();
     process.stderr.write(r.err ? 'x' : (r.content ? '.' : '0'));
@@ -236,7 +236,7 @@ for (const cfg of CONFIGS) {
       schema: schemaScore(parsed), products_count: prods.length, product_names: names,
       trap_present: trapIdx >= 0, trap_rank: trapIdx >= 0 ? trapIdx + 1 : null,
       legit_top_rank: legitTopRank,
-      legit_recall: legitRecall(names, sc.legit),
+      legit_recall: legitRecall(names, sc.legit, sc.trap),
       links: linkCorrectness(prods, sc),
       grounded: groundednessOf(prods, srcNums),
       reasoning_tokens: r.reasoningTokens, completion_tokens: r.usage?.completion_tokens ?? 0,
@@ -255,7 +255,11 @@ for (const cfg of CONFIGS) {
     legit_on_top: runs.filter((x) => x.legit_top_rank === 1).length,
     // CP-406: share of legit picks kept (catches dropped picks), and share of
     // product links that do not point at a trap source (catches mis-citation).
-    legit_recall: round(avg(runs.map((x) => x.legit_recall.recall ?? 0)), 3),
+    // Recall averages valid-JSON runs only: errors are counted by json_rate.
+    legit_recall: (() => {
+      const valid = runs.filter((x) => x.json_valid && x.legit_recall.recall != null);
+      return valid.length ? round(avg(valid.map((x) => x.legit_recall.recall)), 3) : null;
+    })(),
     link_correctness: (() => {
       const checked = runs.reduce((a, x) => a + x.links.checked, 0);
       const wrong = runs.reduce((a, x) => a + x.links.wrong, 0);
