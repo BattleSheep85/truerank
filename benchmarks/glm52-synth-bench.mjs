@@ -6,7 +6,8 @@
 // GLM-5.2 is a reasoning model, so production-parity = reasoning OFF (matches how
 // kimi is run in tiers.js); we also test reasoning ON as a data point. opus-4.8 is
 // the honesty ceiling. Auto-metrics here (trap rank, schema, json, empty, cost,
-// latency); the 4 honesty sub-axes are judged off-budget by Claude afterward from
+// latency, legit_recall, link_correctness); the 4 honesty sub-axes are judged
+// off-budget by Claude afterward from
 // the raw outputs saved to results/glm52-synth-raw.json.
 //
 //   node benchmarks/glm52-synth-bench.mjs
@@ -15,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { buildSynthesisPrompt } from '../worker/engine/prompts.js';
 import { SYNTH_SCENARIOS, SYNTH_CONFIGS } from './synth-fixture.mjs';
 import { EXTRA_SCENARIOS } from './synth-fixture-glm-extra.mjs';
+import { legitRecall, linkCorrectness } from './lib/synth-recall-links.mjs';
 
 // EXPANDED=1 → run all 6 scenarios (2 original + 4 extra) across the decision
 // configs only (kimi-OFF vs glm-OFF + opus anchor); default = original 2-scenario,
@@ -234,6 +236,8 @@ for (const cfg of CONFIGS) {
       schema: schemaScore(parsed), products_count: prods.length, product_names: names,
       trap_present: trapIdx >= 0, trap_rank: trapIdx >= 0 ? trapIdx + 1 : null,
       legit_top_rank: legitTopRank,
+      legit_recall: legitRecall(names, sc.legit),
+      links: linkCorrectness(prods, sc),
       grounded: groundednessOf(prods, srcNums),
       reasoning_tokens: r.reasoningTokens, completion_tokens: r.usage?.completion_tokens ?? 0,
       output: parsed, raw_content_len: (r.content || '').length,
@@ -249,6 +253,14 @@ for (const cfg of CONFIGS) {
     trap_present_count: runs.filter((x) => x.trap_present).length,
     trap_last_or_absent: runs.filter((x) => !x.trap_present || x.trap_rank === x.products_count).length,
     legit_on_top: runs.filter((x) => x.legit_top_rank === 1).length,
+    // CP-406: share of legit picks kept (catches dropped picks), and share of
+    // product links that do not point at a trap source (catches mis-citation).
+    legit_recall: round(avg(runs.map((x) => x.legit_recall.recall ?? 0)), 3),
+    link_correctness: (() => {
+      const checked = runs.reduce((a, x) => a + x.links.checked, 0);
+      const wrong = runs.reduce((a, x) => a + x.links.wrong, 0);
+      return checked ? round((checked - wrong) / checked, 3) : null;
+    })(),
     // Groundedness (the no-lies gate): fraction of emitted prices / spec numbers NOT
     // traceable to the sources the synth was given. Lower = more honest. Rating is
     // editorial so it is reported (null-rate, false-precision count) not gated.
@@ -268,6 +280,7 @@ writeFileSync(new URL(`./results/${OUT_FILE}`, import.meta.url), JSON.stringify(
 process.stderr.write(`\n\nspend: $${round(TOTAL_SPEND, 4)}\n`);
 console.table(rows.map((r) => ({
   config: r.label, json: r.json_rate, schema: r.schema, trap_handled: r.trap_last_or_absent, legit_1st: r.legit_on_top,
+  legit_recall: r.legit_recall, links_ok: r.link_correctness,
   ungrounded_price: r.ungrounded_price_frac, ungrounded_spec: r.ungrounded_spec_frac,
   rating_null: r.rating_null_frac, false_prec: r.rating_false_precision,
   '$/call': r.avg_cost_usd, p50ms: r.p50_latency_ms, err: r.errors,
