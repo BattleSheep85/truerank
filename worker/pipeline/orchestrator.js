@@ -23,7 +23,7 @@ import { buildAffiliateUrl, resolveAmazonTag } from '../lib/affiliate-links.js';
 import { resolveAsins } from '../lib/asin-resolver.js';
 import { resolveImages } from '../lib/image-resolver.js';
 import { getResearchById, generateId } from '../lib/db.js';
-import { sanitizeUrl, slugify, nowEpoch, parseJsonSafe } from '../lib/utils.js';
+import { sanitizeUrl, slugify, nowEpoch, parseJsonSafe, monthKey, toPersistedSources } from '../lib/utils.js';
 import { submitToIndexNow } from '../lib/indexnow.js';
 import { notifySubscribersForResearch } from '../lib/notify.js';
 import { screenQuery, rejectionMessage, classifierRejectToReason } from '../lib/safety.js';
@@ -225,7 +225,7 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
     });
 
     const resultJson = { ...result, query, source_count: sources.length, filtered_count: 0 };
-    const sourcesJson = sources.map((s) => ({ url: s.url, credibility: s.credibility }));
+    const sourcesJson = toPersistedSources(sources);
 
     const updateStmt = env.DB.prepare(
         `UPDATE research SET status = 'complete', summary = ?1, category = ?2,
@@ -370,13 +370,6 @@ async function monthlyResearchSumUsd(env) {
         ).bind(start).first();
         return Number(row?.total) || 0;
     } catch { return 0; }
-}
-
-// Current month as 'YYYY-MM', derived from request-time clock.
-export function monthKey(d = new Date()) {
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
 }
 
 export function monthlyBudgetUsd(env) {

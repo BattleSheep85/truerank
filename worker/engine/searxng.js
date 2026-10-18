@@ -15,6 +15,10 @@ export const SEARXNG_MAX_RESULTS = 15;
 export const SEARXNG_MIN_USABLE = 3;
 // SearXNG category for image engines (bing images, startpage images).
 export const SEARXNG_IMAGES_CATEGORY = 'images';
+// Usable answers stay in KV this long, so repeat runs of a query do not hit
+// the free engines again (they CAPTCHA the home IP under load, CP-713).
+export const SEARXNG_CACHE_TTL_S = 4 * 3600;
+const CACHE_KEY_PREFIX = 'searxng:v1:';
 // "1000×1000", "1200x1050", "3000 x 3000", "1500 X 851".
 const RESOLUTION_RE = /^\s*(\d+)\s*[x×X]\s*(\d+)\s*$/;
 const NO_RESOLUTION = Object.freeze({ width: 0, height: 0 });
@@ -294,6 +298,54 @@ async function fetchSearxngJson(query, baseUrl, opts) {
 
 const resultsOf = (data) => (Array.isArray(data?.results) ? data.results : []);
 
+// KV key for one request: a hash of the answer kind (web, site, images),
+// categories, and query. The base URL and gate token stay out, so a
+// SEARXNG_URL change keeps the cache warm and the token never reaches KV.
+export async function searxngCacheKey(query, kind, opts = {}) {
+  const categories = typeof opts.categories === 'string' ? opts.categories : '';
+  const bytes = new TextEncoder().encode(`${kind}\n${categories}\n${query}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${CACHE_KEY_PREFIX}${hex}`;
+}
+
+// Cached answer as { results }, or null on a miss, a KV error, or a bad shape.
+async function readCache(kv, key) {
+  if (!kv) return null;
+  try {
+    const cached = await kv.get(key, 'json');
+    return Array.isArray(cached?.results) ? cached : null;
+  } catch (err) {
+    console.log(`[searxng] cache read failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+async function writeCache(kv, key, raw) {
+  if (!kv) return;
+  try {
+    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: SEARXNG_CACHE_TTL_S });
+  } catch (err) {
+    console.log(`[searxng] cache write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Raw results from the KV cache (opts.kv) or a live request. The caller runs
+// `save()` once it finds a live answer usable, so failures are never cached.
+// Returns { raw, save }, or null when the request failed.
+async function loadResults(query, baseUrl, kind, opts) {
+  const key = opts.kv ? await searxngCacheKey(query, kind, opts) : null;
+  const cached = await readCache(opts.kv, key);
+  if (cached) {
+    console.log(`[searxng] cache hit q="${query}"`);
+    return { raw: cached.results, save: async () => {} };
+  }
+  const data = await fetchSearxngJson(query, baseUrl, opts);
+  if (data === null) return null;
+  const raw = resultsOf(data);
+  return { raw, save: () => writeCache(opts.kv, key, raw) };
+}
+
 // SearXNG image `resolution` string as { width, height }; { 0, 0 } when the
 // value is missing, malformed, or not two positive integers.
 export function parseResolution(value) {
@@ -311,9 +363,9 @@ export function parseResolution(value) {
 // [] for zero results, null on any failure.
 export async function searxngImageSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, { ...opts, categories: SEARXNG_IMAGES_CATEGORY });
-  if (data === null) return null;
-  const raw = resultsOf(data);
+  const loaded = await loadResults(query, baseUrl, 'images', { ...opts, categories: SEARXNG_IMAGES_CATEGORY });
+  if (loaded === null) return null;
+  const { raw } = loaded;
   const images = raw
     .filter((r) => typeof r?.img_src === 'string' && r.img_src !== '')
     .map((r) => {
@@ -321,6 +373,7 @@ export async function searxngImageSearch(query, baseUrl, opts = {}) {
       return { imageUrl: r.img_src, imageWidth: width, imageHeight: height };
     });
   console.log(`[searxng] images q="${query}" → raw ${raw.length}, kept ${images.length}`);
+  if (images.length > 0) await loaded.save();
   return images;
 }
 
@@ -329,12 +382,13 @@ export async function searxngImageSearch(query, baseUrl, opts = {}) {
 // fewer than SEARXNG_MIN_USABLE usable results).
 export async function searxngSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, opts);
-  if (data === null) return null;
-  const raw = resultsOf(data);
+  const loaded = await loadResults(query, baseUrl, 'web', opts);
+  if (loaded === null) return null;
+  const { raw } = loaded;
   const ranked = rankResults(raw, query, Date.now());
   console.log(`[searxng] q="${query}" → raw ${raw.length}, kept ${ranked.length}`);
   if (ranked.length < SEARXNG_MIN_USABLE) return null;
+  await loaded.save();
   const label = opts.sourceLabel ?? 'web';
   return ranked.map((r) => ({ url: r.url, title: r.title, content: r.content, source: label, publishedAt: r.publishedAt }));
 }
@@ -344,9 +398,11 @@ export async function searxngSearch(query, baseUrl, opts = {}) {
 // [] for zero results, null on any failure.
 export async function searxngSiteSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, opts);
-  if (data === null) return null;
-  return resultsOf(data)
+  const loaded = await loadResults(query, baseUrl, 'site', opts);
+  if (loaded === null) return null;
+  const results = loaded.raw
     .filter((r) => typeof r?.url === 'string')
     .map((r) => ({ url: r.url, title: typeof r.title === 'string' ? r.title : '' }));
+  if (results.length > 0) await loaded.save();
+  return results;
 }

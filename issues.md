@@ -761,11 +761,15 @@ They stay as they are. This section does not repeat their detail.
   facets. See the new LOW item below.
 
 ### New findings this session
-- [ ] LOW (architecture): monthKey lives in worker/pipeline/orchestrator.js,
+- [x] LOW (architecture): monthKey lives in worker/pipeline/orchestrator.js,
       but worker/lib/keywords.js now imports it. This points a lib module at
       a pipeline module. It is not a cycle (orchestrator.js does not import
       keywords.js). monthKey belongs in worker/lib/utils.js. Move it when
       convenient.
+      Fixed 2026-10-18 (CP-358): monthKey now lives in worker/lib/utils.js;
+      orchestrator.js, keywords.js, pages/metrics.js and the specs import it
+      from there. keywords.js still imports budgetExhausted from the
+      orchestrator (see the new item below).
 - [ ] LOW (observability): worker/engine/extract/recall-supplement.js no
       longer logs its "skipped" diagnostic when the model returns JSON it
       cannot parse. The shared parser now returns null instead of throwing,
@@ -2271,10 +2275,15 @@ fixed prompt. Keep the swap gated.
       (catches the trap-URL-on-legit-product mis-citation) auto-metrics. [deferred]
 - [ ] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
       recalled product, location-with-no-address. [deferred]
-- [ ] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
+- [x] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
       on persist → live pages can't be audited against sources. Persist
       content.slice(0,200) per source + add a groundedness check to run-eval.mjs so
       PRODUCTION (not just the bench) is monitored for fabrication. [deferred — HIGH]
+      Fixed 2026-10-18 (CP-408, persist half): persistEngineResult saves
+      {url, credibility, snippet} per source; snippet is the first 200 code
+      points of the page text, whitespace collapsed (toPersistedSources in
+      worker/lib/utils.js). Older rows keep no snippet. The run-eval.mjs
+      groundedness check is still open (new item below).
 - [ ] DOC cleanup: glm52-synth-bench-2026-06.md has contradictory judge counts
       (54 vs 24) + two consensus tables; persist judge scores to results/. [R2]
 - [x] INSIGHT (model selection): honesty here is NOT predicted by raw intelligence
@@ -2725,5 +2734,12 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [x] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js (Fixed 2026-10-17, CP-710 via CP-792: every provider's results dedupe on one URL key, `urlKey` in worker/engine/searxng.js, in tools.js (search and read_page), parallel-engine.js, opening-book.js, recall-gather.js, and engine.js.)
 - [x] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js (Fixed 2026-10-17, CP-711 via CP-792: topic news sends no category, so the general web engines answer. Note: no current caller passed topic news to SearXNG; the news provider already reached SearXNG through the general web fallback, so live requests do not change.)
 - [x] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl (Fixed 2026-10-17, CP-712 via CP-792: the normalized URL is only the merge key; results keep the engine's host and path (www. and trailing slash kept) minus credentials, tracking params, and fragment. https stays forced because read_page accepts only https.)
-- [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
+- [x] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml Fixed 2026-10-18 (CP-713): usable SearXNG answers (web, site:, images) are cached in KV for 4 hours (SEARXNG_CACHE_TTL_S, worker/engine/searxng.js); errors, weak or empty answers are never cached.
 - [x] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js (Fixed 2026-10-15 in 4605f18, the LLM reply is stubbed; CP-714, 8b5a965, adds checks that no real network call happens. 3 full runs of 607 tests green on 2026-10-17.)
+
+## 2026-10-18 — fix batch 5 follow-ups (CP-795)
+- [ ] MEDIUM (monitoring): run-eval.mjs has no groundedness check against the new per-source snippets yet. scripts/run-eval.mjs
+- [ ] LOW (benchmark): the SearXNG cache also serves forceFresh runs, so two stability-harness runs of one query within 4 hours share search answers and can look more stable than cold runs. Pass a cache bypass down from forceFresh if the harness needs cold gathers. worker/engine/tools.js
+- [ ] LOW (API): GET /api/report returns the new source snippets (about 20 KB per report). Strip them in the handler if the payload or quoting becomes a concern. worker/handlers/report.js
+- [ ] LOW (OPS): two runs of the same query that start together both miss the SearXNG cache (no in-flight dedupe). worker/engine/searxng.js
+- [ ] LOW (architecture): worker/lib/keywords.js still imports budgetExhausted from worker/pipeline/orchestrator.js. Move the budget helpers to a lib module. worker/lib/keywords.js

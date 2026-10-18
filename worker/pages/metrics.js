@@ -17,7 +17,8 @@
 // (schema/005) that may not be applied yet. Their queries are wrapped in
 // try/catch and degrade to zero/empty results if the table is missing.
 
-import { monthKey, monthlyBudgetUsd, monthlyLedgerUsd } from '../pipeline/orchestrator.js';
+import { monthlyBudgetUsd, monthlyLedgerUsd } from '../pipeline/orchestrator.js';
+import { monthKey } from '../lib/utils.js';
 import { jsonResponse as sharedJsonResponse } from '../lib/http-response.js';
 import {
   ingestGsc,

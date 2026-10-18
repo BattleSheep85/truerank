@@ -136,8 +136,8 @@ async function searchImageBrave(query, apiKey, state) {
 
 // SearXNG image results. A failed query (null) retries once on Brave when a
 // Brave key is set; otherwise no candidates.
-async function searxngThenBraveImages(query, { searxngUrl, gateToken, braveKey, braveState }) {
-  const results = await searxngImageSearch(query, searxngUrl, { gateToken });
+async function searxngThenBraveImages(query, { searxngUrl, gateToken, kv, braveKey, braveState }) {
+  const results = await searxngImageSearch(query, searxngUrl, { gateToken, kv });
   if (results === null) return braveKey ? searchImageBrave(query, braveKey, braveState) : [];
   return results;
 }
@@ -157,7 +157,7 @@ export function imageCandidateSearch(env) {
   const searxngUrl = env?.SEARXNG_URL;
   if (searxngUrl) {
     const gateToken = env?.LITELLM_GATE_TOKEN;
-    return (query) => searxngThenBraveImages(query, { searxngUrl, gateToken, braveKey, braveState });
+    return (query) => searxngThenBraveImages(query, { searxngUrl, gateToken, kv: env?.KV, braveKey, braveState });
   }
   if (braveKey) return (query) => searchImageBrave(query, braveKey, braveState);
   return null;
