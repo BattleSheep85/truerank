@@ -57,11 +57,11 @@ Last updated: 2026-10-17
 
 - [x] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js. Fixed (CP-780): the bare "achieved" and "tool-less" words are gone from `SPAN_OBSERVATION`. Spans that pair them with test or use language ("achieved 41 dB in our test", "snapped into place") still count. A regression test covers both defects.
 
-- [ ] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js.
+- [x] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js. Fixed 2026-10-17 (CP-781): they stay as variant words unless the next word is what they describe ("Dual Chamber", "Compact Drill").
 
 - [ ] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js.
 
-- [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
+- [x] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js. Fixed 2026-10-17 (CP-783): spec checks ignore the hyphen ("65-Inch" reads as "65Inch").
 
 - [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
 - [ ] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js.
@@ -87,7 +87,7 @@ Last updated: 2026-10-17
 ## 2026-10-15: product images do not resolve (CP-709)
 
 - [x] HIGH (Product, images): the product-image resolver used only Serper or Brave, and production has neither key, so product photos did not resolve. Fixed in e8211e4: the resolver uses the SearXNG image category when SEARXNG_URL is set, with Brave as a per-query backup. The Blackbox SearXNG loads bing images and startpage images for this (blackbox repo 48c317e). worker/lib/image-resolver.js, worker/engine/searxng.js.
-- [ ] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs.
+- [x] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs. Fixed 2026-10-17 (CP-715): the script uses the resolver's chain (`imageCandidateSearch`: SearXNG images, Brave backup). The backfill itself has not been run yet.
 
 ## 2026-10-15: store and listing clutter shown as product claims (CP-705)
 
