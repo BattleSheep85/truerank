@@ -5,8 +5,9 @@ import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import {
-  incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, budgetExhausted, monthKey,
+  incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, budgetExhausted,
 } from '../../worker/pipeline/orchestrator.js';
+import { monthKey } from '../../worker/lib/utils.js';
 
 const kvKey = () => `cost:${monthKey()}`;
 

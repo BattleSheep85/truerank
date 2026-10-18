@@ -89,6 +89,31 @@ export function nowEpoch() {
   return Math.floor(Date.now() / 1000);
 }
 
+// Current month as 'YYYY-MM' (UTC). Keys the monthly cost counter and ledgers.
+export function monthKey(d = new Date()) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+// Characters of page text kept per source when a report is saved: enough to
+// audit a live report against what the engine read, small enough for the row.
+export const SOURCE_SNIPPET_CHARS = 200;
+
+// Shape engine sources for research.sources: url + credibility, plus a short
+// whitespace-collapsed snippet of the page text when there is any.
+export function toPersistedSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  return sources
+    .filter((s) => s && typeof s === 'object')
+    .map((s) => {
+      const base = { url: s.url, credibility: s.credibility };
+      const text = typeof s.content === 'string' ? s.content.replace(/\s+/g, ' ').trim() : '';
+      // Cut by code point so an emoji at the edge is not split in half.
+      return text ? { ...base, snippet: Array.from(text).slice(0, SOURCE_SNIPPET_CHARS).join('') } : base;
+    });
+}
+
 export function parseJsonSafe(json, fallback) {
   if (!json) return fallback;
   try {

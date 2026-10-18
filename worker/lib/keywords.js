@@ -24,8 +24,8 @@
 import {
     generateId, insertResearch, findResearchByCanonicalQuery,
 } from './db.js';
-import { generateSlug, canonicalizeQuery, squashQuery } from './utils.js';
-import { monthKey, budgetExhausted } from '../pipeline/orchestrator.js';
+import { generateSlug, canonicalizeQuery, squashQuery, monthKey } from './utils.js';
+import { budgetExhausted } from '../pipeline/orchestrator.js';
 import { purgePageCache } from '../routes/pages.js';
 
 const DEFAULT_DAILY_MAX = 6;
@@ -41,7 +41,7 @@ const DEFAULT_STALE_REFRESH_DAYS = 120;
 // 'YYYY-MM' and 'YYYY-MM-DD' from a caller-supplied epoch-ms clock. The caller
 // (scheduled handler) passes `now` explicitly so ticks are testable and the
 // budget/daily keys line up with the rest of the system's UTC month keys.
-// Delegates to the canonical monthKey() (orchestrator.js) so there is one
+// Delegates to the canonical monthKey() (utils.js) so there is one
 // 'YYYY-MM' formatter, not two.
 function monthKeyFrom(now) {
     return monthKey(new Date(now));

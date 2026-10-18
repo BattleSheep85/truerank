@@ -5,7 +5,7 @@ import { env } from 'cloudflare:test';
 import { beforeAll, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import { runVerificationPipeline } from '../../worker/pipeline/verify-orchestrator.js';
-import { monthKey } from '../../worker/pipeline/orchestrator.js';
+import { monthKey } from '../../worker/lib/utils.js';
 import { generateId, insertResearch, updateResearchStatus } from '../../worker/lib/db.js';
 
 beforeAll(async () => {
