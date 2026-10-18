@@ -297,6 +297,94 @@ export function runValidateTests() {
     eq('category gate drops purifier mis-pick on fryer query', r.products.some((p) => /breathe/i.test(p.name)), false);
     eq('category gate keeps fryers', r.products.some((p) => /fryer/i.test(p.name)), true);
   }
+  // CP-380: leaks the first gate let through. A query word outside the
+  // category ("family", "four") or a bare modifier ("smart") matched a product
+  // that never names its own type, and "tv" was too short to be checked.
+  {
+    const fryerCtx = { query: 'best air fryer for a family of four', topicalCategory: 'air fryers' };
+    const r = validateResearchResult({
+      summary: 'Air fryers for a family.',
+      category: 'air fryers',
+      products: [
+        fullProd('Shark BreatheClear Compact Pro HP062', 4.7, 1, {
+          verdict: 'Quiet, compact pick that keeps the whole family comfortable.',
+          pros: ['Fits a large family room', 'Low noise at night'],
+        }),
+        fullProd('Ninja Foodi Dual Zone', 4.6, 2, { verdict: 'Excellent dual-basket air fryer for families.' }),
+        fullProd('Cosori Pro LE', 4.4, 3, { verdict: 'Reliable budget air fryer with even cooking.' }),
+        fullProd('Instant Vortex Plus', 4.3, 4, { verdict: 'Fast fryer with simple controls for four people.' }),
+      ],
+    }, fryerCtx);
+    eq('cp380: query-only word "family" does not admit a purifier', r.products.some((p) => /breathe/i.test(p.name)), false);
+    eq('cp380: fryers stay', r.products.length, 3);
+  }
+  {
+    const bulbCtx = { query: 'best smart light bulbs for home assistant', topicalCategory: 'smart light bulbs' };
+    const r = validateResearchResult({
+      summary: 'Smart bulbs.',
+      category: 'smart light bulbs',
+      products: [
+        fullProd('Logitech M720 Triathlon', 4.8, 1, {
+          verdict: 'Smart multi-device switching for a busy desk.',
+          pros: ['Works with Home Assistant via Bluetooth', 'Long battery life'],
+        }),
+        fullProd('Philips Hue White and Color Ambiance', 4.6, 2, { verdict: 'Top smart light bulb with broad support.' }),
+        fullProd('LIFX Color', 4.4, 3, { verdict: 'Bright Wi-Fi smart bulb, no hub required.' }),
+        fullProd('Nanoleaf Essentials Matter', 4.3, 4, { verdict: 'Affordable Matter bulb for whole-home lighting.' }),
+      ],
+    }, bulbCtx);
+    eq('cp380: the modifier "smart" alone does not admit a mouse', r.products.some((p) => /m720/i.test(p.name)), false);
+    eq('cp380: bulbs stay', r.products.length, 3);
+  }
+  {
+    // The use clause still exempts its device noun from the foreign check.
+    const r = validateResearchResult({
+      summary: 'S', category: 'C',
+      products: [
+        fullProd('Spigen Ultra Hybrid', 4.6, 1, { verdict: 'Clear case for the iPhone 16 Pro that resists yellowing.' }),
+        fullProd('OtterBox Defender', 4.5, 2, { verdict: 'Rugged iPhone case with a holster clip.' }),
+        fullProd('Apple Silicone Case', 4.4, 3, { verdict: 'Soft-touch case made for the iPhone 16.' }),
+      ],
+    }, { query: 'best case for iphone 16', topicalCategory: 'phone cases' });
+    eq('cp380: iPhone cases stay on a case-for-iPhone page', r.products.length, 3);
+  }
+  {
+    // A modifier's singular form ("wireles") is still a modifier.
+    const r = validateResearchResult({
+      summary: 'S', category: 'C',
+      products: [
+        fullProd('Anker Soundcore Motion', 4.8, 1, { verdict: 'Loud wireless speaker for parties.' }),
+        fullProd('Anker MagGo 3-in-1', 4.6, 2, { verdict: 'Fast Qi2 wireless charger stand.' }),
+        fullProd('Belkin BoostCharge Pro', 4.5, 3, { verdict: 'Slim charger pad for phone and earbuds case.' }),
+        fullProd('Mophie Snap+', 4.3, 4, { verdict: 'Magnetic wireless charger with a kickstand.' }),
+      ],
+    }, { query: 'best wireless charger', topicalCategory: 'wireless chargers' });
+    eq('cp380: "wireless" alone does not admit a speaker', r.products.some((p) => /motion/i.test(p.name)), false);
+  }
+  {
+    // A comparison keeps both sides after a use clause.
+    const r = validateResearchResult({
+      summary: 'S', category: 'C',
+      products: [
+        fullProd('LG C4 OLED', 4.9, 1, { verdict: 'Best OLED TV for movies.' }),
+        fullProd('Samsung S90D OLED', 4.7, 2, { verdict: 'Bright OLED panel for gaming.' }),
+        fullProd('Dell U2724D Monitor', 4.5, 3, { verdict: 'Sharp 4K monitor for office work.' }),
+      ],
+    }, { query: 'best monitor for gaming vs oled tv', topicalCategory: 'monitors' });
+    eq('cp380: the other side of a "vs" query stays', r.products.length, 3);
+  }
+  {
+    // Without a topical category, the query's own words still decide.
+    const r = validateResearchResult({
+      summary: 'S', category: 'C',
+      products: [
+        fullProd('Ninja Foodi Dual Zone', 4.6, 1, { verdict: 'Excellent dual-basket air fryer for families.' }),
+        fullProd('Cosori Pro LE', 4.4, 2, { verdict: 'Reliable budget air fryer with even cooking.' }),
+        fullProd('Instant Vortex Plus', 4.3, 3, { verdict: 'Fast air fryer with simple controls.' }),
+      ],
+    }, { query: 'best pair of air fryers', topicalCategory: '' });
+    eq('cp380: without a category the whole query decides', r.products.length, 3);
+  }
   eq('category gate skipped without ctx (bench compat)', validateResearchResult({
     summary: 'S', category: 'C',
     products: [

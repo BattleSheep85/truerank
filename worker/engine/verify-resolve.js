@@ -11,7 +11,7 @@
 // injectable for tests).
 
 import { runSearch, readPageInto } from './tools.js';
-import { isManufacturerDomain, isCommunityDomain, hasAiInjection, hasIncentivizedReview } from '../lib/credibility.js';
+import { isManufacturerDomain, isCommunityDomain, hasAiInjection, hasIncentivizedReview, hasSponsoredContent } from '../lib/credibility.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { MODEL_VARIANT_WORDS, distillProductName } from '../lib/product-link.js';
 import { buyerStoreKeyOf } from '../lib/verdict.js';
@@ -1384,6 +1384,14 @@ function evaluateCandidateSnippet(rawText, {
 
   if (hasAiInjection(fullCheck)) {
     droppedInjection.push({ text: sanitizeReviewSnippet(rawText, maxSnippetChars), tags: ['ai-injection'] });
+    return;
+  }
+
+  // A paid-promotion review (#ad, "sponsored by") is dropped on its own, so it
+  // cannot tag the whole host's aggregated buyer-review source (CP-782).
+  if (hasSponsoredContent(fullCheck)) {
+    const text = sanitizeReviewSnippet(rawText, maxSnippetChars);
+    droppedIncentivized.push({ text, hash: reviewTextHash(text), verified: false, kind, tags: ['incentivized-review', 'sponsored-content'] });
     return;
   }
 

@@ -60,13 +60,17 @@ Last updated: 2026-10-18
 
 - [x] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js. Fixed in d74b046 (CP-779): a contradiction whose figures sit within 3% of the claim, or within 10% below an "up to" claim, becomes neutral (worker/lib/quantity.js); "we tested" on a host with no domain prior earns +10, not +25 (score 60, below an expert outlet's plain 65); exact H x W x D dimension sets are banned in the extraction prompt and dropped by isTestableClaim. Existing reports keep their old scores until they run again. QA follow-up: a span figure equal to the claim's figure is the spec quoted back, so it no longer counts as agreement ("Apple says 6 hours; ours managed three" stays contradict).
 
+- [ ] LOW (Testing): scripts/run-real-world-eval.mjs finds 0 products on every live page (2026-10-17), so its pick and recall scores are all false. The page markup it scrapes has likely changed. scripts/run-real-world-eval.mjs
+
+- [ ] LOW (cleanup): "tv" in FOREIGN_CATEGORY never fires (the gate checks words of 4+ letters). A name-only check was tried in CP-380 and dropped Apple TV and Fire TV from streaming pages, so it stays off. worker/lib/category-gate.js
+
 - [ ] LOW (Product, verify): the "5G" in a phone claim parses as 5 grams in worker/lib/quantity.js. It can only turn a contradiction to neutral when both sides say "5G", so the effect is small.
 
 - [x] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js. Fixed (CP-780): the bare "achieved" and "tool-less" words are gone from `SPAN_OBSERVATION`. Spans that pair them with test or use language ("achieved 41 dB in our test", "snapped into place") still count. A regression test covers both defects.
 
 - [x] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js. Fixed 2026-10-17 (CP-781): they stay as variant words unless the next word is what they describe ("Dual Chamber", "Compact Drill").
 
-- [ ] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js.
+- [x] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js. Fixed 2026-10-17 (CP-782, e8fefd7 and c755080): a denial ("this is not a sponsored post", "not sponsored by") no longer counts as a marker, and a buyer review with a real marker (#ad) is dropped on its own (recorded in droppedIncentivized), so it cannot tag the host's aggregated source. worker/engine/verify-resolve.js.
 
 - [x] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js. Fixed 2026-10-17 (CP-783): spec checks ignore the hyphen ("65-Inch" reads as "65Inch").
 
@@ -1205,7 +1209,7 @@ blackbox redeploy needed this pass.
 - [x] MED (security): rate-limit.js atomicity. RESOLVED 2026-07-28, and Durable Objects were NOT
       needed. Native `[[ratelimits]]` burst gate in front of the KV window; see the 2026-07-28
       section at the top and `docs/rate-limit-design.md`.
-- [ ] LOW (cleanup, blackbox-side): DEBUG_FUNNEL scaffolding, buildAgentTools(facets) ignored arg, and the
+- [ ] LOW (cleanup, blackbox-side): ~~DEBUG_FUNNEL scaffolding, buildAgentTools(facets) ignored arg~~ (both fixed 2026-10-17, CP-372, 0b77080), and the
       parseFencedJson (×5) + runPool (×2) dedups — batched for a future engine-cleanup pass + blackbox
       redeploy (avoid cosmetic drift). NOTE: "sanitizeUrl dead export" was a FALSE POSITIVE (used in orchestrator.js).
 - [ ] LOW: /api/internal has no rate limit — deliberately NOT added (would throttle the legit 15s off-CF
@@ -1455,11 +1459,12 @@ Shipped eval harness for repeatable pick-quality regression against sourced expe
       `anti_patterns`, and citation URLs.
 - [x] `scripts/run-real-world-eval.mjs` — deterministic scrape of live `/research/:slug` pages.
 - [x] Baseline (2026-07-03, 11/18 scored): pick 8/10, recall@5 7/10, disclosure 11/11, depth 11/11.
-- [ ] FOLLOW-UP — **Category contamination on live pages** caught by bench:
+- [x] FOLLOW-UP — **Category contamination on live pages** caught by bench:
       `rw-air-fryer` top pick = Shark BreatheClear (air purifier); `rw-smart-bulb` top pick =
       Logitech M720 mouse on a Home Assistant bulbs report. **Fix shipped (2026-07-03):**
       `worker/lib/category-gate.js` + validate.js applies the gate on LLM synth path (extract
       already had it). Existing pages need re-run to pick up the fix.
+      Closed 2026-10-17 (CP-380, 3c858a5, f891d26, c755080): the live air-fryer and smart-bulb pages now show only fryers and bulbs. Three leaks the first gate missed are closed in worker/lib/category-gate.js: query use-clause words ("for a family of four") no longer admit a product, and a bare modifier ("smart", "wireless") is not enough when the category has a noun.
 - [ ] FOLLOW-UP — **7 missing pages** (mesh wifi, budget earbuds, budget espresso, home NAS,
       budget gaming headset, upright vacuum pets, laptop 2026) — run `node scripts/run-real-world-eval.mjs --spend`
       when budget allows (~$0.70).
@@ -2721,4 +2726,4 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [x] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js (Fixed 2026-10-17, CP-711 via CP-792: topic news sends no category, so the general web engines answer. Note: no current caller passed topic news to SearXNG; the news provider already reached SearXNG through the general web fallback, so live requests do not change.)
 - [x] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl (Fixed 2026-10-17, CP-712 via CP-792: the normalized URL is only the merge key; results keep the engine's host and path (www. and trailing slash kept) minus credentials, tracking params, and fragment. https stays forced because read_page accepts only https.)
 - [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
-- [ ] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js
+- [x] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js (Fixed 2026-10-15 in 4605f18, the LLM reply is stubbed; CP-714, 8b5a965, adds checks that no real network call happens. 3 full runs of 607 tests green on 2026-10-17.)
