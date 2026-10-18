@@ -372,8 +372,8 @@ export function runValidateTests() {
         fullProd('Cosori Pro LE', 4.4, 2, { verdict: 'Reliable budget air fryer with even cooking.' }),
         fullProd('Instant Vortex Plus', 4.3, 3, { verdict: 'Fast air fryer with simple controls.' }),
       ],
-    }, { query: 'best air fryer', topicalCategory: '' });
-    eq('cp380: query-only context keeps matching products', r.products.length, 3);
+    }, { query: 'best pair of air fryers', topicalCategory: '' });
+    eq('cp380: without a category the whole query decides', r.products.length, 3);
   }
   eq('category gate skipped without ctx (bench compat)', validateResearchResult({
     summary: 'S', category: 'C',

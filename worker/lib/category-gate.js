@@ -19,7 +19,9 @@ const MODIFIER_TERMS = new Set([
 // A query's use clause ("for a family of four", "with a hub", "under 100")
 // describes the buyer, not the product type, so its words are not category
 // terms (CP-380: "family" admitted an air purifier on an air-fryer page).
-// Location clauses ("in wichita") stay, they matter for local queries.
+// Location clauses ("in wichita") stay, they matter for local queries. Only
+// cut when a topical category names the type; alone, the whole query decides
+// ("best pair of headphones" must not shrink to "pair").
 const USE_CLAUSE = /\b(?:for|with|without|of|under|over|to)\b.*$/i;
 
 function addTerm(terms, word) {
@@ -33,7 +35,7 @@ function addTerm(terms, word) {
 /** @returns {Set<string>} lowercased category + query-subject terms (len ≥ 4, with naive plural flip). */
 export function categoryTerms(topicalCategory, query) {
   const terms = new Set();
-  const subject = String(query || '').replace(USE_CLAUSE, '');
+  const subject = topicalCategory ? String(query || '').replace(USE_CLAUSE, '') : String(query || '');
   for (const w of `${topicalCategory || ''} ${subject}`.split(/\s+/)) addTerm(terms, w);
   return terms;
 }
