@@ -163,6 +163,15 @@ export function runCredibilityTests() {
     ['sponsored-negative-addons', hasSponsoredContent('The #addons ecosystem for this device is rich.'), false],
     ['sponsored-negative-normal', hasSponsoredContent('We loved this whisper-quiet purifier and the build quality impressed us.'), false],
     ['sponsored-negative-empty', hasSponsoredContent(''), false],
+    // CP-782: a denial is not a paid-promotion marker.
+    ['cp782-not-a-sponsored-post', hasSponsoredContent('This is not a sponsored post, I paid for it.'), false],
+    ['cp782-not-sponsored-by', hasSponsoredContent('Not sponsored by Sony in any way.'), false],
+    ['cp782-isnt-sponsored-content', hasSponsoredContent("This isn't sponsored content."), false],
+    ['cp782-no-sponsored-content', hasSponsoredContent('No sponsored content here, just my opinion.'), false],
+    ['cp782-non-sponsored-post', hasSponsoredContent('An honest, non-sponsored post.'), false],
+    ['cp782-never-brought-to-you-by', hasSponsoredContent('This was never brought to you by a brand.'), false],
+    ['cp782-denial-then-real-marker', hasSponsoredContent('Not sponsored by Sony. This video is sponsored by NordVPN.'), true],
+    ['cp782-denial-far-before-marker', hasSponsoredContent('I am not a fan of the color. Sponsored by Acme.'), true],
 
     // ── hasClickbaitFraming ───────────────────────────────────────────────
     ['clickbait-trick-big-brands', hasClickbaitFraming("This $89 purifier SHOCKED engineers — the trick big brands don't want you to know", ''), true],

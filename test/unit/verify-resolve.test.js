@@ -427,6 +427,24 @@ export async function runVerifyResolveTests() {
   eq('harvestBuyerReviews: caps total harvested reviews at 200', cappedHarvest[0].reviewCount, 200);
   eq('harvestBuyerReviews: sourceType is buyer-review', cappedHarvest[0].source, 'buyer-review');
 
+  // CP-782: one buyer review with a paid-promotion marker must not tag the
+  // whole host's aggregated buyer-review source as sponsored-content.
+  const plainReviews = Array.from({ length: 5 }, (_, idx) =>
+    `##### _4.0 out of 5 stars_ Review ${idx + 1}\nReviewed in the United States on October 2, 2026\nVerified Purchase\nThe Sony WH-1000XM6 noise canceling held up on ${idx + 3} long train rides this month.`,
+  );
+  const sponsoredReview = '##### _5.0 out of 5 stars_ Promo\nReviewed in the United States on October 3, 2026\nVerified Purchase\nLove the Sony WH-1000XM6, use my code for 10% off #ad #sponsored and the sound is great.';
+  const deniedReview = '##### _5.0 out of 5 stars_ Honest\nReviewed in the United States on October 4, 2026\nVerified Purchase\nThis is not a sponsored post, I bought the Sony WH-1000XM6 myself and the battery lasts all week.';
+  const mixedHost = harvestBuyerReviews([{
+    url: 'https://www.amazon.com/dp/B0DK85GRFZ',
+    title: 'Sony WH-1000XM6',
+    content: `# Customer reviews\n${[...plainReviews, sponsoredReview, deniedReview].join('\n')}`,
+  }], 'Sony WH-1000XM6');
+  eq('harvestBuyerReviews: a review with a paid-promotion marker is dropped (CP-782)', mixedHost[0].reviewCount, 6);
+  ok('harvestBuyerReviews: the dropped promo review text is not in the aggregate (CP-782)', !mixedHost[0].content.includes('use my code'));
+  ok('harvestBuyerReviews: a "not a sponsored post" review is kept (CP-782)', mixedHost[0].content.includes('bought the Sony WH-1000XM6 myself'));
+  const mixedCred = scoreSource({ url: mixedHost[0].url, title: mixedHost[0].title, content: mixedHost[0].content, sourceType: 'buyer-review' });
+  ok('scoreSource: the host aggregate is not tagged sponsored-content by one review (CP-782)', !mixedCred.tags.includes('sponsored-content'));
+
   // scoreSource on buyer-review source tags community + buyer-review (not manufacturer)
   const buyerCred = scoreSource({
     url: cappedHarvest[0].url,

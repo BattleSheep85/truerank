@@ -221,17 +221,37 @@ const SPONSORED_CONTENT_PATTERNS = [
   /\bbrought to you by\b/i,
 ];
 
+// A denial right before a marker ("this is not a sponsored post", "not
+// sponsored by", "isn't sponsored content", "non-sponsored") is the opposite of
+// a paid-promotion disclosure (CP-782). Checked on the text just before the
+// match, so a later real marker in the same page still counts.
+const SPONSORED_DENIAL_BEFORE = /(?:\b(?:not|never|no)|n['’]t|\bnon-?)(?:\s+(?:a|an|any|at\s+all|in\s+any\s+way))?\s*$/i;
+const SPONSORED_DENIAL_WINDOW = 20;
+
+function isDeniedAt(content, index) {
+  const before = content.slice(Math.max(0, index - SPONSORED_DENIAL_WINDOW), index);
+  return SPONSORED_DENIAL_BEFORE.test(before);
+}
+
+function hasUndeniedMatch(content, pat) {
+  const global = new RegExp(pat.source, pat.flags.includes('g') ? pat.flags : `${pat.flags}g`);
+  for (const m of content.matchAll(global)) {
+    const markerStart = m.index + (m[0].length - m[0].trimStart().length);
+    if (!isDeniedAt(content, markerStart)) return true;
+  }
+  return false;
+}
+
 /**
  * Returns true if content carries an explicit PAID-promotion marker (#ad,
  * sponsored post, paid partnership). Ethical review-unit disclosure is NOT
- * matched — that is standard practice at legitimate outlets.
+ * matched — that is standard practice at legitimate outlets — and neither is
+ * a denial ("this is not a sponsored post").
  */
 export function hasSponsoredContent(content) {
   if (!content) return false;
-  for (const pat of SPONSORED_CONTENT_PATTERNS) {
-    if (pat.test(content)) return true;
-  }
-  return false;
+  const text = String(content);
+  return SPONSORED_CONTENT_PATTERNS.some((pat) => hasUndeniedMatch(text, pat));
 }
 
 // ─── Reviewer-independence detection ─────────────────────────────────────────
