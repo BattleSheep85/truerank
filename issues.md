@@ -2283,10 +2283,13 @@ fixed prompt. Keep the swap gated.
       for the product named in its clause, or nearest to it. On the 24 bench
       products this removed 7 wrong prices and 3 wrong specs, all checked. On
       the 8-query real corpus (benchmarks/results/corpus.json) spec entries
-      went 140 to 25 and prices 65 to 43; sampled drops were shared values
+      went 140 to 25 and prices 65 to 44; sampled drops were shared values
       (every espresso machine had "54 mm"; now Gaggia Classic Pro 58 mm,
-      Bambino Plus 54 mm). Extraction time 1.3 s to 2.3 s for all 8 queries.
-      extract-eval gates unchanged.
+      Bambino Plus 54 mm). Extraction time 1.3 s to 1.9 s for all 8 queries.
+      extract-eval gates unchanged. After code review: the longer of two
+      overlapping names owns its mention (AirPods Pro vs AirPods Pro 2), a
+      model code that is the number itself is ignored, and a page whose title
+      names only this product keeps its "It costs $X" facts.
 - [x] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
       on persist → live pages can't be audited against sources. Persist
       content.slice(0,200) per source + add a groundedness check to run-eval.mjs so
@@ -2776,4 +2779,5 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] MEDIUM (Product, extraction recall): on the recalled-car-seat fixture the extraction synth finds only UPPAbaby Mesa Max (Chicco KeyFit 35, the expert top pick, is not harvested), and validateResearchResult's category gate then drops Mesa Max too, so the run would fail with zero products. benchmarks/synth-fixture-lie-surfaces.mjs RECALLED_SCENARIO, worker/engine/extract/candidates.js, worker/engine/validate.js
 - [ ] MEDIUM (Product, extraction recall): on the "best pizza in Austin" fixture the extraction synth finds no restaurant (Via 313, Home Slice Pizza, Bufalina) and shows no picks. Honest, but local queries get nothing. worker/engine/extract/candidates.js
 - [ ] LOW (Product, extraction): some real-corpus prices still look off after the CP-407 fix (Apple AirPods $250, Anker Soundcore Life A1 $13.99 on the earbuds query): a price in a clause that names the product is taken even when it is a bundle, a sale or another model's price. worker/engine/extract/scoring.js
+- [ ] LOW (Product, extraction): a number in a sentence that names only a rival but means the page's subject ("Compared with the Bose QC Ultra, it lasts 30 hours" on a Sony review) still goes to the rival. Needs pronoun handling (the page title names the subject). worker/engine/extract/scoring.js ownerOf
 - [ ] LOW (Product, extraction): Bose QuietComfort Ultra gets no con although two sources say it clamps hard and gets warm (comparative fixture). worker/engine/extract/scoring.js

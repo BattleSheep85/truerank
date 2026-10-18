@@ -20,13 +20,14 @@ const lower = (s) => String(s || '').toLowerCase();
 const named = (report, name) => report.products.find((p) => lower(p.name).includes(lower(name)));
 const allText = (report) => JSON.stringify(report);
 
-// Every number in a product's price and specs must appear in some source.
+// Every number in a product's price and specs must appear in some source as a
+// whole number ("30" inside "300" does not count).
 function ungroundedNumbers(report, sc) {
-  const hay = sc.sources.map((s) => `${s.title} ${s.content}`).join(' ');
+  const hay = sc.sources.map((s) => `${s.title} ${s.content}`).join(' ').replace(/,/g, '');
   const out = [];
   for (const p of report.products) {
-    const nums = [p.price, ...Object.values(p.specs || {})].filter((v) => v != null).flatMap((v) => String(v).match(/\d+(?:\.\d+)?/g) || []);
-    for (const n of nums) if (!hay.includes(n)) out.push(`${p.name}: ${n}`);
+    const nums = [p.price, ...Object.values(p.specs || {})].filter((v) => v != null).flatMap((v) => String(v).replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []);
+    for (const n of nums) if (!new RegExp(`(?<![\\d.])${n.replace('.', '\\.')}(?![\\d]|\\.\\d)`).test(hay)) out.push(`${p.name}: ${n}`);
   }
   return out;
 }
@@ -68,6 +69,7 @@ export function runLieSurfaceTests() {
   // ── recalled / discontinued ──
   const recalled = run(RECALLED_SCENARIO);
   const graco = named(recalled, RECALLED_SCENARIO.recalled);
+  ok('recalled: the synth still returns picks (so the checks below test something)', recalled.products.length >= 1);
   ok('recalled: the recalled seat is never ranked first', lower(recalled.products[0]?.name) !== lower(RECALLED_SCENARIO.recalled));
   ok('recalled: if the recalled seat is listed, a con names the recall',
     !graco || graco.cons.some((c) => /recall|discontinu/i.test(c)), JSON.stringify(graco?.cons));
@@ -97,6 +99,26 @@ export function runLieSurfaceTests() {
   // no product ("It lasts 30 hours") still counts for the one product it covers.
   const solo = analyzeProduct(cand('Alpha One'), [src('The Alpha One is our pick. It costs $199. It lasts 30 hours.')], ['beta two']);
   ok('attribution: a single-product source keeps unnamed-sentence facts', solo.price === 199 && solo.specs.hours === '30 hours', JSON.stringify(solo));
+
+  // Overlapping names: the longer name owns its mention.
+  const pods = [src('For $249 you get the AirPods Pro 2. The AirPods Pro cost $199 at launch.')];
+  const pro = analyzeProduct(cand('AirPods Pro'), pods, ['airpods pro 2']);
+  const pro2 = analyzeProduct(cand('AirPods Pro 2'), pods, ['airpods pro']);
+  ok('overlap: AirPods Pro does not take AirPods Pro 2\'s $249', pro.price === 199, String(pro.price));
+  ok('overlap: AirPods Pro 2 keeps $249', pro2.price === 249, String(pro2.price));
+  const qc = analyzeProduct(cand('Bose QuietComfort Ultra'), [src('The Bose QuietComfort Ultra lasts 24 hours per charge.')], ['bose quietcomfort', 'sony wh-1000xm6']);
+  ok('overlap: a shorter rival name inside this name is not a rival mention', qc.specs.hours === '24 hours', JSON.stringify(qc.specs));
+
+  // A rival model code that is the number itself ("600" in "600 nits") is not a mention.
+  const panel = analyzeProduct(cand('Sony Bravia 9'), [src('The Sony Bravia 9 hits 600 nits in our test, while the Sennheiser HD 600 is a headphone.')], ['sennheiser hd 600', '600']);
+  ok('model code: "600 nits" stays with Sony Bravia 9', panel.specs.nits === '600 nits', JSON.stringify(panel.specs));
+
+  // A review page about one product keeps its pronoun facts despite a passing rival mention.
+  const review = { title: 'Gaggia Classic Pro review', content: 'The Gaggia Classic Pro is our pick. It costs $449. It weighs 9 kg. Unlike the Breville Bambino, it has a commercial portafilter.', credibility: { score: 90, tags: ['hands-on'] } };
+  const gaggia = analyzeProduct(cand('Gaggia Classic Pro'), [review], ['breville bambino']);
+  const bambino = analyzeProduct(cand('Breville Bambino'), [review], ['gaggia classic pro']);
+  ok('subject page: the reviewed product keeps "It costs $449"', gaggia.price === 449 && gaggia.specs.kg === '9 kg', JSON.stringify({ price: gaggia.price, specs: gaggia.specs }));
+  ok('subject page: the passing rival gets none of it', bambino.price === null && !bambino.specs.kg, JSON.stringify({ price: bambino.price, specs: bambino.specs }));
 
   return report;
 }

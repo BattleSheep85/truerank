@@ -63,63 +63,92 @@ export function looksLikeListing(clean) {
   return toks.length >= 5 && capRatio > 0.6 && /\b(keys?|wireless|mechanical|bluetooth|custom|rgb|hot.?swap|\d{2,}%|gen|edition)\b/i.test(clean);
 }
 
-// Which product a number at `at` in a lowercased text belongs to: the product named
-// nearest to it ('self' or 'rival'; ties go to self), or 'none' when the text names
-// no product.
-function nearestOwner(low, at, selfMatchers, rivalMatchers) {
-  let best = { d: Infinity, owner: 'none' };
-  const scan = (list, owner) => {
+// Lowercase without changing string length, so regex offsets taken on the original
+// sentence still point at the same place (a few characters, like 'İ', grow when
+// lowercased; those keep their case).
+function lowerSameLength(text) {
+  return text.replace(/[^\0-\x7f]|[A-Z]/g, (ch) => {
+    const low = ch.toLowerCase();
+    return low.length === ch.length ? low : ch;
+  });
+}
+
+// Product mentions in a lowercased text as [start, end, owner] spans. A mention
+// inside a longer mention of the other side is dropped, so "airpods pro" inside
+// "airpods pro 2" is not a mention of AirPods Pro, and a mention overlapping the
+// number itself (a model code such as "600" in "600 nits") never counts.
+function mentionSpans(low, selfMatchers, rivalMatchers, skip) {
+  const spans = [];
+  const collect = (list, owner) => {
     for (const m of list) {
       for (let i = low.indexOf(m); i >= 0; i = low.indexOf(m, i + 1)) {
-        const d = i > at ? i - at : Math.max(0, at - (i + m.length));
-        if (d < best.d) best = { d, owner };
+        const span = [i, i + m.length, owner];
+        if (!skip || span[1] <= skip[0] || span[0] >= skip[1]) spans.push(span);
       }
     }
   };
-  scan(selfMatchers, 'self');
-  scan(rivalMatchers, 'rival');
-  return best.owner;
+  collect(selfMatchers, 'self');
+  collect(rivalMatchers, 'rival');
+  return spans.filter(([a, b, owner]) => !spans.some(([c, d, other]) => other !== owner && c <= a && d >= b && d - c > b - a));
 }
 
 // The clause (same split as clausesWithContrast) around offset `at`, with offsets.
+const CLAUSE_SPLIT_G = new RegExp(CLAUSE_SPLIT.source, 'gi');
 function clauseAround(low, at) {
   let start = 0;
-  for (const m of low.matchAll(new RegExp(CLAUSE_SPLIT.source, 'gi'))) {
-    if (m.index > at) return { start, text: low.slice(start, m.index) };
+  for (const m of low.matchAll(CLAUSE_SPLIT_G)) {
+    if (m.index > at) return { start, end: m.index };
     start = m.index + m[0].length;
   }
-  return { start, text: low.slice(start) };
+  return { start, end: low.length };
 }
 
-// Owner of a number: decided by its clause when the clause names a product (nearest
-// mention when it names both), else by its sentence when that names one side only.
-// 'ambiguous' when the clause names no product and the sentence names rivals.
-function ownerOf(low, at, selfMatchers, rivalMatchers) {
-  const has = (txt, list) => list.some((m) => txt.includes(m));
+// Owner of the number at [at, at + len) in a lowercased sentence: decided by its
+// clause when the clause names a product (the nearest mention when it names both;
+// ties go to self), else by the sentence when that names one side only. 'ambiguous'
+// when the clause names no product and the sentence names both; 'none' when the
+// sentence names no product.
+function ownerOf(low, at, len, selfMatchers, rivalMatchers) {
+  const spans = mentionSpans(low, selfMatchers, rivalMatchers, [at, at + len]);
   const clause = clauseAround(low, at);
-  const selfInClause = has(clause.text, selfMatchers);
-  const rivalInClause = has(clause.text, rivalMatchers);
-  if (selfInClause && rivalInClause) return nearestOwner(clause.text, at - clause.start, selfMatchers, rivalMatchers);
-  if (selfInClause) return 'self';
-  if (rivalInClause) return 'rival';
-  if (has(low, rivalMatchers)) return has(low, selfMatchers) ? 'ambiguous' : 'rival';
-  return has(low, selfMatchers) ? 'self' : 'none';
+  const inClause = spans.filter(([a, b]) => a >= clause.start && b <= clause.end);
+  const pool = inClause.length ? inClause : spans;
+  const owners = new Set(pool.map(([, , owner]) => owner));
+  if (owners.size === 0) return 'none';
+  if (owners.size === 1) return [...owners][0];
+  if (!inClause.length) return 'ambiguous';
+  let best = { d: Infinity, owner: 'none' };
+  for (const [a, b, owner] of pool) {
+    const d = a > at ? a - at : Math.max(0, at - b);
+    if (d < best.d || (d === best.d && owner === 'self')) best = { d, owner };
+  }
+  return best.owner;
 }
 
-// Regex matches in a source body that belong to this product (CP-407). A comparison
+// Regex matches in a source that belong to this product (CP-407). A comparison
 // ("the A lasts 30 hours versus 24 hours for the B") used to hand every number in
 // the source to every product it mentions. Now a number counts when ownerOf() gives
-// it to this product, or, in a source that names no rival, when its sentence names
-// no product at all ("It lasts 30 hours"). Match indexes are relative to `sent`.
-function ownedMatches(content, re, selfMatchers, rivalMatchers) {
-  const text = String(content || '');
-  const soloSource = !rivalMatchers.some((m) => text.toLowerCase().includes(m));
+// it to this product. A number in a sentence that names no product ("It lasts 30
+// hours") counts when the page is about this product: its title names it and no
+// rival, or its body names no rival. Match indexes are relative to `sent`.
+function ownedMatches(source, re, selfMatchers, rivalMatchers) {
+  const text = String(source?.content || '');
+  let pageIsSelf;
+  const isSelfPage = () => {
+    if (pageIsSelf === undefined) {
+      const title = lowerSameLength(String(source?.title || ''));
+      const hasRival = (t) => rivalMatchers.some((m) => t.includes(m));
+      pageIsSelf = (selfMatchers.some((m) => title.includes(m)) && !hasRival(title)) || !hasRival(lowerSameLength(text));
+    }
+    return pageIsSelf;
+  };
   const out = [];
   for (const sent of sentences(text)) {
-    const low = sent.toLowerCase();
+    let low;
     for (const m of sent.matchAll(re)) {
-      const owner = ownerOf(low, m.index || 0, selfMatchers, rivalMatchers);
-      if (owner === 'self' || (owner === 'none' && soloSource)) out.push({ m, sent });
+      low = low || lowerSameLength(sent);
+      const owner = ownerOf(low, m.index || 0, m[0].length, selfMatchers, rivalMatchers);
+      if (owner === 'self' || (owner === 'none' && isSelfPage())) out.push({ m, sent });
     }
   }
   return out;
@@ -148,8 +177,8 @@ export function analyzeProduct(c, sources, otherMatchers = [], seen = new Set())
   // price: only $ amounts that actually appear in supporting text AND belong to this
   // product (ownedMatches: no rival's price in a comparison) → median (grounded)
   const prices = [];
-  for (const s of support) for (const { m, sent } of ownedMatches(s.source.content, PRICE_RE, matchers, otherMatchers)) {
-    const ctx = sent.toLowerCase();
+  for (const s of support) for (const { m, sent } of ownedMatches(s.source, PRICE_RE, matchers, otherMatchers)) {
+    const ctx = lowerSameLength(sent);
     // skip discount phrasing ("$50 off", "save $50")
     const at = m.index || 0; const before = ctx.slice(Math.max(0, at - 12), at);
     if (/\b(off|save|saving|discount|coupon)\b/.test(before) || /\boff\b/.test(ctx.slice(at, at + 20))) continue;
@@ -161,7 +190,7 @@ export function analyzeProduct(c, sources, otherMatchers = [], seen = new Set())
 
   // specs: number+unit pairs from supporting text that belong to this product
   const specs = {};
-  for (const s of support) for (const { m } of ownedMatches(s.source.content, SPEC_RE, matchers, otherMatchers)) {
+  for (const s of support) for (const { m } of ownedMatches(s.source, SPEC_RE, matchers, otherMatchers)) {
     const unit = m[2].toLowerCase();
     if (!specs[unit]) specs[unit] = `${m[1]}${/^[a-z%"]/.test(unit) ? ' ' : ' '}${m[2]}`.trim();
   }
