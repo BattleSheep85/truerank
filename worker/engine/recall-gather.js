@@ -1,6 +1,7 @@
 // Recall gather — post-planner gather driver for missing category leaders.
 import { proposeMissingLeaders } from './extract/recall-supplement.js';
 import { runSearch } from './tools.js';
+import { urlKey } from './searxng.js';
 import { harvestCandidates } from './extract/candidates.js';
 import { routeHasKey } from '../lib/llm-route.js';
 
@@ -94,11 +95,13 @@ export async function runRecallGather(opts = {}) {
     }
   }
 
-  const knownUrls = new Set(sources.map((s) => s?.url).filter(Boolean));
+  // URL key, so a known page from another provider (www, http, slash) is not appended again.
+  const knownKeys = new Set(sources.map((s) => urlKey(s?.url)).filter((k) => k !== null));
   const newSources = [];
   for (const s of collected) {
-    if (s && s.url && !knownUrls.has(s.url)) {
-      knownUrls.add(s.url);
+    const key = urlKey(s?.url);
+    if (key !== null && !knownKeys.has(key)) {
+      knownKeys.add(key);
       newSources.push(s);
     }
   }

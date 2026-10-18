@@ -1,6 +1,6 @@
 // SearXNG metasearch client. The self-hosted instance aggregates ten free
 // engines, so raw answers hold duplicates, dictionary and shopping junk, and
-// off-topic hits. This module cleans them (URL normalization, dedupe, blocked
+// off-topic hits. This module cleans them (URL-key dedupe, blocked
 // domains, relevance), reranks, and returns null for weak answers so the caller
 // falls through to the paid providers (Brave, Exa, Tavily).
 // The public instance sits behind the BunkerWeb X-Edge-Gate header gate.
@@ -70,8 +70,8 @@ function trimTrailingSlashes(path) {
   return path.slice(0, end) || '/';
 }
 
-// Canonical https URL with tracking noise removed, or null when unusable.
-export function normalizeResultUrl(url) {
+// Parsed http(s) URL, or null when unusable.
+function parseResultUrl(url) {
   if (typeof url !== 'string' || url.length > MAX_URL_LENGTH) return null;
   let parsed;
   try {
@@ -80,22 +80,55 @@ export function normalizeResultUrl(url) {
     return null;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-  const host = canonicalHost(parsed.hostname);
-  if (!host) return null;
+  return canonicalHost(parsed.hostname) ? parsed : null;
+}
+
+// Copy of a parsed URL without userinfo, tracking params, or fragment.
+// Userinfo goes because credentials leak and "rtings.com@evil.example" reads
+// as the wrong host.
+function stripNoise(parsed) {
   const params = [...parsed.searchParams].filter(
     ([key]) => !TRACKING_PARAMS.has(key) && !key.startsWith(TRACKING_PREFIX),
   );
-  // Edit a parsed copy so the host stays in the host slot.
   const out = new URL(parsed.href);
-  out.protocol = 'https:';
-  out.hostname = host;
-  // Drop userinfo: credentials leak, and "rtings.com@evil.example" reads as the wrong host.
   out.username = '';
   out.password = '';
-  out.pathname = trimTrailingSlashes(parsed.pathname);
   out.search = new URLSearchParams(params).toString();
   out.hash = '';
+  return out;
+}
+
+// Canonical https URL with tracking noise removed, or null when unusable.
+// A merge key only: it removes www. and forces https, which can break a host
+// that answers only on www or http, so never fetch or show it.
+export function normalizeResultUrl(url) {
+  const parsed = parseResultUrl(url);
+  if (!parsed) return null;
+  // Edit a parsed copy so the host stays in the host slot.
+  const out = stripNoise(parsed);
+  out.protocol = 'https:';
+  out.hostname = canonicalHost(parsed.hostname);
+  out.pathname = trimTrailingSlashes(parsed.pathname);
   return out.href;
+}
+
+// The URL to fetch and show: host and path as the engine gave them (www. and
+// trailing slash kept), minus userinfo, tracking params, and fragment. https
+// stays forced because read_page and Jina accept only https. Null when unusable.
+function displayResultUrl(url) {
+  const parsed = parseResultUrl(url);
+  if (!parsed) return null;
+  const out = stripNoise(parsed);
+  out.protocol = 'https:';
+  return out.href;
+}
+
+// Dedupe key shared by every search provider, so the same page from two
+// providers (or with www, http, or a trailing slash) counts once. A URL that
+// does not parse is its own key; a missing URL has none (null).
+export function urlKey(url) {
+  if (typeof url !== 'string' || !url) return null;
+  return normalizeResultUrl(url) ?? url;
 }
 
 const alnum = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -154,22 +187,23 @@ function parsePublishedMs(value) {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-// Merge duplicates by normalized URL. Keeps the earliest index, unions
-// engines, keeps the longest content. Returns new objects only.
+// Merge duplicates by normalized URL. Keeps the earliest index and its
+// original URL, unions engines, keeps the longest content. Returns new objects only.
 function mergeDuplicates(raw) {
   const byUrl = new Map();
   raw.forEach((r, index) => {
-    const url = normalizeResultUrl(r?.url);
-    if (!url) return;
+    const key = normalizeResultUrl(r?.url);
+    if (!key) return;
     const engines = Array.isArray(r.engines) ? r.engines.filter((e) => typeof e === 'string') : [];
     const content = typeof r.content === 'string' ? r.content : '';
-    const prev = byUrl.get(url);
+    const prev = byUrl.get(key);
     if (!prev) {
       const title = typeof r.title === 'string' ? r.title : '';
-      byUrl.set(url, { url, title, content, engines: [...new Set(engines)], index, publishedMs: parsePublishedMs(r.publishedDate) });
+      const url = displayResultUrl(r.url);
+      byUrl.set(key, { key, url, title, content, engines: [...new Set(engines)], index, publishedMs: parsePublishedMs(r.publishedDate) });
       return;
     }
-    byUrl.set(url, {
+    byUrl.set(key, {
       ...prev,
       engines: [...new Set([...prev.engines, ...engines])],
       content: content.length > prev.content.length ? content : prev.content,
@@ -190,7 +224,7 @@ function isFresh(item, nowMs) {
 function scoreItem(item, nowMs) {
   const position = Math.max(0, POS_MAX - item.index);
   const engines = ENGINE_BONUS * Math.max(0, item.engines.length - 1);
-  const domain = isExpertDomain(item.url) ? EXPERT_BONUS : isCommunityDomain(item.url) ? COMMUNITY_BONUS : 0;
+  const domain = isExpertDomain(item.key) ? EXPERT_BONUS : isCommunityDomain(item.key) ? COMMUNITY_BONUS : 0;
   const fresh = isFresh(item, nowMs) ? FRESH_BONUS : 0;
   return position + engines + domain + fresh;
 }
@@ -199,7 +233,7 @@ export function rankResults(raw, query, nowMs) {
   if (!Array.isArray(raw)) return [];
   const tokens = queryTokens(query);
   return mergeDuplicates(raw)
-    .filter((item) => !isBlocked(item.url) && isRelevant(item, tokens))
+    .filter((item) => !isBlocked(item.key) && isRelevant(item, tokens))
     .map((item) => ({ item, score: scoreItem(item, nowMs) }))
     .sort((a, b) => b.score - a.score || a.item.index - b.item.index)
     .slice(0, SEARXNG_MAX_RESULTS)
@@ -227,8 +261,9 @@ function edgeGateHeader(rawToken) {
 
 function buildSearchUrl(query, baseUrl, opts) {
   const params = new URLSearchParams({ q: query, format: 'json' });
-  if (opts.topic === 'news') params.set('categories', 'news');
-  else if (typeof opts.categories === 'string' && opts.categories) params.set('categories', opts.categories);
+  // No category for topic news: none of the instance's engines serves "news",
+  // so asking for it returned nothing. The general web engines answer instead.
+  if (typeof opts.categories === 'string' && opts.categories) params.set('categories', opts.categories);
   // No time_range: SearXNG drops engines that cannot filter by date, which
   // shrinks the answer. Freshness is a ranking bonus instead.
   return `${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`;
