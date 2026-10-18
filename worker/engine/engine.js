@@ -72,7 +72,7 @@ export async function runEngine(
   clarifications,
 ) {
   const loopSearchCap = Math.max(1, config.maxSearches - RECALL_RESERVE_SEARCHES);
-  const agentTools = buildAgentTools(facets);
+  const agentTools = buildAgentTools();
   // Default recency_sensitive to true when facets are missing (legacy rows in
   // the queue). Matches the classifier's default — tech-heavy traffic wants
   // the aggressive filter by default.
