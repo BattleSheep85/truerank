@@ -53,6 +53,7 @@ import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
 import { runViewCounterTests } from '../test/unit/view-counter.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
 import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
+import { runBackfillImagesTests } from '../test/unit/backfill-images.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 
 const suites = [
@@ -69,6 +70,7 @@ const suites = [
   ['affiliate-links', runAffiliateLinksTests],
   ['lib-pure', runLibPureTests],
   ['product-link', runProductLinkUnitTests],
+  ['backfill-images', runBackfillImagesTests],
   ['credibility-extra', runCredibilityExtraTests],
   ['prompts', runPromptsTests],
   ['llm', runLlmTests],

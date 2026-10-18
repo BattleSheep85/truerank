@@ -11,6 +11,7 @@ import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
 import { runRecallGather } from './recall-gather.js';
 import { runOpeningBook, OPENING_BOOK_TEMPLATES } from './opening-book.js';
+import { urlKey } from './searxng.js';
 
 // ─── Event emission ────────────────────────────────────────────────────────
 //
@@ -117,8 +118,8 @@ export async function runEngine(
         state.searchCount += ob.searched;
         subrequestsUsed += ob.searched * 6;
         if (ob.sources && ob.sources.length > 0) {
-          const knownUrls = new Set(state.sources.map((s) => s?.url).filter(Boolean));
-          const newSources = ob.sources.filter((s) => s?.url && !knownUrls.has(s.url));
+          const knownKeys = new Set(state.sources.map((s) => s?.url).filter(Boolean).map(urlKey));
+          const newSources = ob.sources.filter((s) => s?.url && !knownKeys.has(urlKey(s.url)));
           state.sources = [...state.sources, ...newSources];
         }
         console.log(`[opening-book] searched ${ob.searched}, sources +${ob.sources.length}`);
@@ -284,7 +285,10 @@ export async function runEngine(
     // the corpus synthesis/extraction sees is identical to a sequential run.
     if (state.sources.length) {
       const byUrl = new Map();
-      for (const s of state.sources) if (s && s.url && !byUrl.has(s.url)) byUrl.set(s.url, s);
+      for (const s of state.sources) {
+        const key = urlKey(s?.url);
+        if (key !== null && !byUrl.has(key)) byUrl.set(key, s);
+      }
       state.sources = [...byUrl.values()];
     }
 

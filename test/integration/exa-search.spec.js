@@ -2,7 +2,7 @@
 // stubbed; nothing leaves the test.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  exaSearch, runSearch, resetProviderCooldowns, BRAVE_MIN_GAP_MS,
+  exaSearch, runSearch, executeTool, resetProviderCooldowns, BRAVE_MIN_GAP_MS,
 } from '../../worker/engine/tools.js';
 
 const KEY = 'test-exa-key-0123456789';
@@ -117,6 +117,25 @@ describe('exa in the engine search chain', () => {
     const sources = await runSearch('JBL Charge 5 review', 'exa', { EXA_API_KEY: KEY });
     expect(hostCalls(spy, 'api.exa.ai')).toBe(1);
     expect(sources.map((s) => s.url)).toContain('https://www.soundguys.com/jbl-charge-5-review-53379/');
+  });
+
+  it('merges url variants of one page into one source (CP-710)', async () => {
+    stubJson(200, { results: [
+      { url: 'https://www.example.com/page/', title: 'A' },
+      { url: 'http://example.com/page?utm_source=x', title: 'B' },
+      { url: 'https://example.com/other', title: 'C' },
+    ] });
+    const sources = await runSearch('q', 'exa', { EXA_API_KEY: KEY });
+    expect(sources.map((s) => s.url)).toEqual(['https://www.example.com/page/', 'https://example.com/other']);
+  });
+
+  it('read_page of a url variant updates the known source (CP-710)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Full review text. '.repeat(40), { status: 200 })));
+    const state = { searchCount: 0, fetchCount: 0, notes: [], sources: [{ url: 'https://www.example.com/a/', title: 'A', content: 'snippet', source: 'web' }] };
+    const tc = { function: { name: 'read_page', arguments: JSON.stringify({ url: 'https://example.com/a' }) } };
+    await executeTool(tc, state, { maxSearches: 9, maxFetches: 9 }, { env: {} });
+    expect(state.sources).toHaveLength(1);
+    expect(state.sources[0].content).toContain('Full review text.');
   });
 
   it('web falls back to Exa when Brave is unavailable', async () => {

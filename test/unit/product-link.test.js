@@ -272,6 +272,28 @@ export function runProductLinkUnitTests() {
   eq('CP-777 distillProductName: same search name for both pair members', distillProductName('Ninja Creami ice cream maker'), distillProductName('Ninja Creami'));
   eq('CP-777 productKeys: same key with or without the type words', productKeys(trimProductType('Ninja Creami ice cream maker')), productKeys('Ninja Creami'));
 
+  // ── CP-781: "dual" and "compact" name a product variant ───────────────────
+  eq('CP-781 distillProductName: "Compact" stays in the Torrent Compact name', distillProductName('Fractal Design Torrent Compact Black Tempered Glass'), 'Fractal Design Torrent Compact');
+  eq('CP-781 distillProductName: plain Torrent has no "Compact"', distillProductName('Fractal Design Torrent Black Tempered Glass ATX'), 'Fractal Design Torrent');
+  ok('CP-781 parseProductInput: Torrent and Torrent Compact get different keys',
+    parseProductInput('https://www.amazon.com/Fractal-Design-Torrent-Compact-Black-Tempered-Glass/dp/B0A1B2C3D4').key
+      !== parseProductInput('https://www.amazon.com/Fractal-Design-Torrent-Black-Tempered-Glass-ATX/dp/B0A1B2C3D4').key);
+  eq('CP-781 distillProductName: "Dual" after the model number stays', distillProductName('Anker 737 Dual Black Portable Fast Charging'), 'Anker 737 Dual');
+  eq('CP-781 distillProductName: "Dual Charger" is a description', distillProductName('Anker 737 Dual Charger Portable Fast Charging'), 'Anker 737');
+  eq('CP-781 distillProductName: "Dual Tower" is a description', distillProductName('Noctua NH-D15 Dual Tower CPU Cooler Brown'), 'Noctua NH-D15');
+  eq('CP-781 distillProductName: "Compact Micro ATX" is a description', distillProductName('Cooler Master Q300L Compact Micro ATX Mini Tower Case'), 'Cooler Master Q300L');
+  eq('CP-781 distillProductName: "Compact Blender" is a description', distillProductName('Ninja Foodi Compact Blender Kitchen System Black'), 'Ninja Foodi');
+  eq('CP-781 distillProductName: "Compact Tempered Glass" keeps Compact', distillProductName('Fractal Design Torrent Compact Tempered Glass ATX'), 'Fractal Design Torrent Compact');
+  eq('CP-781 distillProductName: "Dual Chamber" is still a description', distillProductName('Antec C8 Dual Chamber Compatible Full Tower'), 'Antec C8');
+  eq('CP-781 distillProductName: "Compact Drill" is still a description', distillProductName('DEWALT 20V MAX Compact Drill Driver Kit DCD771C2'), 'DEWALT 20V MAX DCD771C2');
+
+  // ── CP-783: a hyphenated size is a spec, not a model number ───────────────
+  eq('CP-783 distillProductName: "65-Inch" does not end the name', distillProductName('SAMSUNG 65-Inch Class OLED S90D Series 4K Smart TV'), 'SAMSUNG 65-Inch Class OLED S90D');
+  eq('CP-783 distillProductName: "2-Pack" does not end the name', distillProductName('Apple AirTag 2-Pack Item Finder Tracker Bluetooth'), 'Apple AirTag');
+  eq('CP-783 distillProductName: a hyphenated model number still ends the name', distillProductName('Sony WH-1000XM6 Wireless Noise Canceling Headphones Black'), 'Sony WH-1000XM6');
+  eq('CP-783 distillProductName: a lens range stays the model', distillProductName('Canon EF 18-55mm Lens Kit Black Camera'), 'Canon EF 18-55mm');
+  eq('CP-783 trimProductType: a hyphenated size trims like "65Inch"', trimProductType('Samsung S90D 65-Inch'), trimProductType('Samsung S90D 65Inch'));
+
   return report;
 }
 

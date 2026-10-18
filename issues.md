@@ -57,13 +57,14 @@ Last updated: 2026-10-17
 
 - [x] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js. Fixed (CP-780): the bare "achieved" and "tool-less" words are gone from `SPAN_OBSERVATION`. Spans that pair them with test or use language ("achieved 41 dB in our test", "snapped into place") still count. A regression test covers both defects.
 
-- [ ] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js.
+- [x] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js. Fixed 2026-10-17 (CP-781): they stay as variant words unless the next word is what they describe ("Dual Chamber", "Compact Drill").
 
 - [ ] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js.
 
-- [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
+- [x] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js. Fixed 2026-10-17 (CP-783): spec checks ignore the hyphen ("65-Inch" reads as "65Inch").
 
-- [ ] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js.
+- [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
+- [ ] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js.
 
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 
@@ -86,7 +87,7 @@ Last updated: 2026-10-17
 ## 2026-10-15: product images do not resolve (CP-709)
 
 - [x] HIGH (Product, images): the product-image resolver used only Serper or Brave, and production has neither key, so product photos did not resolve. Fixed in e8211e4: the resolver uses the SearXNG image category when SEARXNG_URL is set, with Brave as a per-query backup. The Blackbox SearXNG loads bing images and startpage images for this (blackbox repo 48c317e). worker/lib/image-resolver.js, worker/engine/searxng.js.
-- [ ] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs.
+- [x] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs. Fixed 2026-10-17 (CP-715): the script uses the resolver's chain (`imageCandidateSearch`: SearXNG images, Brave backup). The backfill itself has not been run yet.
 
 ## 2026-10-15: store and listing clutter shown as product claims (CP-705)
 
@@ -1292,8 +1293,13 @@ consent gaps, and stale docs — NOT in core logic.
       products found…"), leaving users without the reason/next step. STALE, closed 2026-07-08: failure
       pages now surface the real stored result.error (see the 2026-07-08 "Review-board backlog cleared"
       section, Fixed list).
-- [ ] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
+- [x] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
       completions lose updates. Mitigated by the D1 SUM MAX-gate in budgetExhausted — make KV advisory.
+      Fixed in 67ee5c2 (CP-375): each cost is one atomic D1 upsert on `monthly_spend`
+      (schema/018_monthly_spend.sql); KV is a cache of that total. worker/pipeline/orchestrator.js.
+- [ ] HIGH (OPS): apply schema/018_monthly_spend.sql to dev and production D1 before or with the
+      deploy of 67ee5c2. Until then incrementMonthlyCost falls back to the old KV counter and logs
+      "D1 monthly spend add failed" on every run. worker/pipeline/orchestrator.js.
 
 ### Open, logged — LOW
 - [x] LOW (a11y): no skip-to-content link / no `<main id>` target (WCAG 2.4.1); primary header `<nav>` has
@@ -2516,8 +2522,10 @@ Funnel-freeze NOTE: GSC is now verified; still awaiting impressions before new f
 - [x] MEDIUM: WORKER_SECRET compared non-constant-time — SHA-256 timingSafeEqual.
 - [x] LOW: zero-source burst could synthesize hallucinated products — short-circuit to an
       honest non-result; worker poll-loop sleep-timer churn cleared; cron fallback → ctx.waitUntil + 6-min cap.
-- [ ] LOW (deferred): metrics.js token compare non-constant-time (read-only); synthesis can
-      double-charge on malformed-but-successful streamed JSON (add cost telemetry / JSON-repair).
+- [x] LOW (deferred): metrics.js token compare non-constant-time (read-only). Already fixed in code:
+      worker/pages/metrics.js uses a SHA-256 timingSafeEqual (CP-425, ticked in CP-791).
+- [ ] LOW (deferred): synthesis can double-charge on malformed-but-successful streamed JSON (add cost
+      telemetry / JSON-repair). Split out of the metrics.js item above.
 
 ## Debate-verdict remediation (2026-06-12, adversarial debate: 64/100 on-track)
 
@@ -2702,8 +2710,8 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [x] HIGH: Production Brave answers HTTP 402 (out of credit) and Serper has no key, so the Amazon ASIN resolver found no product pages and affiliate links fell back to search links. (Fixed: the resolver uses SearXNG site: searches when SEARXNG_URL is set, Brave only as a per-query backup. worker/lib/asin-resolver.js)
 - [x] MEDIUM (OPS): Production Brave is out of credit (HTTP 402 on 2026-10-14). (Fixed 2026-10-15, CP-652: PM decided not to top up. BRAVE_API_KEY deleted from production; the live chain is SearXNG, then Exa. Live run 0903410q2a314y59: 29 `[searxng]` log lines, 0 `[brave]`, 0 `[exa]`, 0 HTTP 402, 373 sources.)
 - [ ] MEDIUM: The product-image resolver uses only Serper or Brave, and production has neither key, so product images do not resolve. Move images to a SearXNG image engine. worker/lib/image-resolver.js
-- [ ] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js
-- [ ] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js
-- [ ] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl
+- [x] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js (Fixed 2026-10-17, CP-710 via CP-792: every provider's results dedupe on one URL key, `urlKey` in worker/engine/searxng.js, in tools.js (search and read_page), parallel-engine.js, opening-book.js, recall-gather.js, and engine.js.)
+- [x] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js (Fixed 2026-10-17, CP-711 via CP-792: topic news sends no category, so the general web engines answer. Note: no current caller passed topic news to SearXNG; the news provider already reached SearXNG through the general web fallback, so live requests do not change.)
+- [x] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl (Fixed 2026-10-17, CP-712 via CP-792: the normalized URL is only the merge key; results keep the engine's host and path (www. and trailing slash kept) minus credentials, tracking params, and fragment. https stays forced because read_page accepts only https.)
 - [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
 - [ ] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js
