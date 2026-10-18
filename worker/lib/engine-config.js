@@ -129,8 +129,10 @@ export const ENGINE_CONFIG = {
   // being read, wait at most this long for it. 0 = wait for it.
   verifyClaimPatienceMs: 0,
   // When the primary stance call (a fast model, a few seconds as a rule) has
-  // no verdict after this many ms, the fallback judge starts, and the first
-  // decided verdict wins (never fewer decided claims). 0 = off.
+  // no verdict after this many ms, the fallback judge starts early to save
+  // time. The verdict still follows the cascade (a decided primary verdict
+  // wins, else a decided fallback verdict), whichever answers first (CP-789).
+  // 0 = off.
   verifyHedgeMs: 10_000,
   // When the extract call (one call, 1 to 4 s as a rule) has no reply after
   // this many ms, a second request goes out; the first reply wins. 0 = off.

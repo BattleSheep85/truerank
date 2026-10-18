@@ -944,30 +944,18 @@ function judgeOutcome(promise, judgeModel) {
 
 const isDecided = (outcome) => Boolean(outcome.result) && DECIDED_STATUSES.has(outcome.result.verdict.status);
 
-// After the hedge: the first decided verdict of the two judges wins. Neither
-// decided: the primary result, else the fallback result, else the primary
-// error is thrown. costUsd sums the calls that finished by then.
-function firstDecided(primaryRun, fallbackRun, primaryModel) {
-  return new Promise((resolve, reject) => {
-    const done = [];
-    const costOfDone = () => done.reduce((sum, o) => sum + (o.result?.costUsd ?? 0), 0);
-    const settle = (outcome) => (outcome.result
-      ? resolve({ ...outcome.result, costUsd: costOfDone(), judgeModel: outcome.judgeModel })
-      : reject(outcome.error));
-    for (const run of [primaryRun, fallbackRun]) {
-      run.then((outcome) => {
-        done.push(outcome);
-        if (isDecided(outcome)) {
-          settle(outcome);
-        } else if (done.length === 2) {
-          const primary = done.find((o) => o.judgeModel === primaryModel);
-          const fallback = done.find((o) => o !== primary);
-          settle(primary.result || !fallback.result ? primary : fallback);
-        }
-      });
-    }
+// A judge outcome promise that also records when it has settled, so a cost
+// can be counted without waiting for the call.
+function tracked(run) {
+  const state = { outcome: null };
+  state.run = run.then((outcome) => {
+    state.outcome = outcome;
+    return outcome;
   });
+  return state;
 }
+
+const needsSecondOpinion = (outcome) => Boolean(outcome.error) || outcome.result.verdict.status === 'unsubstantiated';
 
 /**
  * One claim, end to end: claim-aware top evidence -> stance -> deterministic
@@ -983,8 +971,10 @@ function firstDecided(primaryRun, fallbackRun, primaryModel) {
  * that fails (an error, or the `hardMs` cap) takes the fallback verdict as it
  * is; when the fallback also fails, the primary error is thrown.
  * `hedgeMs` (optional): when the primary has no verdict by then, the fallback
- * call starts at once, and the first decided verdict of the two wins (neither
- * decided: as above). A slow primary call then holds no claim back.
+ * call starts at once, but only to save time: the verdict follows the same
+ * rule as without the hedge, whichever judge answers first (CP-789). A
+ * decided primary verdict returns without waiting for the early fallback
+ * (its cost counts only when it already finished).
  * `rerank` (optional, see rerankOptions): with a product, the evidence comes
  * from reranked passages (pickClaimEvidence). `hardMs` (optional) caps each
  * stance call.
@@ -997,31 +987,35 @@ export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbac
   if (!fallbackModel || fallbackModel === model) return { ...(await judge(model)), judgeModel: model };
 
   const primaryRun = judgeOutcome(judge(model), model);
-  const hedge = hedgeMs > 0 ? delay(hedgeMs) : null;
-  const HEDGE = Symbol('hedge');
-  const first = await Promise.race([primaryRun, ...(hedge ? [hedge.promise.then(() => HEDGE)] : [])]);
-  hedge?.cancel();
-  if (first === HEDGE) {
-    console.log(`[verify] judge ${claim.id}: no ${model} verdict after ${hedgeMs} ms, ${fallbackModel} starts now`);
-    const fallbackRun = judgeOutcome(judge(fallbackModel), fallbackModel);
-    return firstDecided(primaryRun, fallbackRun, model);
+  let early = null;
+  if (hedgeMs > 0) {
+    const hedge = delay(hedgeMs);
+    const HEDGE = Symbol('hedge');
+    const first = await Promise.race([primaryRun, hedge.promise.then(() => HEDGE)]);
+    hedge.cancel();
+    if (first === HEDGE) {
+      console.log(`[verify] judge ${claim.id}: no ${model} verdict after ${hedgeMs} ms, ${fallbackModel} starts now`);
+      early = tracked(judgeOutcome(judge(fallbackModel), fallbackModel));
+    }
   }
 
-  if (first.error) {
-    const fallback = await judgeOutcome(judge(fallbackModel), fallbackModel);
-    if (fallback.error) throw first.error;
-    console.warn(`[verify] judge ${claim.id}: ${model} failed (${errorText(first.error)}), used the ${fallbackModel} verdict`);
+  const primary = await primaryRun;
+  if (!needsSecondOpinion(primary)) {
+    const costUsd = primary.result.costUsd + (early?.outcome?.result?.costUsd ?? 0);
+    return { ...primary.result, costUsd, judgeModel: model };
+  }
+  const fallback = await (early ? early.run : judgeOutcome(judge(fallbackModel), fallbackModel));
+  if (primary.error) {
+    if (fallback.error) throw primary.error;
+    console.warn(`[verify] judge ${claim.id}: ${model} failed (${errorText(primary.error)}), used the ${fallbackModel} verdict`);
     return { ...fallback.result, judgeModel: fallbackModel };
   }
-  const primaryResult = { ...first.result, judgeModel: model };
-  if (first.result.verdict.status !== 'unsubstantiated') return primaryResult;
-
-  const fallback = await judgeOutcome(judge(fallbackModel), fallbackModel);
+  const primaryResult = { ...primary.result, judgeModel: model };
   if (fallback.error) {
     console.warn(`[verify] fallback judge failed for claim ${claim.id}: ${errorText(fallback.error)}`);
     return primaryResult;
   }
-  const costUsd = first.result.costUsd + fallback.result.costUsd;
+  const costUsd = primary.result.costUsd + fallback.result.costUsd;
   return isDecided(fallback)
     ? { ...fallback.result, costUsd, judgeModel: fallbackModel }
     : { ...primaryResult, costUsd };

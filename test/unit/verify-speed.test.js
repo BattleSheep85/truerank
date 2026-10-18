@@ -462,14 +462,37 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
       order.push(`end ${model}`);
       return model === 'primary' ? primaryReply : supportReply;
     };
+    const contradictReply = { choices: [{ message: { content: JSON.stringify({ verdicts: [{ url: scored[0].url, stance: 'contradict', span: 'In our battery test the Acme Buds Pro lasted 10 hours.' }] }) }, finish_reason: 'stop' }], usage: { cost: 0.001 } };
     const decided = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowPrimary(supportReply), product, hedgeMs: 5 }));
     eq('judgeClaim hedge: the fallback starts while a slow primary runs', order.slice(0, 2), ['start primary', 'start second']);
-    eq('judgeClaim hedge: after the hedge the first decided verdict wins, even over a decided slow primary', decided.judgeModel, 'second');
+    eq('judgeClaim hedge: a decided slow primary keeps its verdict, although the fallback answered first', decided.judgeModel, 'primary');
+    eq('judgeClaim hedge: the cost counts both calls once both finished', decided.costUsd, 0.002);
     order.length = 0;
     const undecided = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowPrimary(neutralReply), product, hedgeMs: 5 }));
-    eq('judgeClaim hedge: after the hedge the first decided verdict wins (the fallback here), with one fallback call', [undecided.judgeModel, order.filter((o) => o === 'start second').length], ['second', 1]);
-    eq('judgeClaim hedge: the fallback verdict does not wait for the slow primary', order.indexOf('end second') < order.indexOf('end primary') || !order.includes('end primary'), true);
+    eq('judgeClaim hedge: an unsubstantiated primary takes the decided fallback verdict, with one fallback call', [undecided.judgeModel, order.filter((o) => o === 'start second').length], ['second', 1]);
     await tick(40);
+
+    // The verdict must not depend on which judge answers first (CP-789).
+    // Primary and fallback disagree; every timing and the hedge on or off
+    // must give the same verdict and model.
+    const timed = (primaryMs, secondMs, primaryReply, secondReply) => async (_key, model) => {
+      await tick(model === 'primary' ? primaryMs : secondMs);
+      return model === 'primary' ? primaryReply : secondReply;
+    };
+    const outcomeOf = async (callLLM, hedgeMs) => {
+      const r = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM, product, hedgeMs }));
+      return `${r.judgeModel}:${r.verdict.status}`;
+    };
+    const timings = [[20, 1, 0], [20, 1, 5], [20, 40, 5], [1, 20, 5], [1, 1, 0]];
+    const disagree = [];
+    const unsure = [];
+    for (const [pMs, sMs, hedgeMs] of timings) {
+      disagree.push(await outcomeOf(timed(pMs, sMs, supportReply, contradictReply), hedgeMs));
+      unsure.push(await outcomeOf(timed(pMs, sMs, neutralReply, contradictReply), hedgeMs));
+    }
+    await tick(50);
+    eq('judgeClaim: a decided primary verdict wins at every timing, hedge on or off', new Set(disagree).size === 1 && disagree[0].startsWith('primary:'), true);
+    eq('judgeClaim: an unsubstantiated primary takes the fallback verdict at every timing, hedge on or off', new Set(unsure).size === 1 && unsure[0].startsWith('second:'), true);
 
     // After the hedge, neither decided: the primary result is kept.
     const bothNeutral = async (_key, model) => {
