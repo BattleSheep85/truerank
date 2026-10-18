@@ -7,18 +7,42 @@ const CAT_STOP = new Set([
   'good', 'great', 'new', 'this', 'that', 'percent', 'inch', 'inches', 'home',
 ]);
 
-/** @returns {Set<string>} lowercased category + query terms (len ≥ 4, with naive plural flip). */
+// Words that describe a product of any type ("smart", "wireless"). They
+// still count as category terms, but alone they do not prove a product is in
+// the category when the category has a real noun ("bulbs", "fryers").
+const MODIFIER_TERMS = new Set([
+  'smart', 'wireless', 'portable', 'electric', 'cordless', 'digital', 'automatic',
+  'bluetooth', 'quiet', 'compact', 'mini', 'outdoor', 'indoor', 'waterproof',
+  'premium', 'large', 'small',
+]);
+
+// A query's use clause ("for a family of four", "with a hub", "under 100")
+// describes the buyer, not the product type, so its words are not category
+// terms (CP-380: "family" admitted an air purifier on an air-fryer page).
+// Location clauses ("in wichita") stay, they matter for local queries.
+const USE_CLAUSE = /\b(?:for|with|without|of|under|over|to)\b.*$/i;
+
+function addTerm(terms, word) {
+  const l = String(word).toLowerCase().replace(/[^a-z]/g, '');
+  if (l.length >= 4 && !CAT_STOP.has(l)) {
+    terms.add(l);
+    terms.add(l.endsWith('s') ? l.slice(0, -1) : `${l}s`);
+  }
+}
+
+/** @returns {Set<string>} lowercased category + query-subject terms (len ≥ 4, with naive plural flip). */
 export function categoryTerms(topicalCategory, query) {
   const terms = new Set();
-  const add = (w) => {
-    const l = String(w).toLowerCase().replace(/[^a-z]/g, '');
-    if (l.length >= 4 && !CAT_STOP.has(l)) {
-      terms.add(l);
-      terms.add(l.endsWith('s') ? l.slice(0, -1) : `${l}s`);
-    }
-  };
-  for (const w of `${topicalCategory || ''} ${query || ''}`.split(/\s+/)) add(w);
+  const subject = String(query || '').replace(USE_CLAUSE, '');
+  for (const w of `${topicalCategory || ''} ${subject}`.split(/\s+/)) addTerm(terms, w);
   return terms;
+}
+
+// The terms a product must mention: the category terms without the bare
+// modifiers, unless modifiers are all there is.
+function requiredTerms(terms) {
+  const core = [...terms].filter((t) => !MODIFIER_TERMS.has(t) && !MODIFIER_TERMS.has(t.replace(/s$/, '')));
+  return core.length ? core : [...terms];
 }
 
 // Product-type nouns pinning a different category. If one appears in the product name
@@ -58,11 +82,14 @@ export function productMatchesCategory(product, topicalCategory, query) {
     const w = raw.replace(/[^a-z]/g, '');
     if (w.length >= 4 && FOREIGN_CATEGORY.has(w) && !terms.has(w)) return false;
   }
-
-  for (const t of terms) {
-    if (ctx.includes(t)) return true;
+  // Short nouns ("tv") are checked in the name only: a soundbar's verdict
+  // may say "beats TV speakers" (CP-380).
+  const asked = new Set(`${topicalCategory || ''} ${query || ''}`.toLowerCase().split(/[^a-z]+/));
+  for (const w of String(product?.name || '').toLowerCase().split(/[^a-z]+/)) {
+    if (w.length > 0 && w.length < 4 && FOREIGN_CATEGORY.has(w) && !asked.has(w) && !asked.has(`${w}s`)) return false;
   }
-  return false;
+
+  return requiredTerms(terms).some((t) => ctx.includes(t));
 }
 
 /** @param {Array<object>} products */
