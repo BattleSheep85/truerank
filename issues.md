@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-18
 
+## 2026-10-18: CP-800, eval checks (legit_recall, link_correctness, non-product golden queries)
+
+- [ ] HIGH (UX, affiliate): local and experience pages show "Search Amazon" buttons. Live 2026-10-18, found by the new golden-query check: "best coffee shops in brooklyn" (11 buttons), "best day hikes near denver colorado", "best national parks to visit in winter". The page treats a row as a service only when the category matches NON_PRODUCT_CATEGORY_HINTS or facets.is_service is true; "coffee shops in Brooklyn", "day hikes near Denver" and "winter national parks" match neither, and sold_on_amazon is not false. Likely fix: also treat needs_location and is_experience facets as web-only. worker/pages/research-page.js isService/webOnly, worker/pages/research-primitives.js NON_PRODUCT_CATEGORY_HINTS.
+- [ ] MEDIUM (Product, quality): 4 of 11 golden product queries have a #1 pick outside the accepted set (live 2026-10-18): budget mechanical keyboard (Logitech 75% Mechanical), electric pressure cooker (Cuisinart), password manager (NordPass), robot vacuum for pet hair (TP-Link Tapo RV30 Max Plus). The eval could not see this before: its HTML patterns were stale and read every pick as empty (fixed in CP-800). Check each with a source before changing the accepted lists. eval/golden-queries.json.
+- [ ] LOW (Security, data): a SQL-injection probe became a public research page: "Best Tax Software for Self Employed) and Extractvalue(6920,concat(0x5c,...". Queries are parameterized, so nothing ran, but the probe text is published and listed in search suggestions. Consider rejecting queries with SQL syntax at the boundary and retiring that row. worker/handlers/research.js.
+- [x] MEDIUM (Testing): run-eval.mjs read every live page as empty: the Our-pick and product-card patterns no longer matched the page markup (class lists grew), so pick accuracy was 0 and product counts 0. Fixed in CP-800: scoring moved to scripts/lib/eval-score.mjs with unit tests against the current markup (test/unit/eval-score.test.js).
+
 ## 2026-10-18: CP-789, judge verdict and repeat runs
 
 - [ ] HIGH (Product, verify): repeat-run spread is still above target after the race fix. Live 2026-10-18 (16 runs, race fix deployed, before stance votes): Fractal Design North 70 vs 50, DeWalt DCD791 50 vs 50, Galaxy S25 Ultra 50 vs 70, Ninja Creami 63 vs 67, Pixel 9 Pro 30 vs 50, Dyson V15 Detect 59 vs 59, CrossClimate 2 50 vs 50 (4 of 7 within 15). Two causes: (1) each run gathers different pages (no page cache), (2) the judges are not repeatable. Next step needs an owner decision: save the gathered pages per product for 30 days like the claims, or bench a judge that does not think before it answers. worker/engine/verify.js.
@@ -2271,8 +2278,20 @@ fixed prompt. Keep the swap gated.
       "2.6× slower" was variance — 25s here). opus is the honesty ceiling (0/0) at 8×
       cost. [godmode R3] — Full n≥20/≥5-judge re-bench still optional for the other
       axes (citations/omissions), but the numeric-fabrication signal is decisive. [R3]
-- [ ] #5 add legit_recall (catches kimi dropping legit picks) + link_correctness
+- [x] #5 add legit_recall (catches kimi dropping legit picks) + link_correctness
       (catches the trap-URL-on-legit-product mis-citation) auto-metrics. [deferred]
+      Fixed 2026-10-18 (CP-406): benchmarks/lib/synth-recall-links.mjs, wired
+      into glm52-synth-bench.mjs (per run and per model), tested in
+      benchmarks/tests/synth-recall-links.test.mjs. legit_recall = share of the
+      scenario's legit picks kept ("Kit (ConvertKit)" matches either name).
+      link_correctness = share of productUrl/manufacturerUrl links on non-trap
+      products that do not point at a trap source (a source that names the
+      trap and no legit pick). Re-scored the saved results, no new spend:
+      kimi-k2.6 keeps 0.78 to 0.95 of legit picks, glm-5.2 0.95 to 1.0, opus
+      1.0. No cloud model mis-cited a trap URL in the saved runs; the check
+      caught one in local-synth-nemotron-3-nano-4b.json (Soundcore Space One
+      given aurasonic.example.com as its manufacturerUrl). The extract-eval
+      legit_recall gate already existed and was left as is.
 - [x] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
       recalled product, location-with-no-address. [deferred]
       Fixed 2026-10-18 (CP-407): benchmarks/synth-fixture-lie-surfaces.mjs +
@@ -2459,8 +2478,16 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
       (50 base +hands-on +expert −45 affiliate-conflict) aren't dropped from
       full-text READ (parallel-engine.js:21). Still discount their verdicts in synth
       — read them, don't blindly trust. Direct moat lift.
-- [ ] MED: Add non-product (service/local/experience) queries to golden-query eval —
+- [x] MED: Add non-product (service/local/experience) queries to golden-query eval —
       it's 10/10 buyable products today, blind to the facets most likely broken.
+      Fixed 2026-10-18 (CP-415): eval/golden-queries.json has a "kind" per
+      query and 5 new ones (1 service, 2 local incl. "best pho in wichita",
+      2 experience). Non-product pages must show no Amazon button; service
+      pages need the Recommendations layout; local pages (and experience
+      pages that name a place) need the #1 pick in that place. Scorer:
+      scripts/lib/eval-score.mjs. First free audit: 4 pages scored, 3 show
+      Amazon buttons (new HIGH item, CP-800 section); pho in Wichita has no
+      live page yet (needs one --spend run).
 - [x] LOW: Recompress og.png 210KB→~60KB (hygiene); delete dead db.js legacy helpers
       (insertProductV2/completeResearch lack the idempotency latch = footgun);
       log when the decompose fallback fires (silent quality degradation).
