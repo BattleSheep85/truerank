@@ -57,11 +57,13 @@ import { runConsentTests } from '../test/unit/consent.test.js';
 import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
 import { runBackfillImagesTests } from '../test/unit/backfill-images.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
+import { runResearchResultShapeTests } from '../test/unit/research-result-shape.test.js';
 
 const suites = [
   ['consent', runConsentTests],
   ['credibility', runCredibilityTests],
   ['validate-quality-gate', runValidateTests],
+  ['research-result-shape', runResearchResultShapeTests],
   ['product-search', runProductSearchTests],
   ['reviews-render', runReviewsRenderTests], // async suite (awaited below)
   ['browse-render', runBrowseRenderTests], // async suite (awaited below)
