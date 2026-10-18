@@ -171,6 +171,7 @@ export function runCredibilityTests() {
     ['cp782-non-sponsored-post', hasSponsoredContent('An honest, non-sponsored post.'), false],
     ['cp782-never-brought-to-you-by', hasSponsoredContent('This was never brought to you by a brand.'), false],
     ['cp782-denial-then-real-marker', hasSponsoredContent('Not sponsored by Sony. This video is sponsored by NordVPN.'), true],
+    ['cp782-hashtag-never-denied', hasSponsoredContent('Say no to bad coffee #ad'), true],
     ['cp782-denial-far-before-marker', hasSponsoredContent('I am not a fan of the color. Sponsored by Acme.'), true],
 
     // ── hasClickbaitFraming ───────────────────────────────────────────────

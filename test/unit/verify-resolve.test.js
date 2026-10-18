@@ -442,6 +442,9 @@ export async function runVerifyResolveTests() {
   eq('harvestBuyerReviews: a review with a paid-promotion marker is dropped (CP-782)', mixedHost[0].reviewCount, 6);
   ok('harvestBuyerReviews: the dropped promo review text is not in the aggregate (CP-782)', !mixedHost[0].content.includes('use my code'));
   ok('harvestBuyerReviews: a "not a sponsored post" review is kept (CP-782)', mixedHost[0].content.includes('bought the Sony WH-1000XM6 myself'));
+  const mixedParsed = parseRetailerPage(`# Customer reviews\n${[...plainReviews, sponsoredReview].join('\n')}`, { url: 'https://www.amazon.com/dp/B0DK85GRFZ' });
+  ok('parseRetailerPage: a dropped promo review is recorded with sponsored-content (CP-782)',
+    mixedParsed.droppedIncentivized.some((r) => r.tags.includes('sponsored-content') && r.text.includes('use my code')));
   const mixedCred = scoreSource({ url: mixedHost[0].url, title: mixedHost[0].title, content: mixedHost[0].content, sourceType: 'buyer-review' });
   ok('scoreSource: the host aggregate is not tagged sponsored-content by one review (CP-782)', !mixedCred.tags.includes('sponsored-content'));
 

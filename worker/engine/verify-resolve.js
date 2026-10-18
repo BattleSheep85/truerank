@@ -1389,7 +1389,11 @@ function evaluateCandidateSnippet(rawText, {
 
   // A paid-promotion review (#ad, "sponsored by") is dropped on its own, so it
   // cannot tag the whole host's aggregated buyer-review source (CP-782).
-  if (hasSponsoredContent(rawText)) return;
+  if (hasSponsoredContent(fullCheck)) {
+    const text = sanitizeReviewSnippet(rawText, maxSnippetChars);
+    droppedIncentivized.push({ text, hash: reviewTextHash(text), verified: false, kind, tags: ['incentivized-review', 'sponsored-content'] });
+    return;
+  }
 
   const incentivized = isIncentivizedSnippet(fullCheck);
   const cleaned = sanitizeReviewSnippet(rawText, maxSnippetChars);
