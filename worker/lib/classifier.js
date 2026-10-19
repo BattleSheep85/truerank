@@ -307,7 +307,7 @@ export async function classifyQuery(env, query, canonical) {
     return withDefaultQuestions(query, FAILOPEN_RESULT);
   }
 
-  const parsed = validate(parseFencedJson(content));
+  const parsed = validate(parseFencedJson(content, 'classifier'));
   if (!parsed) {
     console.warn('[classifier] unparseable response:', content.slice(0, 200));
     return withDefaultQuestions(query, FAILOPEN_RESULT);

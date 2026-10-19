@@ -14,7 +14,7 @@ import { ENGINE_CONFIG } from '../lib/engine-config.js';
 import { getResearchById, generateId } from '../lib/db.js';
 import { nowEpoch } from '../lib/utils.js';
 import { llmRouteFromEnv } from '../lib/llm-route.js';
-import { incrementMonthlyCost } from './orchestrator.js';
+import { incrementMonthlyCost } from '../lib/budget.js';
 
 /**
  * Run the verification pipeline for a subject product. Called by the Queue

@@ -147,7 +147,56 @@ async function testNoKv(m, t) {
   t.eq('no kv: answer returned', r?.length, 4);
 }
 
-const GROUPS = [testHitAndMiss, testKeyParams, testNoCacheOnBadAnswers, testImageAndSiteCached, testKvFailuresFallThrough, testNoKv];
+// CP-819 (a): a forceFresh run (worker-secret only) skips the cache read but
+// still refreshes the cache with its live answer.
+async function testCacheBypass(m, t) {
+  const kv = fakeKv();
+  const fetches = await withFetch(() => jsonResponse({ results: FOUR }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv });
+    await m.searxngSearch(QUERY, BASE_URL, { kv, cacheBypass: true });
+    await m.searxngSiteSearch(QUERY, BASE_URL, { kv, cacheBypass: true });
+    await m.searxngSiteSearch(QUERY, BASE_URL, { kv, cacheBypass: true });
+  });
+  t.eq('bypass: a cached query is searched again, site calls too', fetches, 4);
+  t.eq('bypass: the live answer is still written', kv.puts.length, 4);
+  const plain = await withFetch(() => jsonResponse({ results: FOUR }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv, cacheBypass: 'yes' });
+  });
+  t.eq('bypass: only a literal true bypasses', plain, 0);
+}
+
+// CP-819 (b): when some engines failed (SearXNG lists them in
+// unresponsive_engines) but the answer is still usable, cache it briefly.
+async function testPartialAnswerShortTtl(m, t) {
+  const kv = fakeKv();
+  await withFetch(() => jsonResponse({ results: FOUR, unresponsive_engines: [['yandex', 'CAPTCHA']] }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv });
+  });
+  t.eq('partial: answer cached', kv.puts.length, 1);
+  t.eq('partial: short TTL', kv.puts[0]?.opts?.expirationTtl, m.SEARXNG_PARTIAL_CACHE_TTL_S);
+  t.ok('partial: TTL well under the full TTL and at least the KV minimum',
+    m.SEARXNG_PARTIAL_CACHE_TTL_S >= 60 && m.SEARXNG_PARTIAL_CACHE_TTL_S * 4 <= m.SEARXNG_CACHE_TTL_S);
+  const kv2 = fakeKv();
+  await withFetch(() => jsonResponse({ results: FOUR, unresponsive_engines: [] }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv: kv2 });
+  });
+  t.eq('partial: an empty unresponsive list keeps the full TTL', kv2.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
+  // Two engines fail on almost every live request, so failed engines with a
+  // full answer keep the full TTL.
+  const kv3 = fakeKv();
+  const many = Array.from({ length: m.SEARXNG_THIN_RAW_RESULTS }, (_, i) => vacuum(i + 10));
+  await withFetch(() => jsonResponse({ results: many, unresponsive_engines: [['gmx', 'timeout'], ['neosearch', 'error']] }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv: kv3 });
+  });
+  t.eq('partial: failed engines with a full answer keep the full TTL', kv3.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
+  const kv4 = fakeKv();
+  await withFetch(() => jsonResponse({ results: [{ url: 'https://www.amazon.com/dp/B0ABCDEFGH', title: 'x' }], unresponsive_engines: [['gmx', 'timeout']] }), async () => {
+    await m.searxngSiteSearch(QUERY, BASE_URL, { kv: kv4 });
+  });
+  t.eq('partial: site answers (small by nature) keep the full TTL', kv4.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
+}
+
+const GROUPS = [testHitAndMiss, testKeyParams, testNoCacheOnBadAnswers, testImageAndSiteCached, testKvFailuresFallThrough, testNoKv, testCacheBypass, testPartialAnswerShortTtl];
 
 export async function runSearxngCacheTests() {
   const report = { passed: 0, failed: 0, failures: [] };

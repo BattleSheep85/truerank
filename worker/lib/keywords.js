@@ -25,7 +25,7 @@ import {
     generateId, insertResearch, findResearchByCanonicalQuery,
 } from './db.js';
 import { generateSlug, canonicalizeQuery, squashQuery, monthKey } from './utils.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from './budget.js';
 import { purgePageCache } from '../routes/pages.js';
 
 const DEFAULT_DAILY_MAX = 6;

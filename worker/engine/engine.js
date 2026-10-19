@@ -469,7 +469,7 @@ export async function runEngine(
   }
 
   // Extract JSON — first pass on streamed content.
-  let parsed = parseFencedJson(synthContent);
+  let parsed = parseFencedJson(synthContent, 'synthesis');
 
   // If the streamed content didn't parse (stream truncation, early close), retry
   // with the non-streaming path which buffers the full response. This keeps the
@@ -490,7 +490,7 @@ export async function runEngine(
       state.totalCostUsd += retryResponse.usage.cost;
     }
     const retryContent = retryResponse.choices?.[0]?.message?.content ?? '';
-    parsed = parseFencedJson(retryContent);
+    parsed = parseFencedJson(retryContent, 'synthesis');
     if (parsed === null) {
       throw Object.assign(new Error(`Invalid JSON from synthesis: ${retryContent.slice(0, 200)}`), { totalCostUsd: state.totalCostUsd });
     }

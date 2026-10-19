@@ -18,6 +18,13 @@ export const SEARXNG_IMAGES_CATEGORY = 'images';
 // Usable answers stay in KV this long, so repeat runs of a query do not hit
 // the free engines again (they CAPTCHA the home IP under load, CP-713).
 export const SEARXNG_CACHE_TTL_S = 4 * 3600;
+// A thin web answer (some engines failed AND fewer than
+// SEARXNG_THIN_RAW_RESULTS raw results) stays only this long, so the next run
+// asks again (CP-819). Two engines (gmx, neosearch) fail on almost every
+// request (live sample 2026-10-19: 6 of 6 queries, 47 to 74 raw results), so
+// failed engines alone would shorten nearly every answer.
+export const SEARXNG_PARTIAL_CACHE_TTL_S = 30 * 60;
+export const SEARXNG_THIN_RAW_RESULTS = 20;
 const CACHE_KEY_PREFIX = 'searxng:v1:';
 // "1000×1000", "1200x1050", "3000 x 3000", "1500 X 851".
 const RESOLUTION_RE = /^\s*(\d+)\s*[x×X]\s*(\d+)\s*$/;
@@ -321,29 +328,39 @@ async function readCache(kv, key) {
   }
 }
 
-async function writeCache(kv, key, raw) {
+async function writeCache(kv, key, raw, ttlSeconds) {
   if (!kv) return;
   try {
-    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: SEARXNG_CACHE_TTL_S });
+    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: ttlSeconds });
   } catch (err) {
     console.log(`[searxng] cache write failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
+// True when SearXNG reports engines that failed for this request.
+const hasUnresponsiveEngines = (data) =>
+  Array.isArray(data?.unresponsive_engines) && data.unresponsive_engines.length > 0;
+
+// Cache time of a live web answer: short when it is thin (see above).
+const webCacheTtl = ({ raw, unresponsive }) =>
+  (unresponsive && raw.length < SEARXNG_THIN_RAW_RESULTS ? SEARXNG_PARTIAL_CACHE_TTL_S : SEARXNG_CACHE_TTL_S);
+
 // Raw results from the KV cache (opts.kv) or a live request. The caller runs
 // `save()` once it finds a live answer usable, so failures are never cached.
-// Returns { raw, save }, or null when the request failed.
+// opts.cacheBypass === true (forceFresh runs) skips the read but still saves.
+// Returns { raw, unresponsive, save(ttlSeconds) }, or null when the request
+// failed. A cache hit's save does nothing.
 async function loadResults(query, baseUrl, kind, opts) {
   const key = opts.kv ? await searxngCacheKey(query, kind, opts) : null;
-  const cached = await readCache(opts.kv, key);
+  const cached = opts.cacheBypass === true ? null : await readCache(opts.kv, key);
   if (cached) {
     console.log(`[searxng] cache hit q="${query}"`);
-    return { raw: cached.results, save: async () => {} };
+    return { raw: cached.results, unresponsive: false, save: async () => {} };
   }
   const data = await fetchSearxngJson(query, baseUrl, opts);
   if (data === null) return null;
   const raw = resultsOf(data);
-  return { raw, save: () => writeCache(opts.kv, key, raw) };
+  return { raw, unresponsive: hasUnresponsiveEngines(data), save: (ttl = SEARXNG_CACHE_TTL_S) => writeCache(opts.kv, key, raw, ttl) };
 }
 
 // SearXNG image `resolution` string as { width, height }; { 0, 0 } when the
@@ -388,7 +405,7 @@ export async function searxngSearch(query, baseUrl, opts = {}) {
   const ranked = rankResults(raw, query, Date.now());
   console.log(`[searxng] q="${query}" → raw ${raw.length}, kept ${ranked.length}`);
   if (ranked.length < SEARXNG_MIN_USABLE) return null;
-  await loaded.save();
+  await loaded.save(webCacheTtl(loaded));
   const label = opts.sourceLabel ?? 'web';
   return ranked.map((r) => ({ url: r.url, title: r.title, content: r.content, source: label, publishedAt: r.publishedAt }));
 }

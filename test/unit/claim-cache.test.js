@@ -4,9 +4,12 @@ import {
   claimCacheKey,
   readCachedClaims,
   writeCachedClaims,
+  shortenCachedClaims,
   CLAIM_CACHE_TTL_SECONDS,
+  CLAIM_CACHE_WEAK_TTL_SECONDS,
+  CLAIM_CACHE_VERSION,
 } from '../../worker/lib/claim-cache.js';
-import { stableProductClaims, isTestableClaim } from '../../worker/engine/verify.js';
+import { stableProductClaims, isTestableClaim, keepClaimsByOutcome } from '../../worker/engine/verify.js';
 
 function memoryKv({ failGet = false, failPut = false } = {}) {
   const store = new Map();
@@ -128,6 +131,42 @@ export async function runClaimCacheTests() {
     // No KV binding: extraction still works.
     const noKv = await quiet(() => stableProductClaims({ ...base, env: {}, callLLM: extractReply(CLAIMS) }));
     eq('stable: no KV still extracts', noKv.claims.length, 4);
+  }
+
+  // CP-819: a claim set whose check ended with no score is kept only a short
+  // time, so the next run after that extracts again. The version stays.
+  {
+    eq('weak: version unchanged', CLAIM_CACHE_VERSION, 'v1');
+    eq('weak: short TTL is one day', CLAIM_CACHE_WEAK_TTL_SECONDS, 86400);
+    const kv = memoryKv();
+    await writeCachedClaims(kv, 'Antec C8', CLAIMS);
+    eq('weak: shortened', await shortenCachedClaims(kv, 'antec c8'), true);
+    eq('weak: re-saved with the short TTL', kv.puts[1]?.opts?.expirationTtl, CLAIM_CACHE_WEAK_TTL_SECONDS);
+    eq('weak: same claims kept', JSON.parse(kv.puts[1]?.value).claims, JSON.parse(kv.puts[0]?.value).claims);
+    eq('weak: an already short set keeps its first expiry', await shortenCachedClaims(kv, 'Antec C8'), false);
+    eq('weak: no second put', kv.puts.length, 2);
+    eq('weak: a short set is still read', (await readCachedClaims(kv, 'Antec C8')).length, 4);
+    await writeCachedClaims(kv, 'Antec C8', CLAIMS);
+    eq('weak: a fresh extraction saves 30 days again', kv.puts[2]?.opts?.expirationTtl, CLAIM_CACHE_TTL_SECONDS);
+    eq('weak: and can be shortened again', await shortenCachedClaims(kv, 'Antec C8'), true);
+    eq('weak: nothing saved, nothing to shorten', await shortenCachedClaims(memoryKv(), 'Antec C8'), false);
+    eq('weak: no KV', await shortenCachedClaims(null, 'Antec C8'), false);
+    eq('weak: no key', await shortenCachedClaims(memoryKv(), '  '), false);
+    eq('weak: KV error gives false', await quiet(() => shortenCachedClaims(memoryKv({ failGet: true }), 'Antec C8')), false);
+    const pageKv = memoryKv();
+    await writeCachedClaims(pageKv, 'Antec C8', CLAIMS, 'https://www.amazon.com/dp/B0DK85GRFZ');
+    await shortenCachedClaims(pageKv, 'Antec C8', 'https://www.amazon.com/dp/B0DK85GRFZ');
+    eq('weak: a pasted page set is shortened under its own key', pageKv.puts[1]?.key, pageKv.puts[0]?.key);
+
+    // keepClaimsByOutcome: only a run with no score shortens the set.
+    const kv2 = memoryKv();
+    await writeCachedClaims(kv2, 'Antec C8', CLAIMS);
+    await keepClaimsByOutcome(kv2, 'Antec C8', null, { score: 61 });
+    eq('outcome: a scored run keeps 30 days', kv2.puts.length, 1);
+    await quiet(() => keepClaimsByOutcome(kv2, 'Antec C8', null, { score: null }));
+    eq('outcome: a run with no score shortens the set', kv2.puts[1]?.opts?.expirationTtl, CLAIM_CACHE_WEAK_TTL_SECONDS);
+    await quiet(() => keepClaimsByOutcome(kv2, 'Antec C8', null, { score: null }));
+    eq('outcome: a second no-score run within the day does not extend it', kv2.puts.length, 2);
   }
 
   return report;

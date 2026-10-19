@@ -609,6 +609,8 @@ async function executeSearch(
   const searxngUrl = env?.SEARXNG_URL;
   const searxngGate = env?.LITELLM_GATE_TOKEN;
   const searxngKv = env?.KV;
+  // forceFresh runs (worker/jobs.js searchEnvFor) skip the cached answers.
+  const searxngCacheBypass = env?.SEARXNG_CACHE_BYPASS === true;
 
   state.searchCount++;
   let results;
@@ -629,7 +631,7 @@ async function executeSearch(
   // skipSearxng: the 'searxng' provider already asked SearXNG, so a second
   // call would only repeat the same weak or failed answer.
   const webFallback = async (q, { skipSearxng = false } = {}) => {
-    const sx = searxngUrl && !skipSearxng ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate, kv: searxngKv }) : null;
+    const sx = searxngUrl && !skipSearxng ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate, kv: searxngKv, cacheBypass: searxngCacheBypass }) : null;
     if (sx !== null) return sx;
     const brave = braveApiKey ? await braveSearch(q, braveApiKey, { timeRange: tr }) : null;
     if (brave !== null) return brave;
@@ -687,7 +689,7 @@ async function executeSearch(
     case 'searxng': {
       // Self-hosted metasearch (free, broad). Falls back to Serper, then the web
       // chain without SearXNG (Brave / Exa / Tavily), when SearXNG fails or is weak.
-      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate, kv: searxngKv }) : null;
+      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate, kv: searxngKv, cacheBypass: searxngCacheBypass }) : null;
       if (sx !== null) { results = sx; subs = 1; break; }
       const serp = await serperSearch(query, serperApiKey, { sourceLabel: 'web', timeRange: tr });
       results = serp === null ? await webFallback(query, { skipSearxng: true }) : serp;

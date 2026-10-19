@@ -6,7 +6,7 @@ import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import {
   incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, budgetExhausted,
-} from '../../worker/pipeline/orchestrator.js';
+} from '../../worker/lib/budget.js';
 import { monthKey } from '../../worker/lib/utils.js';
 
 const kvKey = () => `cost:${monthKey()}`;
