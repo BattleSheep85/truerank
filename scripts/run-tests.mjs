@@ -64,6 +64,7 @@ import { runEvalScoreTests } from '../test/unit/eval-score.test.js';
 import { runExtractCandidatesTests } from '../test/unit/extract-candidates.test.js';
 import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
 import { runCriticalRenderTests } from '../test/unit/critical-render.test.js';
+import { runThinCorpusTests } from '../test/unit/thin-corpus.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -126,6 +127,7 @@ const suites = [
   ['extract-candidates', runExtractCandidatesTests],
   ['critical-excerpts', runCriticalExcerptsTests],
   ['critical-render', runCriticalRenderTests],
+  ['thin-corpus', runThinCorpusTests], // async suite (awaited below)
 ];
 
 let failed = 0;
