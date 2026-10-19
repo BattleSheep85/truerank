@@ -10,6 +10,7 @@
 // Zero dependencies.
 
 import { readFileSync } from 'node:fs';
+import { productNames } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -66,21 +67,11 @@ async function runAndWait(query) {
   return { error: 'timeout' };
 }
 
-function parseProductNames(html) {
-  const names = [];
-  const re = /class="product" id="product-[^"]*"[^>]*>[\s\S]*?class="product-name[^"]*"[^>]*>([^<]+)</g;
-  let m;
-  while ((m = re.exec(html)) !== null) names.push(m[1].trim());
-  if (names.length) return names;
-  const our = html.match(/class="ourpick-name">([^<]+)</);
-  if (our) names.push(our[1].trim());
-  return names;
-}
-
 async function scoreSlug(slug, entry) {
   const pageRes = await fetch(`${BASE}/research/${slug}`);
   const html = await pageRes.text();
-  const products = parseProductNames(html);
+  // The golden eval's card parser (CP-812: the old selectors read 0 products).
+  const products = productNames(html);
   const topPick = products[0] || '';
   const topLower = topPick.toLowerCase();
   const accepted = entry.accepted_winners || [];
@@ -101,7 +92,7 @@ async function scoreSlug(slug, entry) {
     products.some((n) => n.toLowerCase().includes(p.toLowerCase())),
   );
 
-  const productCount = (html.match(/class="product" id="product-/g) || []).length || products.length;
+  const productCount = products.length;
   const sourceCount = (() => {
     const m = html.match(/Sources \((\d+)\)/);
     return m ? parseInt(m[1], 10) : null;

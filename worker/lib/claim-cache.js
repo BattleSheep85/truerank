@@ -6,7 +6,7 @@
 // saved in KV under the product's name key, and later runs of the same
 // product check the same claims against fresh evidence.
 
-import { productNameKey } from './product-link.js';
+import { productNameKey, parseProductInput } from './product-link.js';
 
 /** Bump when the extraction rules change, so older claim sets are not reused. */
 export const CLAIM_CACHE_VERSION = 'v1';
@@ -17,13 +17,21 @@ const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
 const MAX_CLAIM_CHARS = 400;
 const MAX_CACHED_CLAIMS = 12;
 
-// The pasted page as host + path, lowercase, or '' when there is none or it
-// does not parse.
+// The query that identifies the product, as product-link keeps it: '' for a
+// named slug or an Amazon page, "?id=42" for a generic path
+// (product_info.php?products_id=42) (CP-812).
+function identifyingQuery(productUrl) {
+  const kept = parseProductInput(String(productUrl)).url;
+  return kept ? new URL(kept).search : '';
+}
+
+// The pasted page as host + path (+ identifying query), lowercase, or '' when
+// there is none or it does not parse.
 function pageKeyOf(productUrl) {
   if (!productUrl) return '';
   try {
     const url = new URL(String(productUrl));
-    return `${url.hostname.replace(/^www\./, '')}${url.pathname.replace(/\/+$/, '')}`.toLowerCase();
+    return `${url.hostname.replace(/^www\./, '')}${url.pathname.replace(/\/+$/, '')}${identifyingQuery(productUrl)}`.toLowerCase();
   } catch {
     return '';
   }

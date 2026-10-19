@@ -1845,6 +1845,16 @@ async function runCp779Tests({ eq, report }) {
     eq(`${label}: the tolerance is 10%`, quantityModule.NEAR_SPEC_TOLERANCE, 0.1);
     eq(`${label}: "Nm" is not read (torque or nanometres)`, quantityModule.extractQuantities('70 Nm of torque on a 3 nm chip'), []);
     eq(`${label}: "6 7/8 inches" parses to mm`, Math.round(quantityModule.extractQuantities('6 7/8 inches')[0]?.value), 175);
+    // CP-812: a network name is not a weight.
+    eq(`${label}: "5G" is a network, not 5 grams`, quantityModule.extractQuantities('Supports 5G and 4G LTE'), []);
+    eq(`${label}: "3G/2G" are networks too`, quantityModule.extractQuantities('falls back to 3G/2G'), []);
+    eq(`${label}: lowercase "5g" next to network words is a network`, quantityModule.extractQuantities('5g connectivity with a Snapdragon modem'), []);
+    eq(`${label}: "5g" of protein is still grams`, quantityModule.extractQuantities('5g of protein'), [{ dim: 'mass', value: 5 }]);
+    eq(`${label}: "5 g" with a space is still grams`, quantityModule.extractQuantities('weighs 5 g'), [{ dim: 'mass', value: 5 }]);
+    eq(`${label}: "50G" is still grams`, quantityModule.extractQuantities('a 50G pouch'), [{ dim: 'mass', value: 50 }]);
+    eq(`${label}: "5G" in a span does not hide a near-spec weight`, quantityModule.isNearSpecValue('Weighs 180 g', 'The 5G phone weighs 182 g'), true);
+    eq(`${label}: a far-off word does not make "6g" a network`, quantityModule.extractQuantities('the buds measured 6g each and kept a strong Bluetooth signal on the cellular test'), [{ dim: 'mass', value: 6 }]);
+    eq(`${label}: "4g" next to "bands" is still grams`, quantityModule.extractQuantities('weighs 4g with interchangeable bands'), [{ dim: 'mass', value: 4 }]);
   });
 
   await guarded('CP-718 truncated stance replies are split and judged again', async () => {

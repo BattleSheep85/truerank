@@ -42,7 +42,10 @@ Return JSON {"missing": [name, ...]}, at most 12.`,
       responseFormat: { type: 'json_schema', json_schema: { name: 'recall', strict: true, schema: SCHEMA } },
     });
     const raw = parseFencedJson(r.choices?.[0]?.message?.content);
-    const out = Array.isArray(raw?.missing) ? raw.missing : [];
+    // The shared parser returns null rather than throwing, so say so here (CP-812).
+    if (raw === null) { console.log('[recall-supplement] skipped: model JSON could not be parsed'); return []; }
+    if (!Array.isArray(raw?.missing)) { console.log('[recall-supplement] skipped: model JSON has no "missing" list'); return []; }
+    const out = raw.missing;
     return out.map((s) => String(s || '').trim()).filter((s) => s.length >= 3).slice(0, 12);
   } catch (e) { console.log('[recall-supplement] skipped:', e?.message); return []; }
 }

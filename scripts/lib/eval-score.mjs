@@ -20,7 +20,9 @@ export const QUERY_KINDS = ['product', 'service', 'local', 'experience'];
 
 const DISCLOSURE_RE = /may earn a commission/i;
 const OUR_PICK_RE = /class="ourpick-name[^"]*"[^>]*>([^<]+)</;
-const PRODUCT_CARD_RE = /<article class="product[\s"][^>]*id="product-\d+"/g;
+// The opening of one product card. Both card readers below build on it.
+const CARD_OPEN = '<article class="product[\\s"][^>]*id="product-\\d+"';
+const PRODUCT_CARD_RE = new RegExp(CARD_OPEN, 'g');
 const SOURCES_RE = /Sources \((\d+)\)/;
 const DATE_RE = /datetime="(\d{4}-\d{2}-\d{2})/g;
 // An Amazon CTA is a tracked /api/go/...&network=amazon link or a "Buy on
@@ -38,6 +40,25 @@ const textOf = (html) => decode(String(html || '').replace(/<[^>]+>/g, ' ')).rep
 const containsAny = (text, list) => list.some((w) => text.includes(String(w).toLowerCase()));
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const hasWord = (text, list) => list.some((w) => new RegExp(`(?:^|[^a-z0-9])${reEscape(String(w).toLowerCase())}(?:$|[^a-z0-9])`).test(text));
+
+// One product card, up to its end, and the first h3 inside it (the name).
+const CARD_RE = new RegExp(`${CARD_OPEN}[^>]*>([\\s\\S]*?)<\\/article>`, 'g');
+const CARD_NAME_RE = /<h3[^>]*>([\s\S]*?)<\/h3>/;
+
+/**
+ * The product names on a report page, in card order (CP-812: the card name
+ * moved into an h3, so the old product-name class read nothing). Falls back to
+ * the Our-pick name when the page has no cards.
+ */
+export function productNames(html) {
+  const text = String(html || '');
+  const names = [...text.matchAll(CARD_RE)]
+    .map((m) => decode(((m[1].match(CARD_NAME_RE) || [])[1] || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (names.length) return names;
+  const pick = decode((text.match(OUR_PICK_RE) || [])[1] || '').trim();
+  return pick ? [pick] : [];
+}
 
 function newestAgeDays(html, now) {
   const dates = [...html.matchAll(DATE_RE)].map((m) => Date.parse(m[1])).filter(Number.isFinite);

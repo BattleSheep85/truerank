@@ -57,6 +57,13 @@ export async function runClaimCacheTests() {
   eq('key: a pasted page gets its own key', claimCacheKey('Dyson V15 Detect', 'https://evil.example/page') === claimCacheKey('Dyson V15 Detect'), false);
   eq('key: one page, one key (www, case, trailing slash)', claimCacheKey('Antec C8', 'https://www.amazon.com/dp/B0DK85GRFZ/'), claimCacheKey('antec c8', 'https://amazon.com/DP/b0dk85grfz'));
   eq('key: an unparsable page has no key', claimCacheKey('Antec C8', 'not a url'), null);
+  // CP-812: a generic path keeps the query that names the product.
+  eq('key: two products on one generic path get two keys',
+    claimCacheKey('Acme X1', 'https://shop.example/product_info.php?products_id=42') === claimCacheKey('Acme X1', 'https://shop.example/product_info.php?products_id=43'), false);
+  eq('key: tracking params on a generic path do not split the key',
+    claimCacheKey('Acme X1', 'https://shop.example/product_info.php?products_id=42&utm_source=x'), claimCacheKey('Acme X1', 'https://shop.example/product_info.php?products_id=42'));
+  eq('key: a named slug ignores its query',
+    claimCacheKey('Sony WH-1000XM6', 'https://shop.example/sony-wh-1000xm6-headphones?ref=home'), claimCacheKey('Sony WH-1000XM6', 'https://shop.example/sony-wh-1000xm6-headphones'));
 
   // Round trip: write then read gives the same claims, renumbered.
   {
