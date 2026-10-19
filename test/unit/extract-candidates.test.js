@@ -100,6 +100,10 @@ export function runExtractCandidatesTests() {
   eq('CP-397 keeps a coded apparel name', names(['Patagonia Baggies Shorts 5 Inch are a classic.'], { physical: true, apparel: true })
     .includes('Patagonia Baggies Shorts 5 Inch'), true);
 
+  // Footwear in an apparel query keeps its shoe noun.
+  const shoes = names(['The Allen Edmonds Dress Shoe lasts years.', 'The Converse Chuck Taylor High Top Sneaker is a classic.'], { physical: true, apparel: true });
+  eq('CP-397 apparel query keeps "Allen Edmonds Dress Shoe"', shoes.includes('Allen Edmonds Dress Shoe'), true);
+
   // Garment rules only apply to apparel queries: appliance and shoe names stay whole.
   const appliances = ['The Samsung Top Load Washer is quiet.', 'The LG Top Freezer Refrigerator keeps food cold.', 'The Allen Edmonds Dress Shoe lasts years.'];
   const applianceNames = names(appliances, { physical: true });

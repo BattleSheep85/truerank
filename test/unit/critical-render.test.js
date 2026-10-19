@@ -29,6 +29,7 @@ export function runCriticalRenderTests() {
   eq('summarized cons still shown', html.includes('The cord is short.'), true);
 
   eq('the below-4 intro still shows with quotes', html.includes('This scores below 4★'), true);
+  eq('only one lead-in line before the quotes', html.includes('word for word:'), false);
   const unrated = renderProduct(base({ rating: null, critical_reviews: [quote] }), 0, ids, false, 'acme', false, false);
   eq('the unrated intro still shows with quotes', unrated.includes('enough independent reviews') && unrated.includes('hinge snapped'), true);
 

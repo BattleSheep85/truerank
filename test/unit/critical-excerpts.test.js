@@ -29,6 +29,12 @@ export function runCriticalExcerptsTests() {
   eq('"minus 2 stars" is not a 2-star rating', starsIn('Minus 2 stars for the app, but the hardware is great'), null);
   eq('a sentence that also gives 5 stars is not low', starsIn('Five stars for this one, two stars for the old model'), null);
   eq('a sentence that also gives 4/5 is not low', starsIn('Was 2/5 at launch, now a solid 4/5 after updates'), null);
+  eq('"1 out of 5 stars" is 1 star', starsIn('1 out of 5 stars, broke fast'), 1);
+  eq('"1 of 5 stars" is 1 star', starsIn('Rated 1 of 5 stars by me'), 1);
+  eq('"2/5 as a daily driver" is 2 stars', starsIn('2/5 as a daily driver, the battery died'), 2);
+  eq('"1 out of 5 as a vacuum" is 1 star', starsIn('1 out of 5 as a vacuum'), 1);
+  eq('"1/5 as much" is a fraction', starsIn('It uses 1/5 as much power as my old one'), null);
+  eq('"1/5 of the price" is a fraction', starsIn('It costs 1/5 of the price of a Dyson'), null);
   eq('no rating → null', starsIn('The lid leaks after a week.'), null);
 
   // ── excerpt picking ───────────────────────────────────────────────────────
@@ -73,6 +79,9 @@ export function runCriticalExcerptsTests() {
   eq('"AirPods Pro 2" keeps its own quote', criticalExcerpts('AirPods Pro 2', pods, ['AirPods Pro']).length, 1);
   const podsTitle = [src('https://www.reddit.com/r/airpods/2', 'AirPods Pro 2 after a year', '1 star. The case cracked in a week and Apple refused the claim.')];
   eq('a page about "AirPods Pro 2" is not a page about "AirPods Pro"', criticalExcerpts('AirPods Pro', podsTitle, ['AirPods Pro 2']).length, 0);
+
+  const ownPage = [src('https://www.reddit.com/r/airpods/3', 'AirPods Pro 2 after a year', '1 star. The case cracked in a week and Apple refused the claim.')];
+  eq('"AirPods Pro 2" keeps unnamed quotes on its own page despite rival "AirPods Pro"', criticalExcerpts('AirPods Pro 2', ownPage, ['AirPods Pro']).length, 1);
 
   // ── attachCriticalReviews (immutable) ───────────────────────────────────
   const rep = { products: [{ name: 'Acme Kettle Pro', rating: 3.2 }, { name: 'Zed Boil 2', rating: 4.6 }] };

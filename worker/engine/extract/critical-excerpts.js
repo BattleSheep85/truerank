@@ -16,9 +16,9 @@ const SHORT_STAR_SENTENCE = 60;
 // Pages whose criticism is not a buyer's own voice.
 const SKIP_GENRES = new Set(['manufacturer', 'ai-injection', 'sponsored-content', 'incentivized-review']);
 
-// "1/5" or "1 out of 5". Not a date ("1/5/2025"), a fraction ("1/5 the price"), or a
-// spaced carousel counter ("1 / 5").
-const OUT_OF_FIVE = /(?<![\d./])(\d(?:\.\d)?)(?:\/|\s+out of\s+)5(?![\d./])(?!\s+(?:the|of|as)\b)/gi;
+// "1/5", "1 out of 5", "1 of 5". Not a date ("1/5/2025"), a fraction ("1/5 the price",
+// "1/5 of the price", "1/5 as much"), or a spaced carousel counter ("1 / 5").
+const OUT_OF_FIVE = /(?<![\d./])(\d(?:\.\d)?)(?:\/|\s+(?:out\s+)?of\s+)5(?![\d./])(?!\s+(?:the|of\s+the|as\s+(?:much|many|big|long|fast|loud))\b)(?:\s*stars?\b)?/gi;
 const N_STARS = /(?<![\d./])(\d(?:\.\d)?)[\s-]*stars?\b/gi;
 const WORD_STARS = /\b(one|two|three|four|five)[\s-]stars?\b/gi;
 const GLYPH_STARS = /(★+)(☆*)/g;
@@ -31,7 +31,8 @@ function ratingsIn(text) {
   for (const m of text.matchAll(GLYPH_STARS)) if (m[1].length + m[2].length === 5) out.push(m[1].length);
   for (const m of text.matchAll(WORD_STARS)) out.push(WORD_VALUES[m[1].toLowerCase()]);
   for (const m of text.matchAll(OUT_OF_FIVE)) out.push(Number(m[1]));
-  for (const m of text.matchAll(N_STARS)) out.push(Number(m[1]));
+  // "1 out of 5 stars": the "5 stars" is the scale, not a second rating.
+  for (const m of text.replace(OUT_OF_FIVE, ' ').matchAll(N_STARS)) out.push(Number(m[1]));
   return out.filter((n) => Number.isFinite(n) && n >= 1 && n <= 5);
 }
 
@@ -77,14 +78,21 @@ function quoteAt(sents, i) {
   return quote.length > MAX_QUOTE_CHARS ? '' : quote;
 }
 
-// Matchers for one product. A rival whose name CONTAINS this product's name ("AirPods Pro 2"
-// vs "AirPods Pro") is a shadow: it is blanked out before looking for this product.
+// Matchers for one product. When one name contains the other ("AirPods Pro 2" vs "AirPods
+// Pro"), the longer name is blanked out before looking for the shorter one, both ways.
 function productMatcher(productName, rivalNames) {
   const self = matchersFor(productName);
   const rivals = (rivalNames || []).flatMap(matchersFor).filter((r) => !self.includes(r));
-  const shadows = rivals.filter((r) => self.some((m) => r.includes(m))).sort((a, b) => b.length - a.length);
-  const unshadow = (text) => shadows.reduce((t, r) => t.split(r).join(' '), String(text || '').toLowerCase());
-  return { self, rivals, namesSelf: (text) => mentions(unshadow(text), self), namesRival: (text) => mentions(text, rivals) };
+  const longerThan = (names, others) => names.filter((n) => others.some((o) => n.includes(o))).sort((a, b) => b.length - a.length);
+  const blank = (text, names) => names.reduce((t, n) => t.split(n).join(' '), String(text || '').toLowerCase());
+  const rivalShadows = longerThan(rivals, self);
+  const selfShadows = longerThan(self, rivals);
+  return {
+    self,
+    rivals,
+    namesSelf: (text) => mentions(blank(text, rivalShadows), self),
+    namesRival: (text) => mentions(blank(text, selfShadows), rivals),
+  };
 }
 
 function excerptsFromSource(src, m) {

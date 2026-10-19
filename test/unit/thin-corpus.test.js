@@ -74,11 +74,11 @@ export async function runThinCorpusTests() {
   const r5 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'linen shirts', sources: thin, maxSearches: 0, maxReads: 0, deps: { search, read, countProducts: () => 0 } });
   eq('no budget → nothing runs', [r5.searched, r5.read], [0, 0]);
 
-  // A clearly rich corpus skips the extraction preview entirely.
+  // Readable bodies do not prove products: the preview always runs.
   let previewed = 0;
   const manyBodies = Array.from({ length: 12 }, (_, i) => full(`https://rich.example/${i}`));
   const r7 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'x', sources: manyBodies, deps: { search, read, countProducts: () => { previewed++; return 0; } } });
-  eq('12+ readable bodies skip the preview', [r7.triggered, previewed], [false, 0]);
+  eq('many readable bodies still get the product preview', [r7.triggered, previewed], [true, 1]);
 
   // Searches run in parallel, and the whole step stops at its deadline.
   let inFlight = 0, peak = 0;
@@ -90,6 +90,7 @@ export async function runThinCorpusTests() {
   const r8 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'linen shirts', sources: thin, maxSearches: 2, maxReads: 2, deadlineMs: 50, deps: { search: never, read: never, countProducts: () => 0 } });
   eq('a hung provider cannot hold the step past its deadline', Date.now() - t0 < 1000, true);
   eq('after a timeout the sources are unchanged', r8.sources.length, 2);
+  eq('timed-out searches are not counted as searched', r8.searched, 0);
 
   // Default preview runs the real extractor: snippets-only sources give 0 products → triggers.
   const r6 = await runThinCorpusFallback({ query: 'best linen shirts', topicalCategory: 'linen shirts', sources: thin, maxSearches: 0, maxReads: 0, deps: { search, read } });

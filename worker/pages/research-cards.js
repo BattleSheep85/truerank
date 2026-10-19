@@ -201,7 +201,7 @@ function criticalReviewsBlock(p, cons) {
     ? `<p class="${introCls}">The main caveat reviewers raised is noted above. We didn’t surface additional specific criticism — read recent buyer reviews before purchasing.</p>`
     : `<p class="${introCls}">This scores below 4★ and we couldn’t surface specific, credible criticism — treat the rating cautiously and read recent buyer reviews before purchasing.</p>`;
   const body = quotes
-    ? `<p class="${introCls}">${intro}</p><p class="${introCls}">What low-star reviewers wrote, word for word:</p>${quotes}${consHtml ? `<div class="mt-3">${consHtml}</div>` : ''}`
+    ? `<p class="${introCls}">${intro}</p>${quotes}${consHtml ? `<div class="mt-3">${consHtml}</div>` : ''}`
     : (consHtml || fallback);
   return `<section class="critical-reviews mt-4 border border-trust-low bg-trust-low-bg p-4" aria-label="Critical reviews">
 <h4 class="crit-head flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-trust-low"><span aria-hidden="true">&#9888;</span> Why some reviewers rated it low</h4>

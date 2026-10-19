@@ -13,8 +13,6 @@ import { MIN_CREDIBLE_SCORE } from './extract/scoring.js';
 import { analyze } from './extract/engine.js';
 
 export const MIN_PRODUCTS = 3;
-// A corpus this rich skips the extraction preview (saves a full analyze() pass on most runs).
-const RICH_CORPUS_BODIES = 12;
 const DEFAULT_DEADLINE_MS = 30_000;
 // The same body floor the con-span miner uses (extract/engine.js conCandidateSpans).
 const MIN_BODY_CHARS = 400;
@@ -68,25 +66,31 @@ async function defaultRead(source, env, timeoutMs) {
   return copy;
 }
 
-// Resolves to `fallback` once `ms` passes, so a hung provider cannot hold the run.
+// Resolves to `fallback` once `ms` passes, so a hung provider cannot hold the run. The
+// search layer takes no abort signal; an abandoned call ends on its provider's own timeout.
 function withDeadline(promise, ms, fallback) {
   let timer;
   const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), Math.max(0, ms)); });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+const TIMED_OUT = Symbol('timed-out');
+
+// Returns { found, answered }: answered counts searches that came back before the deadline.
 async function rewriteSearches(queries, opts) {
   const { search, env, recencySensitive, remaining } = opts;
   const results = await Promise.all(queries.map(async (q) => {
     try {
-      const res = await withDeadline(search(q, 'web', env, recencySensitive), remaining(), []);
-      return Array.isArray(res) ? res : [];
+      const res = await withDeadline(search(q, 'web', env, recencySensitive), remaining(), TIMED_OUT);
+      if (res === TIMED_OUT) console.warn(`[thin-corpus] search "${q}" timed out`);
+      return res;
     } catch (err) {
       console.warn(`[thin-corpus] search "${q}" failed: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }));
-  return results.flat();
+  const answered = results.filter((r) => r !== TIMED_OUT);
+  return { found: answered.filter(Array.isArray).flat(), answered: answered.length };
 }
 
 function appendNew(sources, found) {
@@ -112,7 +116,6 @@ export async function runThinCorpusFallback(opts = {}) {
   } = opts;
   const list = Array.isArray(sources) ? sources : [];
   const skip = { triggered: false, searched: 0, read: 0, sources: list };
-  if (readableBodyCount(list) >= RICH_CORPUS_BODIES) return skip;
   const count = deps.countProducts || ((src) => analyze(query, notes || [], src, facets || {}, topicalCategory || '').length);
   if (count(list) >= MIN_PRODUCTS) return skip;
 
@@ -120,7 +123,7 @@ export async function runThinCorpusFallback(opts = {}) {
   const remaining = () => Math.max(0, stopAt - Date.now());
   const queries = thinCorpusQueries(query, topicalCategory).slice(0, Math.max(0, maxSearches));
   const search = deps.search || runSearch;
-  const found = await rewriteSearches(queries, { search, env, recencySensitive, remaining });
+  const { found, answered } = await rewriteSearches(queries, { search, env, recencySensitive, remaining });
   const pool = appendNew(list, found);
 
   const read = deps.read || ((s) => defaultRead(s, env, Math.min(READ_TIMEOUT_MS, remaining())));
@@ -136,5 +139,5 @@ export async function runThinCorpusFallback(opts = {}) {
   const readByUrl = new Map(targets.map((s, i) => [s, results[i]]));
   const merged = pool.map((s) => readByUrl.get(s) || s);
   const readCount = results.filter((r, i) => r !== targets[i] && hasBody(r)).length;
-  return { triggered: true, searched: queries.length, read: readCount, sources: merged };
+  return { triggered: true, searched: answered, read: readCount, sources: merged };
 }

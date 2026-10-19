@@ -338,8 +338,9 @@ export async function runEngine(
             await emitEvent(onEvent, state, 'status', `Ran ${r.searched} recall searches for missing leaders...`);
           }
         }
-      } catch {
-        /* failure must never abort research */
+      } catch (err) {
+        // Never aborts research; logged so a broken recall phase is visible.
+        console.warn(`[recall-gather] failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -347,11 +348,12 @@ export async function runEngine(
   // ── Thin-corpus fallback (CP-396) ────────────────────────────────────────
   // Fires only when a preview of the extraction finds < 3 products (the linen-shirts case;
   // the check runs inside). It has its own small allowance, since a thin run has usually
-  // spent its budget on unreadable pages: it may start until the loop budget ends and is
-  // then cut off THIN_CORPUS_GRACE_MS later at most. Subrequest budget still applies.
+  // spent its budget on unreadable pages: it may start up to THIN_CORPUS_GRACE_MS past the
+  // loop budget (recall often ends there) and is cut off THIN_CORPUS_GRACE_MS after it
+  // starts. Subrequest budget still applies.
   const thinSubs = THIN_CORPUS_SEARCHES * 6 + THIN_CORPUS_READS;
   if (
-    Date.now() - startTime <= config.agentLoopBudgetMs &&
+    Date.now() - startTime <= config.agentLoopBudgetMs + THIN_CORPUS_GRACE_MS &&
     subrequestsUsed + thinSubs < SUBREQUEST_BUDGET - SUBREQUEST_RESERVE_FOR_SYNTHESIS
   ) {
     try {

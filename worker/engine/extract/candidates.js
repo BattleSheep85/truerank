@@ -200,7 +200,10 @@ function trimNameTail(toks) {
 const GARMENT_NOUNS = new Set(['shirt', 'shirts', 'tee', 'tees', 't-shirt', 't-shirts', 'sweater', 'sweaters', 'crewneck',
   'cardigan', 'hoodie', 'sweatshirt', 'polo', 'henley', 'overshirt', 'blouse', 'top', 'tank', 'jean', 'jeans', 'pants',
   'pant', 'trousers', 'chinos', 'chino', 'joggers', 'jogger', 'shorts', 'leggings', 'skirt', 'dress', 'jumpsuit',
-  'jacket', 'coat', 'parka', 'blazer', 'vest', 'socks', 'boxers', 'briefs', 'underwear', 'robe', 'pajamas', 'swimsuit']);
+  'jacket', 'coat', 'parka', 'blazer', 'vest', 'socks', 'boxers', 'briefs', 'underwear', 'robe', 'pajamas', 'swimsuit',
+  // footwear shares the apparel cluster; its noun ends the name ("Allen Edmonds Dress Shoe")
+  'shoe', 'shoes', 'boot', 'boots', 'sneaker', 'sneakers', 'sandal', 'sandals', 'loafer', 'loafers', 'slipper', 'slippers',
+  'heels', 'flats', 'clogs', 'mules']);
 const MAX_NAME_TOKENS = 5;
 const MAX_GARMENT_NAME_TOKENS = 6; // "Quince European Linen Long Sleeve Shirt"
 const isGarment = (t) => GARMENT_NOUNS.has(cleanTok(t).toLowerCase());
