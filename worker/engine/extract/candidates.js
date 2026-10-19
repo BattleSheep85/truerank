@@ -281,7 +281,48 @@ export function harvestCandidates(sources, notes, opts = {}) {
     }
     if (c.sents.length) cands.set(key, c); // only when actually present in sources
   }
-  return [...cands.values()];
+  return splitMergedCandidates([...cands.values()]);
+}
+
+// CP-395: two neighbor products harvested as ONE candidate ("Synology Photos Immich").
+// A code-free name is split when a prefix and the rest are BOTH candidates in their own
+// right, each with a mention outside the merged name. The merged row's sentences go to
+// both parts, so neither starves of pros/cons. Names with a model code are left to
+// brandTruncate, and a bare one-token brand prefix never splits ("Sony" + "WH-1000XM5").
+function splitMergedCandidates(cands) {
+  const byKey = new Map(cands.map((c) => [norm(c.name), c]));
+  const splits = new Map();
+  for (const c of cands) {
+    const parts = findSplit(c, byKey);
+    if (parts) splits.set(c, parts);
+  }
+  if (!splits.size) return cands;
+  const extra = new Map();
+  for (const [merged, parts] of splits) {
+    for (const part of parts) {
+      const prev = extra.get(part) || { srcIdx: [], sents: [] };
+      extra.set(part, { srcIdx: [...prev.srcIdx, ...merged.srcIdx], sents: [...prev.sents, ...merged.sents] });
+    }
+  }
+  return cands
+    .filter((c) => !splits.has(c))
+    .map((c) => {
+      const add = extra.get(c);
+      if (!add) return c;
+      return { ...c, srcIdx: new Set([...c.srcIdx, ...add.srcIdx]), sents: [...c.sents, ...add.sents] };
+    });
+}
+
+function findSplit(c, byKey) {
+  if (c.toks.length < 3 || hasModelCode(c.name)) return null;
+  const mergedLow = c.name.toLowerCase();
+  const standsAlone = (part) => part && part !== c && part.sents.some((s) => !s.sentence.toLowerCase().includes(mergedLow));
+  for (let k = 2; k < c.toks.length; k++) {
+    const head = byKey.get(norm(c.toks.slice(0, k).join(' ')));
+    const tail = byKey.get(norm(c.toks.slice(k).join(' ')));
+    if (standsAlone(head) && standsAlone(tail)) return [head, tail];
+  }
+  return null;
 }
 
 // ── entity resolution (conservative — under-merge beats over-merge) ────────────
