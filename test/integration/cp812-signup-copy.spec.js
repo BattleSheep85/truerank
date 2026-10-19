@@ -20,12 +20,11 @@ const post = (email, ip) => new Request('https://x/api/subscribe', {
   headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
 });
 
-const stubTransport = async () => ({ ok: true, response: '250 queued' });
+const stubTransport = async () => ({ ok: true, response: 'msg_test' });
 const mailOnEnv = () => ({
   ...env,
   MAIL_ENABLED: 'true',
-  TRUERANK_SMTP_USER: 'mailbox@example.test',
-  TRUERANK_SMTP_PASSWORD: 'test-only-value',
+  TRUERANK_RESEND_API_KEY: 'test-only-value',
   __mailTransport: stubTransport,
 });
 
@@ -38,7 +37,7 @@ describe('signup answer says whether mail is on', () => {
     expect(row).toBeTruthy();
   });
 
-  it('mail switched on but no SMTP secrets: still "off"', async () => {
+  it('mail switched on but no Resend key: still "off"', async () => {
     const res = await handleSubscribe(post('nosecret@example.test', '10.8.12.2'), { ...env, MAIL_ENABLED: 'true' });
     expect(await res.json()).toEqual({ ok: true, mail: 'off' });
   });

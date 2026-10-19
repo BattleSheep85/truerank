@@ -7,14 +7,11 @@
 # providers, handlers, engine LLM, full SSR pages) need the Cloudflare runtime and
 # are integration code — out of this unit-coverage target by design.
 #
-# Most modules sit at 100% line. Two known gaps keep the total just under it:
+# Most modules sit at 100% line. One known gap keeps the total just under it:
 #   - affiliate-links.js has ONE unreachable defensive catch (the URL is
 #     pre-validated by isValidHttpsUrl, so the inner new URL() cannot throw).
-#   - smtp.js openCloudflareSocket() imports 'cloudflare:sockets', which plain
-#     Node cannot load. Everything below that 3-line adapter is covered through
-#     the injected-socket seam.
 # Thresholds are set just under the real number so a regression fails the gate
-# while those two known gaps do not.
+# while that known gap does not.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,8 +34,7 @@ INCLUDES=(
   worker/lib/pool.js
   worker/engine/stance-votes.js
   worker/lib/connection-gate.js
-  worker/lib/mime.js
-  worker/lib/smtp.js
+  worker/lib/resend.js
   worker/lib/email-templates.js
   worker/lib/subscribe-flow.js
   worker/lib/listable.js

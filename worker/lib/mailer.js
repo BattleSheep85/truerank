@@ -6,27 +6,27 @@
  *
  * Gate order (first match wins):
  *   1. MAIL_ENABLED is not exactly "true"      -> skipped: 'disabled'
- *   2. TRUERANK_SMTP_USER / PASSWORD missing   -> skipped: 'not-configured'
+ *   2. TRUERANK_RESEND_API_KEY missing         -> skipped: 'not-configured'
  *   3. MAIL_DAILY_CAP reached for the UTC day  -> skipped: 'daily-cap'
  *
  * Gate 1 is fail-CLOSED on purpose. An absent or misspelled MAIL_ENABLED keeps
  * mail off, so losing the var can never switch sending on by accident.
  *
- * The seam is `env.__mailTransport`. Integration tests attach a recording stub
- * there, so no socket ever opens in a test run. Production never sets it.
+ * The seam is `env.__mailTransport`, called as `transport(cfg, payload)` with
+ * the Resend JSON body. Integration tests attach a recording stub there, so no
+ * request ever leaves a test run. Production never sets it, and the default
+ * transport posts to Resend (worker/lib/resend.js).
  *
  * SECURITY: the log line carries a short hash of the recipient, never the
- * address, never the credentials, and never the message body.
+ * address, never the API key, and never the message body.
  */
 
-import { buildMimeMessage } from './mime.js';
-import { sendViaSmtp } from './smtp.js';
+import { buildResendPayload, sendViaResend } from './resend.js';
 
-const DEFAULT_HOST = 'smtp.hostinger.com';
-const DEFAULT_PORT = '465';
 const DEFAULT_FROM = 'chris@chrisputer.tech';
 const DEFAULT_FROM_NAME = 'Frank';
-const DEFAULT_DAILY_CAP = 200;
+// Resend's free plan allows 100 sends per day (docs/email-design.md s.3).
+const DEFAULT_DAILY_CAP = 100;
 // Two days of TTL covers the UTC-day rollover with room to inspect the counter.
 const COUNTER_TTL_S = 2 * 86400;
 const HASH_CHARS = 12;
@@ -43,21 +43,18 @@ export function mailSettings(env) {
     return {
         from,
         fromName: env.MAIL_FROM_NAME || DEFAULT_FROM_NAME,
-        host: env.SMTP_HOST || DEFAULT_HOST,
-        port: env.SMTP_PORT || DEFAULT_PORT,
-        heloDomain: from.slice(from.indexOf('@') + 1),
         dailyCap: Number.isFinite(capRaw) && capRaw > 0 ? capRaw : DEFAULT_DAILY_CAP,
     };
 }
 
-/** True only when the switch says "true" and both secrets are present. */
+/** True only when the switch says exactly "true". */
 export function mailEnabled(env) {
     return String(env?.MAIL_ENABLED ?? '') === 'true';
 }
 
-/** True when mail is switched on and both secrets are present. */
+/** True when mail is switched on and the Resend key is present. */
 export function mailConfigured(env) {
-    return mailEnabled(env) && Boolean(env?.TRUERANK_SMTP_USER && env?.TRUERANK_SMTP_PASSWORD);
+    return mailEnabled(env) && Boolean(env?.TRUERANK_RESEND_API_KEY);
 }
 
 /** Short, one-way tag for logs so an address never reaches the log stream. */
@@ -70,9 +67,9 @@ async function hashAddress(address) {
     }
 }
 
-/** Default transport: the hand-written SMTP client. Swapped out by the seam. */
-function defaultTransport(cfg, rawMessage) {
-    return sendViaSmtp(cfg, rawMessage);
+/** Default transport: the Resend HTTP API. Swapped out by the seam. */
+function defaultTransport(cfg, payload) {
+    return sendViaResend(cfg, payload);
 }
 
 /** Read today's send counter. A KV failure reads as zero so mail is not lost. */
@@ -109,7 +106,7 @@ export async function sendMail(env, message) {
         console.log(JSON.stringify({ where: 'mailer', skipped: 'disabled' }));
         return { ok: false, skipped: 'disabled' };
     }
-    if (!env?.TRUERANK_SMTP_USER || !env?.TRUERANK_SMTP_PASSWORD) {
+    if (!env?.TRUERANK_RESEND_API_KEY) {
         console.log(JSON.stringify({ where: 'mailer', skipped: 'not-configured' }));
         return { ok: false, skipped: 'not-configured' };
     }
@@ -124,7 +121,7 @@ export async function sendMail(env, message) {
 
     const tag = await hashAddress(String(message?.to || ''));
     try {
-        const raw = buildMimeMessage({
+        const payload = buildResendPayload({
             from: settings.from,
             fromName: settings.fromName,
             to: message.to,
@@ -134,18 +131,10 @@ export async function sendMail(env, message) {
             extraHeaders: message.extraHeaders || {},
         });
         const transport = typeof env.__mailTransport === 'function' ? env.__mailTransport : defaultTransport;
-        const result = await transport({
-            host: settings.host,
-            port: settings.port,
-            username: env.TRUERANK_SMTP_USER,
-            password: env.TRUERANK_SMTP_PASSWORD,
-            from: settings.from,
-            to: message.to,
-            heloDomain: settings.heloDomain,
-        }, raw);
+        const result = await transport({ apiKey: env.TRUERANK_RESEND_API_KEY, to: message.to }, payload);
         if (env.KV) await bumpDailyCount(env.KV, counterKey, sentToday);
-        // The accept line holds the server's queue id and no personal data.
-        // It is what a mail-host support ticket needs to trace a message.
+        // The accept line holds Resend's message id and no personal data.
+        // It is what a Resend support ticket needs to trace a message.
         console.log(JSON.stringify({ where: 'mailer', to: tag, ok: true, response: result?.response }));
         return { ok: true, response: result?.response };
     } catch (err) {

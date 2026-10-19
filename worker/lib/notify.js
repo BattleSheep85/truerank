@@ -22,8 +22,9 @@ export const NOTIFY_DEDUPE_S = 3600;
 export const NOTIFY_MAX_RECIPIENTS = 100;
 // Cap on how many emails are dispatched per invocation so notify never blows subrequests.
 export const NOTIFY_BATCH_SIZE = 25;
-// Concurrency for parallel SMTP dialogues.
-export const NOTIFY_CONCURRENCY = 5;
+// Parallel Resend API calls. Kept at 2: Resend's default rate limit is about
+// 2 requests per second per team, and resend.js retries one 429 only.
+export const NOTIFY_CONCURRENCY = 2;
 // Overall time ceiling for the notification phase so a slow mail host never stalls the run.
 export const NOTIFY_TIME_CEILING_MS = 15_000;
 

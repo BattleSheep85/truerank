@@ -9,7 +9,7 @@
  * The response is always the same generic {ok:true} on well-formed input, in
  * every state (new, repeat, confirmed, cooling down). That keeps the endpoint
  * free of an email-enumeration surface. While mail is off (not switched on, or
- * no SMTP secrets) it adds mail:'off', the same for every address, so the
+ * no Resend key) it adds mail:'off', the same for every address, so the
  * form does not promise a mail that will never come (CP-812). A skipped send
  * stamps nothing, so the visitor's next submit after mail is on sends it.
  *
@@ -230,7 +230,7 @@ export async function handleSubscribe(request, env) {
     if (plan.sendConfirmation && applied.rowId != null && applied.confirmToken) {
         // Best effort: a mail failure never changes the response, because the
         // response must not reveal which state this address is in. The send is
-        // awaited, so the SMTP dialogue can never outlive the request context.
+        // awaited, so the Resend request can never outlive the request context.
         const outcome = await sendConfirmation(env, { email, researchId, now, ...applied })
             .catch((err) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }));
         if (!outcome?.ok) logUndeliveredConfirmation(outcome || {}, applied.rowId);

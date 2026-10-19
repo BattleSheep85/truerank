@@ -476,6 +476,13 @@ worker. The same code delivered real mail through `npx wrangler dev`.
       `fetch`, for example Resend or Postmark) or option C2 (Cloudflare Email
       Service, beta) in `docs/email-design.md` section 3. Owner decision. The
       `worker/lib/mailer.js` transport seam is the only file that changes.
+      Picked 2026-10-15: Resend (CP-356). Code done 2026-10-19 (CP-622, branch
+      `agent/dev/cp-622`): `worker/lib/resend.js` replaces `smtp.js` and
+      `mime.js`, secret `TRUERANK_RESEND_API_KEY`, `MAIL_DAILY_CAP` 100,
+      `MAIL_ENABLED` "true", privacy page names Resend. Still open: the Worker
+      secret, the `resend._domainkey` DKIM record, a real test mail, and
+      deleting the two old SMTP secrets. The MX and SPF TXT on `send` were
+      added 2026-10-19.
 - [x] Re-checked option C2 (Cloudflare Email Service) against current docs,
       2026-08-03: still disqualified. Onboarding a domain for outbound sending
       is dashboard-only ("Compute > Email Service > Email Sending > Onboard

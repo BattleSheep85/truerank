@@ -2,12 +2,12 @@
 //
 // NO TEST HERE CAN SEND REAL MAIL. Two independent guards:
 //   1. The harness env has MAIL_ENABLED = "false" (from wrangler.toml) and no
-//      SMTP secrets, so an un-stubbed path degrades to a logged skip.
+//      Resend key, so an un-stubbed path degrades to a logged skip.
 //   2. Every sending test runs against a COPY of env that carries a recording
 //      stub at `env.__mailTransport`, which is the seam sendMail resolves
-//      before it ever reaches worker/lib/smtp.js. No socket is opened.
+//      before it ever reaches worker/lib/resend.js. No request leaves.
 import { env } from 'cloudflare:test';
-import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import { applySchema } from './_schema.js';
 import { completeResearch } from './_helpers.js';
 import { handleSubscribe } from '../../worker/handlers/subscribe.js';
@@ -41,14 +41,21 @@ beforeEach(async () => {
   await clearKv(env.KV);
 });
 
-// A transport that records the recipient and the raw message. It NEVER stores
-// the credentials it is handed.
+// Flatten a Resend payload into header lines plus both bodies, so a spec can
+// search one string for a subject, a header, or a link.
+function flatten(payload) {
+  const headers = Object.entries(payload.headers).map(([k, v]) => `${k}: ${v}`);
+  return [`Subject: ${payload.subject}`, ...headers, '', payload.text, payload.html].join('\n');
+}
+
+// A transport that records the recipient and the message. It NEVER stores the
+// API key it is handed.
 function recordingTransport(behaviour = 'ok') {
   const calls = [];
-  const transport = async (cfg, raw) => {
-    calls.push({ to: cfg.to, raw, host: cfg.host, heloDomain: cfg.heloDomain });
-    if (behaviour === 'throw') throw new Error('smtp refused');
-    return { ok: true, response: '250 2.0.0 Ok: queued as TEST' };
+  const transport = async (cfg, payload) => {
+    calls.push({ to: cfg.to, payload, raw: flatten(payload) });
+    if (behaviour === 'throw') throw new Error('resend refused');
+    return { ok: true, response: 'msg_TEST' };
   };
   return { calls, transport };
 }
@@ -60,8 +67,7 @@ const mailEnv = (transport) => {
   return {
     ...env,
     MAIL_ENABLED: 'true',
-    TRUERANK_SMTP_USER: 'mailbox@example.test',
-    TRUERANK_SMTP_PASSWORD: 'test-only-value',
+    TRUERANK_RESEND_API_KEY: 'test-only-value',
     __mailTransport: transport,
   };
 };
@@ -74,13 +80,8 @@ const postJson = (body, ip = '9.9.9.9') => new Request('https://x/api/subscribe'
   headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
 });
 
-// The bodies are base64 multipart parts, so decode them before asserting.
-function readableBody(raw) {
-  const boundary = raw.match(/boundary="([^"]+)"/)[1];
-  return raw.split(`--${boundary}`).slice(1, -1)
-    .map((part) => atob((part.split('\r\n\r\n')[1] || '').split('\r\n').join('')))
-    .join('\n');
-}
+// Both bodies of one recorded send, joined.
+const readableBody = (call) => `${call.payload.text}\n${call.payload.html}`;
 
 const tokenFor = (email) => env.DB.prepare('SELECT confirm_token FROM subscribers WHERE email = ?1').bind(email).first();
 
@@ -101,7 +102,7 @@ describe('subscribe: double opt-in', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].to).toBe('new@example.test');
-    expect(readableBody(calls[0].raw)).toContain(`https://chrisputer.tech/confirm?token=${row.confirm_token}`);
+    expect(readableBody(calls[0])).toContain(`https://chrisputer.tech/confirm?token=${row.confirm_token}`);
     expect(calls[0].raw).toContain('Subject: Confirm your Frank email notification');
   });
 
@@ -110,7 +111,7 @@ describe('subscribe: double opt-in', () => {
     await insertResearch(env.DB, { id, slug: `s-${id}`, query: 'best standing desks', canonicalQuery: 'q' });
     const { calls, transport } = recordingTransport();
     await handleSubscribe(postJson({ email: 'ctx@example.test', researchId: id }, '10.0.0.2'), mailEnv(transport));
-    expect(readableBody(calls[0].raw)).toContain('best standing desks');
+    expect(readableBody(calls[0])).toContain('best standing desks');
   });
 
   it('a repeat signup inside the cooldown sends nothing and still answers ok', async () => {
@@ -234,7 +235,7 @@ describe('notify: report ready', () => {
     expect(calls[0].to).toBe('yes@example.test');
     expect(calls[0].raw).toContain('List-Unsubscribe: <https://chrisputer.tech/unsubscribe?token=tok-yes>');
     expect(calls[0].raw).toContain('List-Unsubscribe-Post: List-Unsubscribe=One-Click');
-    expect(readableBody(calls[0].raw)).toContain(`https://chrisputer.tech/research/slug-${rid}`);
+    expect(readableBody(calls[0])).toContain(`https://chrisputer.tech/research/slug-${rid}`);
 
     const row = await env.DB.prepare("SELECT last_notified_at FROM subscribers WHERE email = 'yes@example.test'").first();
     expect(row.last_notified_at).toBeGreaterThan(0);
@@ -349,13 +350,13 @@ describe('mailer gates', () => {
     expect(mailConfigured(env)).toBe(false);
     const result = await sendMail(env, { to: 'nobody@example.test', subject: 's', text: 't', html: '<p>h</p>' });
     expect(result.ok).toBe(false);
-    expect(result.skipped).toBe('disabled'); // wrangler.toml ships MAIL_ENABLED = "false"
+    expect(result.skipped).toBe('disabled'); // vitest.config.js forces MAIL_ENABLED = "false"
   });
 
   it('skips with not-configured when the switch is on but the secrets are missing', async () => {
     // The stub is still attached, so even this path cannot open a socket.
     const { calls, transport } = recordingTransport();
-    const noSecrets = { ...mailEnv(transport), TRUERANK_SMTP_USER: '', TRUERANK_SMTP_PASSWORD: '' };
+    const noSecrets = { ...mailEnv(transport), TRUERANK_RESEND_API_KEY: '' };
     const result = await sendMail(noSecrets, { to: 'nobody@example.test', subject: 's', text: 't', html: '<p>h</p>' });
     expect(result).toEqual({ ok: false, skipped: 'not-configured' });
     expect(calls).toHaveLength(0);
@@ -370,9 +371,8 @@ describe('mailer gates', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('the pool blanks the SMTP secrets, so the real transport is unreachable', async () => {
-    expect(env.TRUERANK_SMTP_USER || '').toBe('');
-    expect(env.TRUERANK_SMTP_PASSWORD || '').toBe('');
+  it('the pool blanks the Resend key, so the real transport is unreachable', async () => {
+    expect(env.TRUERANK_RESEND_API_KEY || '').toBe('');
     expect(env.MAIL_ENABLED).toBe('false');
   });
 
@@ -396,7 +396,7 @@ describe('mailer gates', () => {
     const { transport } = recordingTransport('throw');
     const result = await sendMail(mailEnv(transport), { to: 'fail@example.test', subject: 's', text: 't', html: '<p>h</p>' });
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('smtp refused');
+    expect(result.error).toContain('resend refused');
   });
 
   it('returns an error instead of throwing when the message cannot be built', async () => {
@@ -404,5 +404,40 @@ describe('mailer gates', () => {
     const result = await sendMail(mailEnv(transport), { to: 'not-an-address', subject: 's', text: 't', html: '<p>h</p>' });
     expect(result.ok).toBe(false);
     expect(calls).toHaveLength(0);
+  });
+  it('hands the transport the key and a Resend payload from Frank', async () => {
+    const { calls, transport } = recordingTransport();
+    const seen = [];
+    const spy = async (cfg, payload) => { seen.push(cfg.apiKey); return transport(cfg, payload); };
+    await sendMail({ ...mailEnv(spy) }, { to: 'shape@example.test', subject: 's', text: 't', html: '<p>h</p>' });
+    expect(seen).toEqual(['test-only-value']);
+    expect(calls[0].payload.from).toBe('Frank <chris@chrisputer.tech>');
+    expect(calls[0].payload.to).toEqual(['shape@example.test']);
+  });
+});
+
+describe('default transport (no stub)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('posts to the Resend API with a Bearer key and counts the send', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 }));
+    const { __mailTransport, ...live } = mailEnv(async () => ({}));
+    const result = await sendMail(live, { to: 'live@example.test', subject: 's', text: 't', html: '<p>h</p>' });
+    expect(result).toEqual({ ok: true, response: 'msg_1' });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('https://api.resend.com/emails');
+    expect(init.headers.Authorization).toBe('Bearer test-only-value');
+    expect(JSON.parse(init.body).to).toEqual(['live@example.test']);
+    expect(Number(await env.KV.get(dailyCounterKey(Date.now())))).toBe(1);
+  });
+
+  it('a Resend refusal becomes an error result and is not counted', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ message: 'Domain not verified' }), { status: 403 }));
+    const { __mailTransport, ...live } = mailEnv(async () => ({}));
+    const result = await sendMail(live, { to: 'live@example.test', subject: 's', text: 't', html: '<p>h</p>' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Domain not verified');
+    expect(await env.KV.get(dailyCounterKey(Date.now()))).toBe(null);
   });
 });

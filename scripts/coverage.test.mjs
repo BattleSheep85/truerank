@@ -24,8 +24,7 @@ import { runLlmJsonTests } from '../test/unit/llm-json.test.js';
 import { runPoolTests } from '../test/unit/pool.test.js';
 import { runStanceVotesTests } from '../test/unit/stance-votes.test.js';
 import { runConnectionGateTests } from '../test/unit/connection-gate.test.js';
-import { runEmailMimeTests } from '../test/unit/email-mime.test.js';
-import { runSmtpTests } from '../test/unit/smtp.test.js';
+import { runResendTests } from '../test/unit/resend.test.js';
 import { runEmailTemplatesTests } from '../test/unit/email-templates.test.js';
 import { runSubscribeFlowTests } from '../test/unit/subscribe-flow.test.js';
 import { runListableTests } from '../test/unit/listable.test.js';
@@ -56,8 +55,7 @@ const suites = [
   ['pool', runPoolTests],
   ['stance-votes', runStanceVotesTests],
   ['connection-gate', runConnectionGateTests],
-  ['email-mime', runEmailMimeTests],
-  ['smtp', runSmtpTests],
+  ['resend', runResendTests],
   ['email-templates', runEmailTemplatesTests],
   ['subscribe-flow', runSubscribeFlowTests],
   ['listable', runListableTests],
