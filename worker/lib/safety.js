@@ -152,6 +152,62 @@ function normalize(query) {
   return ' ' + String(query || '').toLowerCase().replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
 }
 
+// CP-394: obfuscation folding. The denylist runs on the plain form AND on folded forms, so
+// "p0rn", "$ex", "p o r n", "p.o.r.n", "pörn", Cyrillic "роrn" and "pooorn" all reach it.
+// Folding only feeds the denylist; the query itself is never rewritten.
+const INVISIBLE_CHARS = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
+const COMBINING_MARKS = /[\u0300-\u036F]/g;
+const HOMOGLYPHS = {
+  '\u0430': 'a', '\u0435': 'e', '\u043E': 'o', '\u0440': 'p', '\u0441': 'c', '\u0445': 'x', '\u0443': 'y',
+  '\u0456': 'i', '\u0458': 'j', '\u0455': 's', '\u043A': 'k', '\u043C': 'm', '\u0442': 't', '\u043D': 'h',
+  '\u03BF': 'o', '\u03B1': 'a', '\u03B5': 'e', '\u03B9': 'i', '\u03BA': 'k', '\u03BD': 'v', '\u03C1': 'p',
+};
+const HOMOGLYPH_PATTERN = new RegExp(`[${Object.keys(HOMOGLYPHS).join('')}]`, 'g');
+// Two maps because "1" stands for both "i" (s1ut) and "l" (1oli).
+const LEET_MAPS = [
+  { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', 9: 'g', '@': 'a', $: 's', '!': 'i', '|': 'l', '+': 't' },
+  { 0: 'o', 1: 'l', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', 9: 'g', '@': 'a', $: 's', '!': 'l', '|': 'l', '+': 't' },
+];
+const LEET_CHARS = /[0-9@$!|+]/g;
+const HAS_LETTER = /[a-z]/;
+// Runs of 2+ single-character tokens ("p o r n") are joined into one word.
+const SINGLE_CHAR_RUN = /(?:^| )((?:[a-z0-9] ){1,}[a-z0-9])(?= |$)/g;
+const STRETCHED_LETTERS = /([a-z])\1{2,}/g;
+
+function foldUnicode(query) {
+  return String(query || '')
+    .normalize('NFKD')
+    .replace(INVISIBLE_CHARS, '')
+    .replace(COMBINING_MARKS, '')
+    .toLowerCase()
+    .replace(HOMOGLYPH_PATTERN, (ch) => HOMOGLYPHS[ch]);
+}
+
+// Leetspeak is undone only inside tokens that already hold a letter, so "$400" and "1080"
+// stay numbers while "p0rn" and "$ex" become words.
+function unleet(text, map) {
+  return text
+    .split(/\s+/)
+    .map((token) => (HAS_LETTER.test(token) ? token.replace(LEET_CHARS, (ch) => map[ch] ?? ch) : token))
+    .join(' ');
+}
+
+function joinSingleChars(normalized) {
+  return normalized.replace(SINGLE_CHAR_RUN, (match, run) => match.slice(0, match.length - run.length) + run.replace(/ /g, ''));
+}
+
+/** Every form of a query the denylist checks: plain, plus leetspeak, spacing and stretch folds. */
+export function denylistForms(query) {
+  const folded = foldUnicode(query);
+  const forms = new Set([normalize(query), normalize(folded)]);
+  for (const map of LEET_MAPS) {
+    const joined = normalize(unleet(joinSingleChars(normalize(unleet(folded, map))), map));
+    forms.add(joined);
+    forms.add(joined.replace(STRETCHED_LETTERS, '$1'));
+  }
+  return [...forms];
+}
+
 /**
  * Screen a query. Returns { blocked, reason } where reason is 'adult' | 'illegal' | 'probe' | null.
  * Deterministic, fail-closed, no network. Run this BEFORE the LLM classifier and research.
@@ -167,11 +223,15 @@ export function screenQuery(query, options = {}) {
     return { blocked: true, reason: 'probe' };
   }
 
-  const q = normalize(raw);
-  for (const re of ADULT_PATTERNS) if (re.test(q)) return { blocked: true, reason: 'adult' };
-  for (const re of ILLEGAL_PATTERNS) if (re.test(q)) return { blocked: true, reason: 'illegal' };
+  const forms = denylistForms(raw);
+  if (matchesAny(forms, ADULT_PATTERNS)) return { blocked: true, reason: 'adult' };
+  if (matchesAny(forms, ILLEGAL_PATTERNS)) return { blocked: true, reason: 'illegal' };
 
   return { blocked: false, reason: null };
+}
+
+function matchesAny(forms, patterns) {
+  return forms.some((form) => patterns.some((re) => re.test(form)));
 }
 
 /** User-facing rejection message for a blocked query (no detail that aids circumvention). */
