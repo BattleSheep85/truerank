@@ -139,6 +139,9 @@ export function runSafetyTests() {
     { q: 'best h3ntai! manga', reason: 'adult', desc: 'leetspeak hentai plus !' },
     { q: 'best s3x+toys', reason: 'adult', desc: 'plus sign between words' },
     { q: 'buy c0caine@ home', reason: 'illegal', desc: 'trailing @' },
+    { q: 'how to make a b o m b', reason: 'illegal', desc: 'spaced word after the word "a"' },
+    { q: 'how to make a b-o-m-b', reason: 'illegal', desc: 'dashed word after the word "a"' },
+    { q: 'buy a g u n illegally', reason: 'illegal', desc: 'spaced gun after the word "a"' },
   ];
   for (const { q, reason, desc } of cp394Blocked) {
     const res = screenQuery(q);

@@ -172,6 +172,8 @@ const LEET_CHARS = /[0-9@$!|+]/g;
 const HAS_LETTER = /[a-z]/;
 // Runs of 2+ single-character tokens ("p o r n") are joined into one word.
 const SINGLE_CHAR_RUN = /(?:^| )((?:[a-z0-9] ){1,}[a-z0-9])(?= |$)/g;
+// Same, but a leading "a" or "i" stays its own word, so "make a b o m b" reads "make a bomb".
+const SINGLE_CHAR_RUN_KEEP_ARTICLE = /(?:^| )(?:[ai] )?((?:[a-z0-9] ){1,}[a-z0-9])(?= |$)/g;
 const STRETCHED_LETTERS = /([a-z])\1{2,}/g;
 
 function foldUnicode(query) {
@@ -192,8 +194,8 @@ function unleet(text, map) {
     .join(' ');
 }
 
-function joinSingleChars(normalized) {
-  return normalized.replace(SINGLE_CHAR_RUN, (match, run) => match.slice(0, match.length - run.length) + run.replace(/ /g, ''));
+function joinSingleChars(normalized, pattern = SINGLE_CHAR_RUN) {
+  return normalized.replace(pattern, (match, run) => match.slice(0, match.length - run.length) + run.replace(/ /g, ''));
 }
 
 /** Every form of a query the denylist checks: plain, plus leetspeak, spacing and stretch folds. */
@@ -201,12 +203,14 @@ export function denylistForms(query) {
   const folded = foldUnicode(query);
   const forms = new Set([normalize(query), normalize(folded)]);
   for (const map of LEET_MAPS) {
-    // Symbols read as letters ("$ex"), and symbols read as punctuation ("p0rn!", "s3x+toys").
-    const symbolsAsLetters = normalize(unleet(joinSingleChars(normalize(unleet(folded, map))), map));
-    const symbolsAsSpaces = normalize(unleet(joinSingleChars(normalize(folded)), map));
-    for (const form of [symbolsAsLetters, symbolsAsSpaces]) {
-      forms.add(form);
-      forms.add(form.replace(STRETCHED_LETTERS, '$1'));
+    for (const runPattern of [SINGLE_CHAR_RUN, SINGLE_CHAR_RUN_KEEP_ARTICLE]) {
+      // Symbols read as letters ("$ex"), and symbols read as punctuation ("p0rn!", "s3x+toys").
+      const symbolsAsLetters = normalize(unleet(joinSingleChars(normalize(unleet(folded, map)), runPattern), map));
+      const symbolsAsSpaces = normalize(unleet(joinSingleChars(normalize(folded), runPattern), map));
+      for (const form of [symbolsAsLetters, symbolsAsSpaces]) {
+        forms.add(form);
+        forms.add(form.replace(STRETCHED_LETTERS, '$1'));
+      }
     }
   }
   return [...forms];
