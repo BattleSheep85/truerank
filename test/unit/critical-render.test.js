@@ -28,6 +28,10 @@ export function runCriticalRenderTests() {
   eq('quotes come before the summarized cons', html.indexOf('hinge snapped') < html.indexOf('The cord is short.'), true);
   eq('summarized cons still shown', html.includes('The cord is short.'), true);
 
+  eq('the below-4 intro still shows with quotes', html.includes('This scores below 4★'), true);
+  const unrated = renderProduct(base({ rating: null, critical_reviews: [quote] }), 0, ids, false, 'acme', false, false);
+  eq('the unrated intro still shows with quotes', unrated.includes('enough independent reviews') && unrated.includes('hinge snapped'), true);
+
   const noQuote = renderProduct(base(), 0, ids, false, 'acme', false, false);
   eq('without quotes the block keeps the cons', noQuote.includes('The cord is short.') && !noQuote.includes('crit-quote'), true);
 

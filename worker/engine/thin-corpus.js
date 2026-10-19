@@ -13,6 +13,9 @@ import { MIN_CREDIBLE_SCORE } from './extract/scoring.js';
 import { analyze } from './extract/engine.js';
 
 export const MIN_PRODUCTS = 3;
+// A corpus this rich skips the extraction preview (saves a full analyze() pass on most runs).
+const RICH_CORPUS_BODIES = 12;
+const DEFAULT_DEADLINE_MS = 30_000;
 // The same body floor the con-span miner uses (extract/engine.js conCandidateSpans).
 const MIN_BODY_CHARS = 400;
 const READ_TIMEOUT_MS = 15_000;
@@ -59,22 +62,31 @@ export function pickPagesToRead(sources, limit) {
     .map(({ s }) => s);
 }
 
-async function defaultRead(source, env) {
+async function defaultRead(source, env, timeoutMs) {
   const copy = { ...source };
-  await readPageInto(copy, env, { signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+  await readPageInto(copy, env, { signal: AbortSignal.timeout(timeoutMs) });
   return copy;
 }
 
+// Resolves to `fallback` once `ms` passes, so a hung provider cannot hold the run.
+function withDeadline(promise, ms, fallback) {
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), Math.max(0, ms)); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function rewriteSearches(queries, opts) {
-  const { search, env, recencySensitive } = opts;
-  const found = [];
-  for (const q of queries) {
+  const { search, env, recencySensitive, remaining } = opts;
+  const results = await Promise.all(queries.map(async (q) => {
     try {
-      const res = await search(q, 'web', env, recencySensitive);
-      if (Array.isArray(res)) found.push(...res);
-    } catch { /* a failing provider never aborts the fallback */ }
-  }
-  return found;
+      const res = await withDeadline(search(q, 'web', env, recencySensitive), remaining(), []);
+      return Array.isArray(res) ? res : [];
+    } catch (err) {
+      console.warn(`[thin-corpus] search "${q}" failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }));
+  return results.flat();
 }
 
 function appendNew(sources, found) {
@@ -94,20 +106,32 @@ function appendNew(sources, found) {
  *   `sources` is the full list (old + new, read pages replaced by their read copies).
  */
 export async function runThinCorpusFallback(opts = {}) {
-  const { query, topicalCategory, sources, notes, facets, env, recencySensitive = true, maxSearches = 3, maxReads = 4, deps = {} } = opts;
+  const {
+    query, topicalCategory, sources, notes, facets, env, recencySensitive = true,
+    maxSearches = 3, maxReads = 4, deadlineMs = DEFAULT_DEADLINE_MS, deps = {},
+  } = opts;
   const list = Array.isArray(sources) ? sources : [];
+  const skip = { triggered: false, searched: 0, read: 0, sources: list };
+  if (readableBodyCount(list) >= RICH_CORPUS_BODIES) return skip;
   const count = deps.countProducts || ((src) => analyze(query, notes || [], src, facets || {}, topicalCategory || '').length);
-  if (count(list) >= MIN_PRODUCTS) return { triggered: false, searched: 0, read: 0, sources: list };
+  if (count(list) >= MIN_PRODUCTS) return skip;
 
+  const stopAt = Date.now() + deadlineMs;
+  const remaining = () => Math.max(0, stopAt - Date.now());
   const queries = thinCorpusQueries(query, topicalCategory).slice(0, Math.max(0, maxSearches));
   const search = deps.search || runSearch;
-  const found = await rewriteSearches(queries, { search, env, recencySensitive });
+  const found = await rewriteSearches(queries, { search, env, recencySensitive, remaining });
   const pool = appendNew(list, found);
 
-  const read = deps.read || ((s) => defaultRead(s, env));
-  const targets = pickPagesToRead(pool, maxReads);
+  const read = deps.read || ((s) => defaultRead(s, env, Math.min(READ_TIMEOUT_MS, remaining())));
+  const targets = pickPagesToRead(pool, remaining() > 0 ? maxReads : 0);
   const results = await Promise.all(targets.map(async (s) => {
-    try { return await read(s); } catch { return s; }
+    try {
+      return await withDeadline(read(s), remaining(), s);
+    } catch (err) {
+      console.warn(`[thin-corpus] read ${s.url} failed: ${err instanceof Error ? err.message : String(err)}`);
+      return s;
+    }
   }));
   const readByUrl = new Map(targets.map((s, i) => [s, results[i]]));
   const merged = pool.map((s) => readByUrl.get(s) || s);

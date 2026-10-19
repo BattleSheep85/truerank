@@ -65,7 +65,8 @@ export function analyze(query, notes, sources, facets = {}, topicalCategory = ''
   // payload (many distinct Title-Case strings) from exploding CPU. Keep the best-supported
   // candidates (most source mentions) — real products are corroborated, noise is one-off.
   const MAX_CANDIDATES = 250;
-  let harvested = resolveCandidates(harvestCandidates(cleanSources, cleanNotes, { physical, extraNames }));
+  const apparel = qCluster === 'APPAREL_FOOTWEAR'; // CP-397 garment-noun name rules
+  let harvested = resolveCandidates(harvestCandidates(cleanSources, cleanNotes, { physical, extraNames, apparel }));
   if (harvested.length > MAX_CANDIDATES) {
     harvested = harvested.slice().sort((a, b) => ((b.srcIdx?.size || 0) - (a.srcIdx?.size || 0)) || ((b.sents?.length || 0) - (a.sents?.length || 0))).slice(0, MAX_CANDIDATES);
   }

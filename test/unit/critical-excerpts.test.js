@@ -22,6 +22,13 @@ export function runCriticalExcerptsTests() {
   eq('"5 stars" is not low', starsIn('5 stars, love it.'), null);
   eq('"2 stars out of 10" is not out of 5', starsIn('I give it 2 out of 10.'), null);
   eq('a carousel counter "1 / 5" is not a rating', starsIn('1 / 5 Bench Performance Database'), null);
+  eq('a date "1/5/2025" is not a rating', starsIn('Reviewed in the United States on 1/5/2025, works great'), null);
+  eq('a date "12/1/5" is not a rating', starsIn('Bought it on 12/1/5 and it still works'), null);
+  eq('a fraction "1/5 the price" is not a rating', starsIn('It costs 1/5 the price of a Dyson and works great'), null);
+  eq('"knocked off one star" is not a 1-star rating', starsIn('I knocked off one star because the app is clunky, otherwise great'), null);
+  eq('"minus 2 stars" is not a 2-star rating', starsIn('Minus 2 stars for the app, but the hardware is great'), null);
+  eq('a sentence that also gives 5 stars is not low', starsIn('Five stars for this one, two stars for the old model'), null);
+  eq('a sentence that also gives 4/5 is not low', starsIn('Was 2/5 at launch, now a solid 4/5 after updates'), null);
   eq('no rating → null', starsIn('The lid leaks after a week.'), null);
 
   // ── excerpt picking ───────────────────────────────────────────────────────
@@ -59,6 +66,13 @@ export function runCriticalExcerptsTests() {
   many.push(src('https://www.reddit.com/r/x/9', 'Kettles', 'Acme Kettle Pro gets 1 star from me, reason number 1 is the leaking lid.'));
   eq('at most 2 excerpts per product', criticalExcerpts('Acme Kettle Pro', many, []).length, 2);
   eq('duplicate quotes are dropped', new Set(criticalExcerpts('Acme Kettle Pro', many, [], 5).map((x) => x.quote)).size, 3);
+
+  // A product whose name is a prefix of a rival's name never takes the rival's quotes.
+  const pods = [src('https://www.reddit.com/r/airpods/1', 'Earbuds thread', 'The AirPods Pro 2 gets 1 star from me, the case cracked in a week.')];
+  eq('"AirPods Pro" does not take an "AirPods Pro 2" quote', criticalExcerpts('AirPods Pro', pods, ['AirPods Pro 2']).length, 0);
+  eq('"AirPods Pro 2" keeps its own quote', criticalExcerpts('AirPods Pro 2', pods, ['AirPods Pro']).length, 1);
+  const podsTitle = [src('https://www.reddit.com/r/airpods/2', 'AirPods Pro 2 after a year', '1 star. The case cracked in a week and Apple refused the claim.')];
+  eq('a page about "AirPods Pro 2" is not a page about "AirPods Pro"', criticalExcerpts('AirPods Pro', podsTitle, ['AirPods Pro 2']).length, 0);
 
   // ── attachCriticalReviews (immutable) ───────────────────────────────────
   const rep = { products: [{ name: 'Acme Kettle Pro', rating: 3.2 }, { name: 'Zed Boil 2', rating: 4.6 }] };

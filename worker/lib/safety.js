@@ -201,9 +201,13 @@ export function denylistForms(query) {
   const folded = foldUnicode(query);
   const forms = new Set([normalize(query), normalize(folded)]);
   for (const map of LEET_MAPS) {
-    const joined = normalize(unleet(joinSingleChars(normalize(unleet(folded, map))), map));
-    forms.add(joined);
-    forms.add(joined.replace(STRETCHED_LETTERS, '$1'));
+    // Symbols read as letters ("$ex"), and symbols read as punctuation ("p0rn!", "s3x+toys").
+    const symbolsAsLetters = normalize(unleet(joinSingleChars(normalize(unleet(folded, map))), map));
+    const symbolsAsSpaces = normalize(unleet(joinSingleChars(normalize(folded)), map));
+    for (const form of [symbolsAsLetters, symbolsAsSpaces]) {
+      forms.add(form);
+      forms.add(form.replace(STRETCHED_LETTERS, '$1'));
+    }
   }
   return [...forms];
 }

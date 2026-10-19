@@ -74,6 +74,23 @@ export async function runThinCorpusTests() {
   const r5 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'linen shirts', sources: thin, maxSearches: 0, maxReads: 0, deps: { search, read, countProducts: () => 0 } });
   eq('no budget → nothing runs', [r5.searched, r5.read], [0, 0]);
 
+  // A clearly rich corpus skips the extraction preview entirely.
+  let previewed = 0;
+  const manyBodies = Array.from({ length: 12 }, (_, i) => full(`https://rich.example/${i}`));
+  const r7 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'x', sources: manyBodies, deps: { search, read, countProducts: () => { previewed++; return 0; } } });
+  eq('12+ readable bodies skip the preview', [r7.triggered, previewed], [false, 0]);
+
+  // Searches run in parallel, and the whole step stops at its deadline.
+  let inFlight = 0, peak = 0;
+  const slowSearch = async (q) => { inFlight++; peak = Math.max(peak, inFlight); await new Promise((res) => setTimeout(res, 20)); inFlight--; return [snip(`https://www.reddit.com/r/p/${q.length}`, 55)]; };
+  await runThinCorpusFallback({ query: 'q', topicalCategory: 'linen shirts', sources: thin, maxSearches: 3, maxReads: 0, deps: { search: slowSearch, read, countProducts: () => 0 } });
+  eq('the rewrite searches run in parallel', peak, 3);
+  const never = () => new Promise(() => {});
+  const t0 = Date.now();
+  const r8 = await runThinCorpusFallback({ query: 'q', topicalCategory: 'linen shirts', sources: thin, maxSearches: 2, maxReads: 2, deadlineMs: 50, deps: { search: never, read: never, countProducts: () => 0 } });
+  eq('a hung provider cannot hold the step past its deadline', Date.now() - t0 < 1000, true);
+  eq('after a timeout the sources are unchanged', r8.sources.length, 2);
+
   // Default preview runs the real extractor: snippets-only sources give 0 products → triggers.
   const r6 = await runThinCorpusFallback({ query: 'best linen shirts', topicalCategory: 'linen shirts', sources: thin, maxSearches: 0, maxReads: 0, deps: { search, read } });
   eq('the default extraction preview triggers on a snippet-only corpus', r6.triggered, true);

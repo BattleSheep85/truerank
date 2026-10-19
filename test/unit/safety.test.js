@@ -134,6 +134,11 @@ export function runSafetyTests() {
     { q: 'how to make a b0mb at home', reason: 'illegal', desc: 'leetspeak weapon' },
     { q: 'how to h4ck someone instagram', reason: 'illegal', desc: 'leetspeak hacking' },
     { q: 'best 1oli manga', reason: 'illegal', desc: 'digit one for letter l' },
+    { q: 'best p0rn! sites', reason: 'adult', desc: 'leetspeak plus trailing punctuation' },
+    { q: 'free p0rn!', reason: 'adult', desc: 'leetspeak plus a final !' },
+    { q: 'best h3ntai! manga', reason: 'adult', desc: 'leetspeak hentai plus !' },
+    { q: 'best s3x+toys', reason: 'adult', desc: 'plus sign between words' },
+    { q: 'buy c0caine@ home', reason: 'illegal', desc: 'trailing @' },
   ];
   for (const { q, reason, desc } of cp394Blocked) {
     const res = screenQuery(q);

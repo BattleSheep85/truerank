@@ -61,7 +61,7 @@ export const SUBREQUEST_BUDGET = PLATFORM_SUBREQUEST_LIMIT - POST_ENGINE_RESERVE
 // Searches reserved for the post-planner recall gather phase so recall-driven
 // searches can still run after the planner loop ends.
 export const RECALL_RESERVE_SEARCHES = 8;
-// CP-396: the thin-corpus fallback's own allowance (searches, direct reads, extra time).
+// CP-396: the thin-corpus fallback's own allowance (searches, direct reads, hard time cap).
 export const THIN_CORPUS_SEARCHES = 3;
 export const THIN_CORPUS_READS = 4;
 export const THIN_CORPUS_GRACE_MS = 30_000;
@@ -347,16 +347,17 @@ export async function runEngine(
   // ── Thin-corpus fallback (CP-396) ────────────────────────────────────────
   // Fires only when a preview of the extraction finds < 3 products (the linen-shirts case;
   // the check runs inside). It has its own small allowance, since a thin run has usually
-  // spent its budget on unreadable pages, but it still respects subrequest and time budgets.
+  // spent its budget on unreadable pages: it may start until the loop budget ends and is
+  // then cut off THIN_CORPUS_GRACE_MS later at most. Subrequest budget still applies.
   const thinSubs = THIN_CORPUS_SEARCHES * 6 + THIN_CORPUS_READS;
   if (
-    Date.now() - startTime <= config.agentLoopBudgetMs + THIN_CORPUS_GRACE_MS &&
+    Date.now() - startTime <= config.agentLoopBudgetMs &&
     subrequestsUsed + thinSubs < SUBREQUEST_BUDGET - SUBREQUEST_RESERVE_FOR_SYNTHESIS
   ) {
     try {
       const t = await runThinCorpusFallback({
         query, topicalCategory, sources: state.sources, notes: state.notes, facets, env, recencySensitive,
-        maxSearches: THIN_CORPUS_SEARCHES, maxReads: THIN_CORPUS_READS,
+        maxSearches: THIN_CORPUS_SEARCHES, maxReads: THIN_CORPUS_READS, deadlineMs: THIN_CORPUS_GRACE_MS,
       });
       if (t.triggered) {
         state.searchCount += t.searched;
@@ -366,8 +367,9 @@ export async function runEngine(
         console.log(`[thin-corpus] searched ${t.searched}, read ${t.read}, readable now ${readableBodyCount(state.sources)}`);
         await emitEvent(onEvent, state, 'status', 'Few products found, searched forums and long-term reviews...');
       }
-    } catch {
-      /* failure must never abort research */
+    } catch (err) {
+      // Never aborts research; logged so a broken fallback is visible.
+      console.warn(`[thin-corpus] fallback failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

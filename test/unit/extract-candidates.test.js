@@ -30,6 +30,10 @@ export function runExtractCandidatesTests() {
   const syn = find(photo, 'Synology Photos', photoOpts);
   eq('CP-395 the merged sentence goes to Synology Photos too', !!syn?.sents.some((s) => /PhotoPrism/.test(s.sentence)), true);
 
+  const countIn = (c, re) => (c?.sents || []).filter((x) => re.test(x.sentence)).length;
+  eq('CP-395 the merged sentence is counted once for Immich', countIn(immich, /PhotoPrism/), 1);
+  eq('CP-395 the merged sentence is counted once for Synology Photos', countIn(syn, /PhotoPrism/), 1);
+
   // No split when a part has no mention of its own (it only exists inside the merge).
   const onlyMerged = ['Synology Photos Immich is what most people pick.'];
   eq('CP-395 no split without independent mentions',
@@ -71,7 +75,7 @@ export function runExtractCandidatesTests() {
     'Old Navy Linen-Blend Shirt Cheap But Thin.',
     'Lands End Linen Shirt Fabric Feels Heavy.',
   ];
-  const apparelNames = names(apparel, { physical: true });
+  const apparelNames = names(apparel, { physical: true, apparel: true });
   for (const want of [
     'Quince European Linen Long Sleeve Shirt',
     'Everlane Organic Cotton Box-Cut Tee',
@@ -93,8 +97,15 @@ export function runExtractCandidatesTests() {
   ]) eq(`CP-397 no rough name: "${bad}"`, apparelNames.includes(bad), false);
 
   // A garment word does not cut a name that carries a model code.
-  eq('CP-397 keeps a coded apparel name', names(['Patagonia Baggies Shorts 5 Inch are a classic.'], { physical: true })
+  eq('CP-397 keeps a coded apparel name', names(['Patagonia Baggies Shorts 5 Inch are a classic.'], { physical: true, apparel: true })
     .includes('Patagonia Baggies Shorts 5 Inch'), true);
+
+  // Garment rules only apply to apparel queries: appliance and shoe names stay whole.
+  const appliances = ['The Samsung Top Load Washer is quiet.', 'The LG Top Freezer Refrigerator keeps food cold.', 'The Allen Edmonds Dress Shoe lasts years.'];
+  const applianceNames = names(appliances, { physical: true });
+  for (const want of ['Samsung Top Load Washer', 'LG Top Freezer Refrigerator', 'Allen Edmonds Dress Shoe']) {
+    eq(`CP-397 non-apparel name untouched: "${want}"`, applianceNames.includes(want), true);
+  }
 
   return report;
 }
