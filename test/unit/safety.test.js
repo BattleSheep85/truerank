@@ -1,5 +1,6 @@
 // Table-driven unit tests for worker/lib/safety.js
 import { screenQuery, rejectionMessage, isProbeQuery } from '../../worker/lib/safety.js';
+import { CLASSIFIER_SYSTEM_PROMPT } from '../../worker/lib/classifier.js';
 
 export function runSafetyTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -169,6 +170,65 @@ export function runSafetyTests() {
   ];
   for (const q of cp394Allowed) {
     eq(`CP-394 still allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+
+  // ── 10. CP-803: normal searches the screen blocked by mistake ────────────────
+  const cp803Allowed = [
+    'fentanyl test strips',
+    'buy fentanyl test strips',
+    'best fentanyl test kit',
+    'test strips for fentanyl',
+    'fentanyl drug test strips',
+    'best drug test kit for fentanyl',
+    'fentanyl test strip 100 pack',
+    'buy a tv',
+    'sony a 7 iv',
+    'canon r 6',
+    'a v receiver',
+    'i 9 laptop',
+    'nikon z 5',
+    'tv stand',
+    'iphone 16',
+    'pixel 9',
+  ];
+  for (const q of cp803Allowed) {
+    eq(`CP-803 allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+  // The LLM classifier is the second layer; its prompt must not reject test strips as "drugs".
+  eq('CP-803 classifier allows drug-checking kits', CLASSIFIER_SYSTEM_PROMPT.includes('"fentanyl test strips"'), true);
+
+  const cp803Blocked = [
+    { q: 'buy fentanyl online', reason: 'illegal' },
+    { q: 'fentanyl test strips and where to buy fentanyl', reason: 'illegal' },
+    { q: 'f3nt4nyl for sale', reason: 'illegal' },
+    { q: 'heroin for sale', reason: 'illegal' },
+    { q: 'buy illegal drugs test kits', reason: 'illegal' },
+    { q: 'fentanyl test strips for sale and fentanyl', reason: 'illegal' },
+    { q: 'a b', reason: 'probe' },
+    { q: 'tv 4', reason: 'probe' },
+  ];
+  for (const { q, reason } of cp803Blocked) {
+    eq(`CP-803 still block: "${q}"`, screenQuery(q).reason, reason);
+  }
+
+  // ── 11. CP-803: SQL-injection probes that became a public page (and close cousins) ──
+  const cp803Probes = [
+    "best tax software for self employed)) and extractvalue(6920,concat(0x5c,0x71706a7171,(select (elt(6920=6920,1))),0x7162706271)) and ((8923=8923",
+    "best tax software for self employed) and extractvalue(6920,concat(0x5c,0x71706a7171,(select (elt(6920=6920,1))),0x7162706271))-- shca",
+    'best tax software and extractvalue(1, concat(0x5c, user()))',
+    'best tax software and updatexml(1, concat(0x7e, version()), 1)',
+    "best tv' or 1=1--",
+    'best tv and 1=1',
+    "best laptop' and 'a'='a",
+    'best monitor or 8923=8923',
+    "best mouse' /* probe",
+    'best router and load_file(0x2f6574632f706173737764)',
+  ];
+  for (const q of cp803Probes) {
+    eq(`CP-803 block SQL probe: "${q.slice(0, 60)}"`, screenQuery(q).reason, 'probe');
+  }
+  for (const q of ['best 2 in 1 laptop', 'best tv for 1 room and 2 kids', "best kids' tv shows", 'best a/b switch for tv', 'best concat tool for video files', 'best laptop (2026) -- under $1000', 'best 65" -- oled or mini led tv']) {
+    eq(`CP-803 SQL rules allow: "${q}"`, screenQuery(q).blocked, false);
   }
 
   return report;

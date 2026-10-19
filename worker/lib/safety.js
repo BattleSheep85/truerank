@@ -27,13 +27,20 @@ const ADULT_PATTERNS = [
   /\b(?:adult|porn|xxx)\s+(?:video|videos|film|films|movie|movies|site|sites|website|content|cam|cams)\b/,
 ];
 
+// CP-803: drug-checking kits are harm-reduction products, so "fentanyl test strips" and
+// "test strips for fentanyl" are research. The guards clear only a drug name that sits next
+// to a kit; any other mention of the drug in the query still blocks.
+const KIT = String.raw`(?:drug\s+)?(?:test|testing|detection)\s+(?:strips?|kits?)`;
+const NOT_TEST_KIT = String.raw`(?!\s+${KIT})(?<!${KIT}\s+(?:for|to\s+detect)\s+\w+)`;
+const HARD_DRUGS = String.raw`(?:cocaine|heroin|fentanyl|methamphetamine|crystal\s+meth)`;
+
 const ILLEGAL_PATTERNS = [
   // CSAM / exploitation — highest priority, broad block of the explicit signal.
   /\bchild\s+(?:porn|sex|sexual|abuse\s+material)\b/, /\bunderage\s+(?:porn|sex|girls?|boys?|nudes?)\b/,
   /\b(?:csam|cp\s+porn|pedophil|loli(?:con)?\b)/, /\bchild\s+exploitation\b/,
   // hard drugs — buying / making / specific substances.
-  /\b(?:buy|order|where\s+to\s+(?:buy|get)|how\s+to\s+make|how\s+to\s+(?:get|cook))\s+(?:cocaine|heroin|meth|methamphetamine|fentanyl|mdma|ecstasy|lsd|crack\s+cocaine|crystal\s+meth|ketamine|illegal\s+drugs?)\b/,
-  /\b(?:cocaine|heroin|fentanyl|methamphetamine|crystal\s+meth)\b/, /\bcrack\s+cocaine\b/,
+  new RegExp(String.raw`\b(?:buy|order|where\s+to\s+(?:buy|get)|how\s+to\s+make|how\s+to\s+(?:get|cook))\s+(?:(?:cocaine|heroin|meth|methamphetamine|fentanyl|mdma|ecstasy|lsd|crack\s+cocaine|crystal\s+meth|ketamine)\b${NOT_TEST_KIT}|illegal\s+drugs?\b)`),
+  new RegExp(String.raw`\b${HARD_DRUGS}\b${NOT_TEST_KIT}`), /\bcrack\s+cocaine\b/,
   /\bhow\s+to\s+make\s+(?:meth|drugs?|crack|crystal\s+meth)\b/, /\bbuy\s+drugs?\s+online\b/, /\bdark\s?web\s+drugs?\b/,
   // weapons — making / illegal acquisition (NOT legal firearm products).
   /\bhow\s+to\s+make\s+(?:a\s+)?(?:bomb|gun|silencer|suppressor|explosive|grenade|napalm|thermite|c4)\b/,
@@ -62,6 +69,11 @@ const SQL_PROBE_PATTERNS = [
   /\bdbms_pipe\b/i,
   /\bxp_cmdshell\b/i,
   /\binformation_schema\b/i,
+  // CP-803: error-based probes and boolean tautologies ("and 1=1", "' or 'a'='a").
+  /\b(?:extractvalue|updatexml|load_file)\s*\(/i,
+  /\b(?:and|or)\s+(['"]?)(\w+)\1\s*=\s*\1\2\1?(?!\w)/i,
+  // A quote or paren glued to a SQL comment ("'--", "))--", "' /*"); "(2026) -- under" is prose.
+  /['")](?:--|\s*\/\*)/,
 ];
 
 const CODE_SCHEME_PATTERN = /\b(?:javascript|data)\s*:/i;
@@ -74,6 +86,7 @@ const ALNUM_RUN_PATTERN = /[a-zA-Z0-9]+/g;
 // Model-number token: 2+ alnum chars with at least one letter and one digit ("C8", "A7", "M4").
 const MODEL_TOKEN_PATTERN = /^(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]{2,}$/i;
 const MIN_WORD_TOKEN_LENGTH = 3;
+const MIN_QUERY_TOKENS = 2;
 
 /**
  * Check if a query looks like code, a URL, a scanner probe, or an attack payload
@@ -81,14 +94,16 @@ const MIN_WORD_TOKEN_LENGTH = 3;
  *
  * Signals:
  * 1. SQL keywords in a suspicious shape (UNION SELECT, WAITFOR DELAY, SLEEP(, BENCHMARK(,
- *    UTL_INADDR, DBMS_PIPE, CHR( with concatenation, xp_cmdshell, information_schema)
+ *    UTL_INADDR, DBMS_PIPE, CHR( with concatenation, xp_cmdshell, information_schema,
+ *    EXTRACTVALUE(, UPDATEXML(, LOAD_FILE(, "and 1=1" tautologies, a quote then -- or /*)
  * 2. script/HTML tags
  * 3. javascript: or data: schemes
  * 4. an http(s):// URL as the whole query (unless allowUrl: true)
  * 5. more than 3 of these characters `(){}[];|<>` combined
  * 6. a run of 25+ characters with no space
- * 7. nonsense ratio (fewer than 2 word tokens, where a word token is 3+ letters/digits
- *    or a model number of 2+ chars with a letter and a digit, such as "C8")
+ * 7. nonsense ratio: no word token (3+ letters/digits, or a model number of 2+ chars with
+ *    a letter and a digit, such as "C8"), or fewer than 2 tokens in all. Short tokens count
+ *    toward the 2 once a word is present, so "buy a tv", "canon r 6" and "iphone 16" pass.
  *
  * @param {string} query
  * @param {{ allowUrl?: boolean }} [options]
@@ -136,10 +151,11 @@ export function isProbeQuery(query, options = {}) {
   // 6. Run of 25+ characters with no space
   if (LONG_RUN_PATTERN.test(raw)) return true;
 
-  // 7. Nonsense ratio: fewer than 2 word tokens (3+ letters/digits, or a model number like "C8")
+  // 7. Nonsense ratio: no real word (3+ letters/digits, or a model number like "C8"),
+  // or fewer than 2 tokens. A word plus short tokens ("sony a 7 iv", "tv stand") is a query.
   const runs = raw.match(ALNUM_RUN_PATTERN) || [];
-  const words = runs.filter(isWordToken);
-  if (words.length < 2) return true;
+  const hasWord = runs.some(isWordToken);
+  if (!hasWord || runs.length < MIN_QUERY_TOKENS) return true;
 
   return false;
 }
