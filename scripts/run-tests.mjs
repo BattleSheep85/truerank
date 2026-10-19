@@ -62,6 +62,8 @@ import { runResearchResultShapeTests } from '../test/unit/research-result-shape.
 import { runLieSurfaceTests } from '../test/unit/lie-surfaces.test.js';
 import { runEvalScoreTests } from '../test/unit/eval-score.test.js';
 import { runExtractCandidatesTests } from '../test/unit/extract-candidates.test.js';
+import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
+import { runCriticalRenderTests } from '../test/unit/critical-render.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -122,6 +124,8 @@ const suites = [
   ['spend-gate', runSpendGateTests],
   ['view-counter', runViewCounterTests],
   ['extract-candidates', runExtractCandidatesTests],
+  ['critical-excerpts', runCriticalExcerptsTests],
+  ['critical-render', runCriticalRenderTests],
 ];
 
 let failed = 0;

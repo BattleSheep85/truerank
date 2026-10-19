@@ -87,6 +87,10 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     isComplete ? recordView(env.DB, entry) : Promise.resolve(),
   ]);
 
+  const resultData = parseJsonSafe(entry.result, {});
+  // CP-399: verbatim low-star quotes live in research.result, not the products table.
+  const criticalByName = criticalReviewsFromResult(resultData);
+
   // Parse each product's JSON columns ONCE here, so renderProduct and the
   // JSON-LD builder both consume already-parsed values (no double JSON.parse).
   const products = (productRows.results ?? []).map((p) => ({
@@ -95,6 +99,7 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     cons: parseJsonSafe(p.cons, []),
     specs: parseJsonSafe(p.specs, {}),
     metadata: parseJsonSafe(p.metadata, {}),
+    critical_reviews: criticalByName.get(String(p.name || '').toLowerCase()) || [],
   }));
 
   const hasProducts = products.length > 0;
@@ -103,7 +108,6 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
   const showProcessingHero = isProcessing && !hasProducts;
   const isFailed = entry.status === 'failed';
 
-  const resultData = parseJsonSafe(entry.result, {});
   // Only surface a stored failure reason if it's a clean, short, user-facing
   // message (e.g. "No reliable products found for this query."). Raw provider /
   // HTTP / JSON errors (e.g. an OpenRouter 403) must never leak to users.
@@ -406,4 +410,15 @@ ${isLiveReport ? `<div class="notify-footer mt-8 border-t border-line pt-6">
     : displayTitle;
   const htmlOut = layout(seoTitle, entry.summary ?? 'AI-powered product research', body, amazonHint + noindex + structuredData + turnstileScript + extra, layoutMeta);
   return { html: htmlOut, lastModified: lastModifiedTs, status: entry.status, viewCount: entry.view_count ?? 0 };
+}
+
+/** Product name (lowercase) → its criticalReviews list, from a parsed research.result. */
+export function criticalReviewsFromResult(resultData) {
+  const map = new Map();
+  const list = Array.isArray(resultData?.products) ? resultData.products : [];
+  for (const p of list) {
+    if (!p || typeof p.name !== 'string' || !Array.isArray(p.criticalReviews) || !p.criticalReviews.length) continue;
+    map.set(p.name.toLowerCase(), p.criticalReviews);
+  }
+  return map;
 }

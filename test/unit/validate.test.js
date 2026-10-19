@@ -427,5 +427,23 @@ export function runValidateTests() {
     eq('each con capped at 240 chars', r.products[0].cons[0].length, 240);
   }
 
+  // ── CP-399: criticalReviews (verbatim low-star quotes) are sanitized ──────
+  {
+    const good = { quote: 'Acme Kettle Pro gets 1 star from me: the lid hinge snapped.', stars: 1, sourceUrl: 'https://www.reddit.com/r/x/1', sourceTitle: 'Kettles' };
+    const withReviews = (list) => validateResearchResult({
+      summary: 'Kettles.', category: 'Kitchen',
+      products: [{ ...fullProd('Acme Kettle Pro', 3.2, 1), criticalReviews: list }, fullProd('Zed Boil 2', 4.2, 2), fullProd('Brio Kettle', 4.0, 3)],
+    }).products.find((p) => p.name === 'Acme Kettle Pro').criticalReviews;
+    eq('CP-399 keeps a valid quote', withReviews([good]), [good]);
+    eq('CP-399 missing list becomes []', withReviews(undefined), []);
+    eq('CP-399 drops a non-https source', withReviews([{ ...good, sourceUrl: 'http://x.example/a' }]), []);
+    eq('CP-399 drops a javascript: source', withReviews([{ ...good, sourceUrl: 'javascript:alert(1)' }]), []);
+    eq('CP-399 drops stars above 2', withReviews([{ ...good, stars: 4 }]), []);
+    eq('CP-399 drops an empty quote', withReviews([{ ...good, quote: '  ' }]), []);
+    eq('CP-399 caps the quote length', withReviews([{ ...good, quote: 'x'.repeat(500) }])?.[0]?.quote.length, 240);
+    eq('CP-399 caps the list at 2', withReviews([good, { ...good, quote: 'Second quote, also 1 star for it.' }, { ...good, quote: 'Third quote, 1 star.' }])?.length, 2);
+    eq('CP-399 drops non-objects', withReviews(['1 star', null, 5]), []);
+  }
+
   return report;
 }

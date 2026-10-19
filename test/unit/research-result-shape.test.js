@@ -42,7 +42,10 @@ export const PRODUCT_FIELDS = {
   rank: isNum,
   bestFor: isStr,
 };
-export const OPTIONAL_PRODUCT_FIELDS = { affiliateUrl: isStr };
+const isCriticalReview = (r) => !!r && isStr(r.quote) && isNum(r.stars) && r.stars >= 1 && r.stars <= 2
+  && isStr(r.sourceUrl) && r.sourceUrl.startsWith('https://') && isStr(r.sourceTitle);
+// criticalReviews (CP-399) is optional: rows written before it have none.
+export const OPTIONAL_PRODUCT_FIELDS = { affiliateUrl: isStr, criticalReviews: (v) => Array.isArray(v) && v.every(isCriticalReview) };
 
 function checkFields(obj, required, optional, where) {
   const problems = [];
