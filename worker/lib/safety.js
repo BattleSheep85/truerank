@@ -197,6 +197,15 @@ const HAS_LETTER = /[a-z]/;
 const SINGLE_CHAR_RUN = /(?:^| )((?:[a-z0-9] ){1,}[a-z0-9])(?= |$)/g;
 // Same, but a leading "a" or "i" stays its own word, so "make a b o m b" reads "make a bomb".
 const SINGLE_CHAR_RUN_KEEP_ARTICLE = /(?:^| )(?:[ai] )?((?:[a-z0-9] ){1,}[a-z0-9])(?= |$)/g;
+// CP-807: a run that ends in "a" or "i" before a word keeps it as a word too, so
+// "m a k e a bomb" reads "make a bomb" (the run before the article is joined).
+const SINGLE_CHAR_RUN_BEFORE_ARTICLE = /(?:^| )((?:[a-z0-9] ){1,}[a-z0-9])(?= [ai] )/g;
+// Each list is one way to join spaced letters: its patterns run in order.
+const RUN_JOINS = [
+  [SINGLE_CHAR_RUN],
+  [SINGLE_CHAR_RUN_KEEP_ARTICLE],
+  [SINGLE_CHAR_RUN_BEFORE_ARTICLE, SINGLE_CHAR_RUN_KEEP_ARTICLE],
+];
 const STRETCHED_LETTERS = /([a-z])\1{2,}/g;
 
 function foldUnicode(query) {
@@ -217,8 +226,13 @@ function unleet(text, map) {
     .join(' ');
 }
 
-function joinSingleChars(normalized, pattern = SINGLE_CHAR_RUN) {
+function joinRuns(normalized, pattern) {
   return normalized.replace(pattern, (match, run) => match.slice(0, match.length - run.length) + run.replace(/ /g, ''));
+}
+
+// normalize between passes pads the text again, so the next pattern sees whole words.
+function joinSingleChars(normalized, patterns = [SINGLE_CHAR_RUN]) {
+  return patterns.reduce((text, pattern) => normalize(joinRuns(text, pattern)), normalized);
 }
 
 /** Every form of a query the denylist checks: plain, plus leetspeak, spacing and stretch folds. */
@@ -226,7 +240,7 @@ export function denylistForms(query) {
   const folded = foldUnicode(query);
   const forms = new Set([normalize(query), normalize(folded)]);
   for (const map of LEET_MAPS) {
-    for (const runPattern of [SINGLE_CHAR_RUN, SINGLE_CHAR_RUN_KEEP_ARTICLE]) {
+    for (const runPattern of RUN_JOINS) {
       // Symbols read as letters ("$ex"), and symbols read as punctuation ("p0rn!", "s3x+toys").
       const symbolsAsLetters = normalize(unleet(joinSingleChars(normalize(unleet(folded, map)), runPattern), map));
       const symbolsAsSpaces = normalize(unleet(joinSingleChars(normalize(folded), runPattern), map));
