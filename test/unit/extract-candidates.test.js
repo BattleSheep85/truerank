@@ -58,5 +58,43 @@ export function runExtractCandidatesTests() {
   ];
   eq('CP-395 keeps a name with a model code', names(nas).includes('Synology DiskStation DS224'), true);
 
+  // ── CP-397: apparel / no-model-number names ──────────────────────────────
+  const apparel = [
+    'Quince European Linen Long Sleeve Shirt Breathable And is our top pick.',
+    'We loved the Everlane Organic Cotton Box-Cut Tee Super Soft for everyday wear.',
+    'Uniqlo Premium Linen Shirt Great Value under $40.',
+    'Madewell Perfect Vintage Jean Fits True to size.',
+    'Buck Mason Slub Curved Hem Tee Runs Small according to reviewers.',
+    'Our Favorite Linen Shirts From Uniqlo Everlane and Quince were tested.',
+    'Todd Snyder Linen Shirt Best Overall.',
+    'Vuori Ponto Performance Joggers Comfortable All Day.',
+    'Old Navy Linen-Blend Shirt Cheap But Thin.',
+    'Lands End Linen Shirt Fabric Feels Heavy.',
+  ];
+  const apparelNames = names(apparel, { physical: true });
+  for (const want of [
+    'Quince European Linen Long Sleeve Shirt',
+    'Everlane Organic Cotton Box-Cut Tee',
+    'Uniqlo Premium Linen Shirt',
+    'Madewell Perfect Vintage Jean',
+    'Buck Mason Slub Curved Hem Tee',
+    'Todd Snyder Linen Shirt',
+    'Vuori Ponto Performance Joggers',
+    'Old Navy Linen-Blend Shirt',
+    'Lands End Linen Shirt',
+  ]) eq(`CP-397 clean apparel name: "${want}"`, apparelNames.includes(want), true);
+  for (const bad of [
+    'Quince European Linen Long',
+    'Everlane Organic Cotton Box-Cut',
+    'Buck Mason Slub Curved Hem',
+    'Uniqlo Premium Linen Shirt Great',
+    'Lands End Linen Shirt Fabric',
+    'Uniqlo Everlane',
+  ]) eq(`CP-397 no rough name: "${bad}"`, apparelNames.includes(bad), false);
+
+  // A garment word does not cut a name that carries a model code.
+  eq('CP-397 keeps a coded apparel name', names(['Patagonia Baggies Shorts 5 Inch are a classic.'], { physical: true })
+    .includes('Patagonia Baggies Shorts 5 Inch'), true);
+
   return report;
 }
