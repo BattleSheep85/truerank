@@ -12,6 +12,11 @@ import { productNameKey, parseProductInput } from './product-link.js';
 export const CLAIM_CACHE_VERSION = 'v1';
 /** Same as the saved-verdict reuse window (VERIFY_REUSE_MAX_AGE_DAYS). */
 export const CLAIM_CACHE_TTL_SECONDS = 30 * 86400;
+/**
+ * A set whose check ended with no score (not enough independent evidence) is
+ * kept only this long, so the next run after that extracts again (CP-819).
+ */
+export const CLAIM_CACHE_WEAK_TTL_SECONDS = 86400;
 const KEY_PREFIX = `verify-claims:${CLAIM_CACHE_VERSION}:`;
 const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
 const MAX_CLAIM_CHARS = 400;
@@ -98,6 +103,25 @@ export async function writeCachedClaims(kv, product, claims, productUrl = null) 
     return true;
   } catch (err) {
     console.error(`[claim-cache] write failed for ${key}: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
+/**
+ * Keeps the saved set of `product` (and `productUrl`) for only
+ * CLAIM_CACHE_WEAK_TTL_SECONDS from now. Returns true when a saved set was
+ * found and re-saved. A KV error is logged and gives false. Never throws.
+ */
+export async function shortenCachedClaims(kv, product, productUrl = null) {
+  const key = claimCacheKey(product, productUrl);
+  if (!kv || !key) return false;
+  try {
+    const raw = await kv.get(key);
+    if (!raw) return false;
+    await kv.put(key, raw, { expirationTtl: CLAIM_CACHE_WEAK_TTL_SECONDS });
+    return true;
+  } catch (err) {
+    console.error(`[claim-cache] shorten failed for ${key}: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }

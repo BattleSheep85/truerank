@@ -13,7 +13,7 @@
 
 import { runSearch, readPageInto } from './tools.js';
 import { urlKey } from './searxng.js';
-import { buildSynthesisPrompt } from './prompts.js';
+import { buildSynthesisPrompt, facetFocusBlocks } from './prompts.js';
 import { callLLM, callLLMStreaming } from './llm.js';
 import { validateResearchResult } from './validate.js';
 import { fossLeadersFor } from '../lib/foss-leaders.js';
@@ -68,20 +68,24 @@ async function planAspects(key, plannerModel, messages, nAspects, plannerOpts) {
   const cost = Number.isFinite(resp.usage?.cost) ? resp.usage.cost : 0;
   const raw = resp.choices?.[0]?.message?.content ?? '';
   // parseFencedJson returns null (never throws) on unparseable content.
-  const parsed = parseFencedJson(raw);
+  const parsed = parseFencedJson(raw, 'planner');
   const aspects = Array.isArray(parsed?.aspects)
     ? parsed.aspects.filter((a) => a && a.title && Array.isArray(a.queries) && a.queries.length).slice(0, nAspects)
     : [];
   return { aspects: aspects.length >= 2 ? aspects : [], cost };
 }
 
-async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}) {
+// facets: the classifier facets, so a location or service query gets the
+// same focus blocks the agent loop gets (engine.js buildAgentPrompt), not a
+// product plan (CP-819). No facets (legacy rows): no focus block.
+async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}, facets = null) {
   const clarBlock = clarifications && Object.keys(clarifications).length > 0
     ? `\nUSER CONSTRAINTS (mandatory — bias every aspect and every search query to surface options satisfying these):\n${Object.entries(clarifications).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`
     : '';
+  const focusBlock = facets && typeof facets === 'object' ? facetFocusBlocks(facets) : '';
   const messages = [
     { role: 'system', content: DECOMPOSE_SYSTEM },
-    { role: 'user', content: `Query: "${query}"${clarBlock}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
+    { role: 'user', content: `Query: "${query}"${clarBlock}${focusBlock}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
   ];
   let cost = 0;
   const started = Date.now();
@@ -127,7 +131,7 @@ async function extractNotes(query, batch, key, plannerModel, plannerOpts = {}) {
     const raw = resp.choices?.[0]?.message?.content ?? '';
     // Same null-then-throw-on-property-read pattern as decompose() above: a
     // failed parse still lands in this catch and returns the same fallback.
-    const parsed = parseFencedJson(raw);
+    const parsed = parseFencedJson(raw, 'notes');
     return { notes: Array.isArray(parsed.notes) ? parsed.notes.filter((n) => n && n.content) : [], cost };
   } catch { return { notes: [], cost: 0 }; }
 }
@@ -191,7 +195,7 @@ export async function gatherParallel(query, config, openrouterKey, env, onEvent,
   const decomposeOpts = plannerHardMs > 0 ? { ...plannerOpts, hardMsOverride: plannerHardMs } : plannerOpts;
 
   await emit(onEvent, 'status', `Planning ${nAspects} research angles...`);
-  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, decomposeOpts, clarifications || {});
+  const { aspects, cost: dc } = await decompose(query, openrouterKey, config.plannerModel, nAspects, PER_ASPECT_QUERIES, decomposeOpts, clarifications || {}, facets);
   totalCostUsd += dc;
   if (startGate && !(await startGate)) {
     console.log('[parallel] stopped before the search burst (start gate closed)');
@@ -331,12 +335,12 @@ export async function runParallelEngine(query, config, openrouterKey, env, onEve
   }
   if (!synthContent) throw Object.assign(new Error('No synthesis response from LLM'), { totalCostUsd });
 
-  let parsed = parseFencedJson(synthContent);
+  let parsed = parseFencedJson(synthContent, 'synthesis');
   if (parsed === null) {
     console.warn('[parallel] streamed JSON unparseable, retrying non-streaming');
     const retry = await callLLM(openrouterKey, config.synthModel, synthMessages, { reasoning: config.synthReasoning, maxTokens: config.synthMaxTokens, provider: config.synthProvider });
     if (Number.isFinite(retry.usage?.cost)) totalCostUsd += retry.usage.cost;
-    parsed = parseFencedJson(retry.choices?.[0]?.message?.content ?? '');
+    parsed = parseFencedJson(retry.choices?.[0]?.message?.content ?? '', 'synthesis');
     if (parsed === null) throw Object.assign(new Error('Invalid JSON from synthesis'), { totalCostUsd });
   }
 

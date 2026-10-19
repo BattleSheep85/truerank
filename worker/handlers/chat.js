@@ -19,7 +19,7 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getResearchBySlug, getProductsByResearchId } from '../lib/db.js';
 import { parseJsonSafe, displayQuery } from '../lib/utils.js';
-import { budgetExhausted, incrementMonthlyCost } from '../pipeline/orchestrator.js';
+import { budgetExhausted, incrementMonthlyCost } from '../lib/budget.js';
 import { llmRouteFromEnv, fetchWithFallback, costFromUsage, LITELLM_MODEL_MAP } from '../lib/llm-route.js';
 
 const CHAT_MODEL = 'google/gemini-3.8-flash';

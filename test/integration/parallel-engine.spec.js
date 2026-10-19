@@ -79,6 +79,22 @@ describe('runParallelEngine', () => {
     expect(events.some((m) => m.includes('Report complete'))).toBe(true);
   });
 
+  it('gives the planner the classifier facets, like engine.js (CP-819)', async () => {
+    const plannerUser = () => {
+      const call = mocks.callLLM.mock.calls.find(([, , msgs]) => (msgs?.[0]?.content || '').includes('research aspects'));
+      return call?.[2]?.[1]?.content || '';
+    };
+    await runParallelEngine('plumber near austin', CONFIG, 'key', {}, () => {}, { recency_sensitive: false, is_buyable: false, needs_location: true, is_service: true }, 'Plumbing', {});
+    expect(plannerUser()).toContain('LOCATION-AWARE focus');
+    expect(plannerUser()).toContain('SERVICE/PROFESSIONAL focus');
+    expect(plannerUser()).not.toContain('BUYABLE PRODUCT focus');
+
+    mocks.callLLM.mockClear();
+    await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, null, 'NAS', {});
+    expect(plannerUser()).toContain('Query: "best home nas"');
+    expect(plannerUser()).not.toContain('focus:');
+  });
+
   it('merges url variants of one page from different providers (CP-710)', async () => {
     let call = 0;
     mocks.runSearch.mockImplementation(async () => {

@@ -12,6 +12,7 @@ import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel }
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
 import { buildResearchSeo } from './research-jsonld.js';
 import { recordView } from '../lib/view-counter.js';
+import { mailConfigured } from '../lib/mailer.js';
 
 // Find up to 5 sibling research pages that share canonical tokens. Used to build
 // the "Related research" block — internal links Google rewards for topical depth,
@@ -106,6 +107,9 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
   const hasProducts = products.length > 0;
   const isProcessing = entry.status === 'pending' || entry.status === 'processing';
   const isLiveReport = entry.status === 'complete' || (isProcessing && hasProducts);
+  // The email offer shows only when mail can actually go out (same signal as
+  // the signup answer, worker/handlers/subscribe.js, CP-812/CP-819).
+  const mailOn = mailConfigured(env);
   const showProcessingHero = isProcessing && !hasProducts;
   const isFailed = entry.status === 'failed';
 
@@ -263,12 +267,12 @@ ${showProcessingHero ? `<div id="processing" class="my-8 border border-accent/30
 </div>
 <div id="activity-feed" class="activity-feed"></div>
 <div class="notify-box mt-5 border border-accent/25 bg-accent-quiet p-4">
-<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
+${mailOn ? `<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
 <form id="notify-form" class="m-0 flex flex-wrap gap-2">
 <input id="notify-email" type="email" name="email" required placeholder="you@example.com" autocomplete="email" maxlength="254" class="min-w-[12rem] flex-1 border border-line bg-bg px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-3">
 <button type="submit" class="${BTN_PRIMARY} whitespace-nowrap">Notify me</button>
 </form>
-<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>
+<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>` : `<p class="m-0 text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready.</p>`}
 </div>
 </div>` : ''}
 

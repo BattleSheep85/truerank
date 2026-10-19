@@ -1,6 +1,7 @@
 // Full-coverage assertions for the remaining small pure modules:
 // status.js, guides.js, engine-config.js, ads.js, html.js's pure helpers + layout(),
 // and product-link.js.
+import { readdirSync, readFileSync } from 'node:fs';
 import { apiStatus } from '../../worker/lib/status.js';
 import { STATIC_GUIDES, STATIC_GUIDE_SLUGS, GUIDES_LASTMOD } from '../../worker/lib/guides.js';
 import { ENGINE_CONFIG } from '../../worker/lib/engine-config.js';
@@ -25,6 +26,15 @@ export function runLibPureTests() {
     if (A === E) report.passed++; else { report.failed++; report.failures.push(`${name}: expected ${E}, got ${A}`); }
   };
   const ok = (name, c) => eq(name, !!c, true);
+
+  // CP-819: shared lib modules never import the pipeline layer (keywords.js
+  // used to pull budgetExhausted from pipeline/orchestrator.js).
+  {
+    const libDir = new URL('../../worker/lib/', import.meta.url);
+    const offenders = readdirSync(libDir).filter((f) => f.endsWith('.js'))
+      .filter((f) => /from\s+['"]\.\.\/pipeline\//.test(readFileSync(new URL(f, libDir), 'utf8')));
+    eq('architecture: no worker/lib module imports worker/pipeline', offenders, []);
+  }
 
   // status.js
   eq('apiStatus complete', apiStatus('complete'), 'completed');

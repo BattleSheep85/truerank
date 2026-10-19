@@ -14,7 +14,7 @@
 import { generateId, getResearchById } from '../lib/db.js';
 import { generateSlug } from '../lib/utils.js';
 import { screenQuery, rejectionMessage } from '../lib/safety.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from '../lib/budget.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getSessionUser } from '../lib/auth.js';

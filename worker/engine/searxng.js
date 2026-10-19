@@ -18,6 +18,9 @@ export const SEARXNG_IMAGES_CATEGORY = 'images';
 // Usable answers stay in KV this long, so repeat runs of a query do not hit
 // the free engines again (they CAPTCHA the home IP under load, CP-713).
 export const SEARXNG_CACHE_TTL_S = 4 * 3600;
+// An answer where some engines failed (unresponsive_engines) is thinner than
+// usual, so it stays only this long and the next run asks again (CP-819).
+export const SEARXNG_PARTIAL_CACHE_TTL_S = 30 * 60;
 const CACHE_KEY_PREFIX = 'searxng:v1:';
 // "1000×1000", "1200x1050", "3000 x 3000", "1500 X 851".
 const RESOLUTION_RE = /^\s*(\d+)\s*[x×X]\s*(\d+)\s*$/;
@@ -321,21 +324,26 @@ async function readCache(kv, key) {
   }
 }
 
-async function writeCache(kv, key, raw) {
+async function writeCache(kv, key, raw, ttlSeconds) {
   if (!kv) return;
   try {
-    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: SEARXNG_CACHE_TTL_S });
+    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: ttlSeconds });
   } catch (err) {
     console.log(`[searxng] cache write failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
+// True when SearXNG reports engines that failed for this request.
+const hasUnresponsiveEngines = (data) =>
+  Array.isArray(data?.unresponsive_engines) && data.unresponsive_engines.length > 0;
+
 // Raw results from the KV cache (opts.kv) or a live request. The caller runs
 // `save()` once it finds a live answer usable, so failures are never cached.
+// opts.cacheBypass === true (forceFresh runs) skips the read but still saves.
 // Returns { raw, save }, or null when the request failed.
 async function loadResults(query, baseUrl, kind, opts) {
   const key = opts.kv ? await searxngCacheKey(query, kind, opts) : null;
-  const cached = await readCache(opts.kv, key);
+  const cached = opts.cacheBypass === true ? null : await readCache(opts.kv, key);
   if (cached) {
     console.log(`[searxng] cache hit q="${query}"`);
     return { raw: cached.results, save: async () => {} };
@@ -343,7 +351,8 @@ async function loadResults(query, baseUrl, kind, opts) {
   const data = await fetchSearxngJson(query, baseUrl, opts);
   if (data === null) return null;
   const raw = resultsOf(data);
-  return { raw, save: () => writeCache(opts.kv, key, raw) };
+  const ttl = hasUnresponsiveEngines(data) ? SEARXNG_PARTIAL_CACHE_TTL_S : SEARXNG_CACHE_TTL_S;
+  return { raw, save: () => writeCache(opts.kv, key, raw, ttl) };
 }
 
 // SearXNG image `resolution` string as { width, height }; { 0, 0 } when the

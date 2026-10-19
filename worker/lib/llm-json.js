@@ -13,9 +13,12 @@
 //      the JSON: {...} let me know if you need anything else!") and is
 //      LOAD-BEARING for the classifier's fail-open path. Do not drop it.
 //   6. Otherwise return null. Never throws.
-export function parseFencedJson(raw) {
+// Every null is logged once here (CP-819), so a caller that treats null as "no
+// data" still leaves a trace. `source` names the caller in that line. The line
+// holds the reply's length, never its text.
+export function parseFencedJson(raw, source = 'model') {
   if (raw && typeof raw === 'object') return raw;
-  if (typeof raw !== 'string') return null;
+  if (typeof raw !== 'string') return dropped(source, `no reply (${raw === null ? 'null' : typeof raw})`);
 
   let text = raw.trim();
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -33,8 +36,13 @@ export function parseFencedJson(raw) {
     try {
       return JSON.parse(text.slice(first, last + 1));
     } catch {
-      return null;
+      // fall through to the log line
     }
   }
+  return dropped(source, `reply is not JSON (${raw.length} chars)`);
+}
+
+function dropped(source, why) {
+  console.warn(`[llm-json] ${String(source)} ${why}, dropped`);
   return null;
 }

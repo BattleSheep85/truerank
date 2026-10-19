@@ -45,7 +45,7 @@ import { deadlineSignal, deferred, delay, hedged } from '../lib/deadline.js';
 import { withConnectionGate } from '../lib/connection-gate.js';
 import { rerankClaimEvidence } from './verify-rerank.js';
 import { isNearSpecValue } from '../lib/quantity.js';
-import { readCachedClaims, writeCachedClaims } from '../lib/claim-cache.js';
+import { readCachedClaims, writeCachedClaims, shortenCachedClaims } from '../lib/claim-cache.js';
 import { mergeStanceVotes } from './stance-votes.js';
 import { readPageInto } from './tools.js';
 import { screenQuery } from '../lib/safety.js';
@@ -449,7 +449,7 @@ const FLAT_OBJECT_RE = /\{[^{}]*\}/g;
  * example, cut off at the token cap) keeps each verdict object it completed.
  */
 export function parseStanceVerdicts(raw) {
-  const parsed = parseFencedJson(raw);
+  const parsed = parseFencedJson(raw, 'verify-stance');
   if (Array.isArray(parsed?.verdicts)) return parsed.verdicts;
   if (typeof raw !== 'string') return [];
 
@@ -778,7 +778,7 @@ export async function extractClaims({ product, claimText, apiKey, model, callLLM
   const resp = await hedged(call, hedgeMs, { onHedge });
   const costUsd = Number.isFinite(resp?.usage?.cost) ? resp.usage.cost : 0;
   const raw = resp.choices?.[0]?.message?.content ?? '';
-  const parsed = parseFencedJson(raw);
+  const parsed = parseFencedJson(raw, 'verify-extract');
   const rawClaims = Array.isArray(parsed?.claims) ? parsed.claims.slice(0, 12) : [];
   const claims = rawClaims
     .filter((c) => c && typeof c.text === 'string' && c.text.trim())
@@ -1314,6 +1314,19 @@ export async function stableProductClaims(args) {
 }
 
 /**
+ * After the verdict: a check that ended with no score (not enough independent
+ * evidence) keeps its claim set only CLAIM_CACHE_WEAK_TTL_SECONDS, so a later
+ * run can extract other claims instead of repeating the same dead end for 30
+ * days (CP-819). A scored check leaves the set alone. Never throws.
+ */
+export async function keepClaimsByOutcome(kv, product, productUrl, overall) {
+  if (overall?.score !== null && overall?.score !== undefined) return;
+  if (await shortenCachedClaims(kv, product, productUrl)) {
+    console.log(`[verify] claims: no score, saved set for "${product}" kept one day`);
+  }
+}
+
+/**
  * Step 3, TEST PAGES: one search per claim for independent tests of it
  * (searchClaimTests), then full reads of the best snippet-only test pages
  * those searches found (testPagesToRead). Before this step the evidence was
@@ -1531,6 +1544,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
 
   // 7. OVERALL
   const overall = overallVerdict(claimVerdicts);
+  await keepClaimsByOutcome(env?.KV, checked, productUrl ?? null, overall);
 
   return {
     status: 'ok',

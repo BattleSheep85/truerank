@@ -12,7 +12,7 @@ import {
 } from '../lib/db.js';
 import { generateSlug, canonicalizeQuery, squashQuery, parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
 import { screenQuery, rejectionMessage } from '../lib/safety.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from '../lib/budget.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { checkGlobalResearchSpend } from '../lib/spend-gate.js';
@@ -194,13 +194,16 @@ export async function handleStartResearch(request, env) {
         await recordUserSearch(env.DB, sessionUser.id, id, normalizedQuery);
     }
 
-    // Enqueue research job (message shape unchanged — queue consumer keys on it).
+    // Enqueue research job (the queue consumer keys on reportId and query).
     // If the queue send throws (transient Queues outage, binding misconfiguration),
     // flip the already-inserted row to failed so it doesn't orphan as 'pending'.
     try {
+        // forceFresh (worker secret only) also skips the cached SearXNG
+        // answers, so a stability benchmark measures a fresh gather (CP-819).
         await env.RESEARCH_QUEUE.send({
             reportId: id,
             query: normalizedQuery,
+            ...(forceFresh ? { bypassSearchCache: true } : {}),
         });
     } catch (err) {
         console.error('[research] queue send failed:', err instanceof Error ? err.message : String(err));

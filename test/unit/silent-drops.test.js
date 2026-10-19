@@ -60,7 +60,10 @@ export async function runSilentDropsTests() {
     names = await proposeMissingLeaders('best widget', 'widgets', ['Acme X1'], sources, 'test-key', 'test/model');
   }));
   ok('recall-supplement: unparseable JSON returns []', Array.isArray(names) && names.length === 0);
-  ok('recall-supplement: unparseable JSON logs "skipped"', badLines.some((l) => l.includes('[recall-supplement] skipped')));
+  // CP-819: the shared parser logs the drop once; the caller adds no second line.
+  ok('recall-supplement: unparseable JSON is logged once by the parser',
+    badLines.filter((l) => l.includes('[llm-json]') && l.includes('recall-supplement')).length === 1);
+  ok('recall-supplement: no duplicate caller line for unparseable JSON', !badLines.some((l) => l.includes('could not be parsed')));
 
   // Parsed JSON of the wrong shape is dropped with a line too.
   const shapeLines = await captureLogs(() => withFetch(async () => chatReply('{"products":["Bolt Z9"]}'), async () => {

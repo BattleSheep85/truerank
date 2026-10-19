@@ -5,7 +5,8 @@
  * worker/index.js.
  */
 
-import { runResearchPipeline, monthlySpendUsd, monthlyBudgetUsd, budgetExhausted } from './pipeline/orchestrator.js';
+import { runResearchPipeline } from './pipeline/orchestrator.js';
+import { monthlySpendUsd, monthlyBudgetUsd, budgetExhausted } from './lib/budget.js';
 import { runVerificationPipeline } from './pipeline/verify-orchestrator.js';
 import { runFlywheelTick } from './lib/keywords.js';
 import { ingestGsc } from './lib/gsc.js';
@@ -174,6 +175,16 @@ async function stopForBudget(env, reportId) {
     return true;
 }
 
+/**
+ * The env a research run searches with. A message from a worker-secret
+ * forceFresh request (bypassSearchCache: true, set only by
+ * handleStartResearch) gets SEARXNG_CACHE_BYPASS, so its searches skip the
+ * cached SearXNG answers (worker/engine/tools.js). Anything else: env as is.
+ */
+export function searchEnvFor(env, body) {
+    return body?.bypassSearchCache === true ? { ...env, SEARXNG_CACHE_BYPASS: true } : env;
+}
+
 // Legacy ranking-pipeline path — UNCHANGED behavior, only extracted out of the
 // queue() loop body so it can sit alongside the new verification branch.
 export async function processResearchMessage(message, env) {
@@ -200,7 +211,7 @@ export async function processResearchMessage(message, env) {
             return;
         }
 
-        await runResearchPipeline(env, reportId, query);
+        await runResearchPipeline(searchEnvFor(env, message.body), reportId, query);
         message.ack();
     } catch (err) {
         console.error(`Queue processing error for ${reportId}:`, err);

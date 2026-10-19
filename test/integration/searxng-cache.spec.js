@@ -46,4 +46,13 @@ describe('SearXNG KV cache (CP-713)', () => {
     const key = await searxngCacheKey('best nas failing', 'web', {});
     expect(await env.KV.get(key)).toBeNull();
   });
+
+  it('a forceFresh run (SEARXNG_CACHE_BYPASS) searches again and refreshes the cache (CP-819)', async () => {
+    const spy = vi.fn(async () => new Response(JSON.stringify(BODY), { status: 200 }));
+    vi.stubGlobal('fetch', spy);
+    await runSearch('best nas bypass', 'searxng', { SEARXNG_URL: BASE_URL, KV: env.KV });
+    await runSearch('best nas bypass', 'web', { SEARXNG_URL: BASE_URL, KV: env.KV, SEARXNG_CACHE_BYPASS: true });
+    await runSearch('best nas bypass', 'searxng', { SEARXNG_URL: BASE_URL, KV: env.KV, SEARXNG_CACHE_BYPASS: 'true' });
+    expect(searxngCalls(spy)).toBe(2);
+  });
 });
