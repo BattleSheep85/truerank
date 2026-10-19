@@ -65,6 +65,7 @@ import { runExtractCandidatesTests } from '../test/unit/extract-candidates.test.
 import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
 import { runCriticalRenderTests } from '../test/unit/critical-render.test.js';
 import { runThinCorpusTests } from '../test/unit/thin-corpus.test.js';
+import { runHomeSearchRouteTests } from '../test/unit/home-search-route.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -128,6 +129,7 @@ const suites = [
   ['critical-excerpts', runCriticalExcerptsTests],
   ['critical-render', runCriticalRenderTests],
   ['thin-corpus', runThinCorpusTests], // async suite (awaited below)
+  ['home-search-route', runHomeSearchRouteTests], // async suite (awaited below)
 ];
 
 let failed = 0;
