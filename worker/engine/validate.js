@@ -98,6 +98,9 @@ function extractBuyersGuide(val) {
 // the synth rated 3.4 or below — including Coofandy-style no-names — does not.
 // Raised from 3.0 → 3.5 per the "go aggressive" directive (2026-06-18).
 export const MIN_RATING = 3.5;
+// CP-400: the step down when fewer than MIN_SURVIVORS clear MIN_RATING (the old 3.0 floor).
+export const FALLBACK_MIN_RATING = 3.0;
+const MIN_SURVIVORS = 3;
 
 /**
  * Quality gate. Two layers, then a renumber:
@@ -123,9 +126,12 @@ export function applyQualityGate(products) {
   const notChurn = products.filter((p) => !isChurnBrand(p.brand));
 
   // Layer 2 — editorial-rating floor, with a ≥3-survivors guard so a thin
-  // category keeps its best available options instead of collapsing.
-  const strong = notChurn.filter((p) => p.rating === null || p.rating >= MIN_RATING);
-  const kept = strong.length >= 3 ? strong : notChurn;
+  // category keeps its best available options instead of collapsing. CP-400: the
+  // guard steps down to the 3.0 floor first, so a thin page still sheds 2★ junk.
+  const atLeast = (floor) => notChurn.filter((p) => p.rating === null || p.rating >= floor);
+  const strong = atLeast(MIN_RATING);
+  const fair = strong.length >= MIN_SURVIVORS ? strong : atLeast(FALLBACK_MIN_RATING);
+  const kept = fair.length >= MIN_SURVIVORS ? fair : notChurn;
 
   // Renumber 1..n following the synth's own rank field (robust to an array that
   // isn't already rank-ordered); stable on ties so the original order wins.

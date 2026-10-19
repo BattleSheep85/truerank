@@ -66,6 +66,37 @@ export function runValidateTests() {
     eq('keeps all when <3 would survive', names(gated), ['Cheap A', 'Cheap B', 'Cheap C']);
   }
 
+  // CP-400: when fewer than 3 clear the 3.5 floor, fall back to a 3.0 floor before
+  // keeping everything, so a thin page drops 2-star junk but keeps 3.x picks.
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Okay B', 3.2, 2),
+      prod('Okay C', 3.0, 3),
+      prod('Junk D', 2.0, 4),
+      prod('Junk E', 1.5, 5),
+    ]);
+    eq('CP-400 thin page falls back to the 3.0 floor', names(gated), ['Strong A', 'Okay B', 'Okay C']);
+    eq('CP-400 fallback renumbers ranks', ranks(gated), [1, 2, 3]);
+  }
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Okay B', 3.2, 2),
+      prod('Junk D', 2.0, 3),
+    ]);
+    eq('CP-400 keeps all when even the 3.0 floor leaves < 3', names(gated), ['Strong A', 'Okay B', 'Junk D']);
+  }
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Strong B', 3.9, 2),
+      prod('Strong C', 3.5, 3),
+      prod('Okay D', 3.2, 4),
+    ]);
+    eq('CP-400 the 3.5 floor still applies when 3 clear it', names(gated), ['Strong A', 'Strong B', 'Strong C']);
+  }
+
   // Honest null ratings ("too thin to score") are NEVER dropped — we don't
   // punish the synth for abstaining.
   {
