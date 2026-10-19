@@ -8,7 +8,7 @@
 import {
     handleStartResearch, handleResearchStatus, handleResearchStream, handleResearchEvents,
 } from './handlers/research.js';
-import { handleStartVerify, handleVerifyStatus } from './handlers/verify.js';
+import { handleStartVerify, handleVerifyStatus, handleVerifyForm } from './handlers/verify.js';
 import { renderVerifyEntryPage, renderVerifyResultPage } from './pages/verify-page.js';
 import { handleGetReport, handleFeedback } from './handlers/report.js';
 import { handleAffiliateClick, handleAffiliateSearch } from './handlers/affiliate.js';
@@ -105,6 +105,18 @@ export default {
             // separate handler/pipeline from the ranking flow above.
             if (path === '/api/verify' && method === 'POST') {
                 return handleStartVerify(request, env);
+            }
+
+            // The /verify entry form posts here when JavaScript is off (CP-804).
+            if ((path === '/verify' || path === '/verify/') && method === 'POST') {
+                const out = await handleVerifyForm(request, env);
+                if (out.slug) {
+                    return new Response(null, { status: 303, headers: { Location: `/verify/${out.slug}`, 'Cache-Control': 'no-store' } });
+                }
+                const page = renderVerifyEntryPage(out.product, { error: out.error, signupRequired: out.signupRequired });
+                const res = htmlPageResponse(page, env, { status: out.status, cacheControl: 'no-store', request });
+                if (out.retryAfter) res.headers.set('Retry-After', out.retryAfter);
+                return res;
             }
 
             const verifyPollMatch = path.match(/^\/api\/verify\/([a-z0-9-]+)$/);

@@ -33,13 +33,16 @@ const ADULT_PATTERNS = [
 const KIT = String.raw`(?:drug\s+)?(?:test|testing|detection)\s+(?:strips?|kits?)`;
 const NOT_TEST_KIT = String.raw`(?!\s+${KIT})(?<!${KIT}\s+(?:for|to\s+detect)\s+\w+)`;
 const HARD_DRUGS = String.raw`(?:cocaine|heroin|fentanyl|methamphetamine|crystal\s+meth)`;
+const DRUG_NAMES = String.raw`(?:cocaine|heroin|meth|methamphetamine|fentanyl|mdma|ecstasy|lsd|crack\s+cocaine|crystal\s+meth|ketamine)`;
 
 const ILLEGAL_PATTERNS = [
   // CSAM / exploitation — highest priority, broad block of the explicit signal.
   /\bchild\s+(?:porn|sex|sexual|abuse\s+material)\b/, /\bunderage\s+(?:porn|sex|girls?|boys?|nudes?)\b/,
   /\b(?:csam|cp\s+porn|pedophil|loli(?:con)?\b)/, /\bchild\s+exploitation\b/,
   // hard drugs — buying / making / specific substances.
-  new RegExp(String.raw`\b(?:buy|order|where\s+to\s+(?:buy|get)|how\s+to\s+make|how\s+to\s+(?:get|cook))\s+(?:(?:cocaine|heroin|meth|methamphetamine|fentanyl|mdma|ecstasy|lsd|crack\s+cocaine|crystal\s+meth|ketamine)\b${NOT_TEST_KIT}|illegal\s+drugs?\b)`),
+  // CP-804: the test-kit exception applies only after "buy" and "where to buy".
+  new RegExp(String.raw`\b(?:buy|where\s+to\s+buy)\s+(?:${DRUG_NAMES}\b${NOT_TEST_KIT}|illegal\s+drugs?\b)`),
+  new RegExp(String.raw`\b(?:order|where\s+to\s+get|how\s+to\s+(?:make|get|cook))\s+(?:${DRUG_NAMES}|illegal\s+drugs?)\b`),
   new RegExp(String.raw`\b${HARD_DRUGS}\b${NOT_TEST_KIT}`), /\bcrack\s+cocaine\b/,
   /\bhow\s+to\s+make\s+(?:meth|drugs?|crack|crystal\s+meth)\b/, /\bbuy\s+drugs?\s+online\b/, /\bdark\s?web\s+drugs?\b/,
   // weapons — making / illegal acquisition (NOT legal firearm products).
@@ -58,6 +61,10 @@ const ILLEGAL_PATTERNS = [
   /\b(?:replica|fake|counterfeit|knockoff)\s+(?:rolex|gucci|louis\s+vuitton|designer|watches|handbags?|sneakers)\b/,
   // trafficking.
   /\bhuman\s+trafficking\b/, /\bbuy\s+a\s+(?:human|kidney|organ)\b/,
+  // CP-804: harm phrases. denylistForms joins spaced letters, so "make a b o m b",
+  // "b o m b making" and "k i l l myself" reach these too. Bath bombs stay allowed.
+  /\b(?:make|making|build|building)\s+(?:a\s+)?bombs?\b(?!\s+shelters?\b)/, /(?<!\bbath\s)\bbomb\s?making\b/,
+  /\bkill(?:ing)?\s+(?:myself|my\s?self|yourself)\b/,
 ];
 
 const SQL_PROBE_PATTERNS = [

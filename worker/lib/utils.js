@@ -212,7 +212,13 @@ export function publicResearchFilter(alias) {
       )
     )
     AND LENGTH(${alias}.query) >= 10 AND ${alias}.query LIKE '% %'
-    AND ${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'
+    AND ${publicNameFilter(alias)}`;
+}
+
+// The name rule every public list shares, ranking reports and claim checks
+// alike: no test or verify runs, no retired rows (CP-804).
+export function publicNameFilter(alias) {
+  return `${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'
     AND ${alias}.retired_at IS NULL`;
 }
 

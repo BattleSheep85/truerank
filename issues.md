@@ -83,7 +83,7 @@ Last updated: 2026-10-19
 - [x] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js. Fixed 2026-10-17 (CP-783): spec checks ignore the hyphen ("65-Inch" reads as "65Inch").
 
 - [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
-- [ ] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js.
+- [x] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js. Fixed 2026-10-19 (CP-804): a retired row gets the same 404 as a missing row, and the UPDATE also requires retired_at IS NULL. Test: test/integration/cp804-batch10.spec.js.
 
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 
@@ -137,16 +137,16 @@ Last updated: 2026-10-19
 - [x] LOW (Product, verify): the stance judge sometimes returns contradict from a source about a different model (Sony WH-1000XM6: goldtested.com and nanonotice.com cited the XM5 processor). The backstops never check contradict rows. worker/engine/verify.js applyStanceBackstops. Resolved 2026-10-16 (CP-722): `spanNamesOtherModel` and `applyStanceBackstops` now check both `support` and `contradict` rows against off-model references, echoed text, empty spans, second-hand citations, and `ai-injection`.
 
 ### Data Integrity
-- [ ] MEDIUM (Data Integrity): retired reports are still served at /research/<slug>/og.svg, /api/report/<id>, /api/chat, and the user history list.
+- [x] MEDIUM (Data Integrity): retired reports are still served at /research/<slug>/og.svg, /api/report/<id>, /api/chat, and the user history list. Fixed 2026-10-19 (CP-804): og.svg serves the generic site card; /api/report, /api/chat, and (found in review) /api/research/:id, its /events and /stream answer not found; getUserSearches keeps the search but drops the slug, so /api/history and the account page do not link it. worker/lib/sitemap.js, worker/handlers/report.js, chat.js, research.js, worker/lib/auth.js.
 - [ ] LOW (Data Integrity): migration 017 can still retire an anonymous person's report that has no clarifications, no subscriber, and no search-history link, when a keyword with the same text clustered onto it. The undo statement is in the file header.
 
 ### SEO
-- [ ] MEDIUM (SEO): retiring rows does not change getLatestResearchLastmod, so sitemap, feed, and browse keep answering 304 with retired URLs until a new public report completes.
+- [x] MEDIUM (SEO): retiring rows does not change getLatestResearchLastmod, so sitemap, feed, and browse keep answering 304 with retired URLs until a new public report completes. Fixed 2026-10-19 (CP-804): getLatestResearchLastmod takes the later of the newest public completion and the newest retired_at, so retiring a row moves Last-Modified and the XML cache key. worker/lib/sitemap.js.
 
 ### UX
-- [ ] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check.
-- [ ] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request.
-- [ ] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)".
+- [x] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check. Fixed 2026-10-19 (CP-804): the form posts to /verify; handleVerifyForm (worker/handlers/verify.js) runs the same intake as /api/verify, refuses cross-site posts (Origin / Sec-Fetch-Site), and answers 303 to /verify/<slug> or the form with the error. A queued check reloads itself every 5 s with JavaScript off (noscript refresh); a failed one says so and stops.
+- [x] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request. Fixed 2026-10-19 (CP-804): it uses publicNameFilter (worker/lib/utils.js), the name rule publicResearchFilter now shares (no 'test ' or 'verify ' runs, no retired rows). The 24-blob parse is unchanged.
+- [x] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)". Fixed 2026-10-19 (CP-804): the message is now "productUrl must be a public https:// link".
 
 ### API
 - [ ] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge.
@@ -2832,5 +2832,12 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] LOW (Product, safety): rule 7 of isProbeQuery now passes "one real word plus any token", so near-garbage like "xyz 1" reaches the LLM classifier (cheap, and it rejects nonsense) instead of the free screen. worker/lib/safety.js
 
 ### Safety (QA review of batch 9, CP-803)
-- [ ] LOW (Security, safety): the drug test-kit exception applies after any verb, so adding "test kit" gets some drug phrases past the free screen: "how to cook heroin test kit", "how to get cocaine test kit", "order heroin testing kits". The AI classifier still checks them. Fix: apply the exception only after "buy" and "where to buy", not after "how to cook" or "how to get". worker/lib/safety.js
-- [ ] LOW (Security, safety): some spaced-out phrases were blocked on the old main only by the nonsense (probe) check and now reach the AI classifier: "make a b o m b", "b o m b making", "k i l l myself". The normal spelling of each was never blocked by the screen either, so this is no worse than before; consider joining spaced letters before the harm patterns run. worker/lib/safety.js
+- [x] LOW (Security, safety): the drug test-kit exception applies after any verb, so adding "test kit" gets some drug phrases past the free screen: "how to cook heroin test kit", "how to get cocaine test kit", "order heroin testing kits". The AI classifier still checks them. Fix: apply the exception only after "buy" and "where to buy", not after "how to cook" or "how to get". worker/lib/safety.js Fixed 2026-10-19 (CP-804): the exception now applies only after "buy" and "where to buy". Tests: test/unit/safety.test.js section 12.
+- [x] LOW (Security, safety): some spaced-out phrases were blocked on the old main only by the nonsense (probe) check and now reach the AI classifier: "make a b o m b", "b o m b making", "k i l l myself". The normal spelling of each was never blocked by the screen either, so this is no worse than before; consider joining spaced letters before the harm patterns run. worker/lib/safety.js Fixed 2026-10-19 (CP-804): new harm patterns (make/making/build a bomb, bomb making, kill myself / killing myself) run on the joined forms, so the spaced and plain spellings both block; bath bombs and bomb shelters pass, and the batch 9 normal searches still pass.
+
+## 2026-10-19 — fix batch 10 findings (CP-804)
+- [ ] LOW (UX, verify): with JavaScript off, a check that reaches needs_input shows "paste its URL" but no form (the URL form is built by script). worker/pages/verify-page.js renderUrlPromptMarkup
+- [ ] LOW (Product, safety): "order fentanyl test strips" and "where to get fentanyl test strips" are blocked, because the test-kit exception now applies only after "buy" and "where to buy" (as asked in CP-804). Widen it if real buyers hit this. worker/lib/safety.js
+- [ ] LOW (Security, verify): the no-JavaScript POST /verify refuses cross-site posts by Origin and Sec-Fetch-Site; a very old browser that sends neither header is not refused. worker/handlers/verify.js isCrossSite
+- [ ] LOW (UX, home): the homepage verdict list hides a real product whose name starts with "Test " or "Verify " (the shared test-run rule). worker/lib/utils.js publicNameFilter
+- [ ] LOW (Product, safety): "bomb making" blocks unless "bath" comes right before it, so "photo bomb making" is blocked. worker/lib/safety.js

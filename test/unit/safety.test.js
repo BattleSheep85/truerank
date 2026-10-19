@@ -231,5 +231,47 @@ export function runSafetyTests() {
     eq(`CP-803 SQL rules allow: "${q}"`, screenQuery(q).blocked, false);
   }
 
+  // ── 12. CP-804: QA gaps from batch 9 ─────────────────────────────────────────
+  // The test-kit exception applies only after "buy" and "where to buy".
+  const cp804Blocked = [
+    'how to cook heroin test kit',
+    'how to get cocaine test kit',
+    'order heroin testing kits',
+    'how to make meth test strips',
+    'where to get fentanyl test strips',
+    // Spaced-out harm phrases, and their plain spelling.
+    'make a b o m b',
+    'b o m b making',
+    'k i l l myself',
+    'make a bomb',
+    'bomb making',
+    'how to kill myself',
+    'making a bomb',
+    'build a bomb',
+    'bombmaking guide',
+    'kill my self',
+    'killing myself',
+  ];
+  for (const q of cp804Blocked) {
+    eq(`CP-804 block: "${q}"`, screenQuery(q).blocked, true);
+  }
+  const cp804Allowed = [
+    'fentanyl test strips',
+    'buy fentanyl test strips',
+    'where to buy fentanyl test strips',
+    'buy mdma test kit',
+    'bath bomb making kit',
+    'best bath bomb maker',
+    'how to make bath bombs',
+    'make a bath bomb',
+    'best bug spray to kill mosquitoes',
+    'bomb shelter supplies',
+    'building a bomb shelter',
+    'nikon z 5', 'sony a 7 iv', 'canon r 6', 'a v receiver', 'i 9 laptop', 'buy a tv',
+  ];
+  for (const q of cp804Allowed) {
+    eq(`CP-804 allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+
   return report;
 }
