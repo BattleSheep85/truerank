@@ -49,6 +49,7 @@ import { runWorkerAuthTests } from '../test/unit/worker-auth.test.js';
 import { runGroundingCheckTests } from '../benchmarks/tests/grounding-check.test.mjs';
 import { runNoAnthropicOnOpenRouterTests } from '../benchmarks/tests/no-anthropic-on-openrouter.test.mjs';
 import { runClaudeCodeJudgeTests } from '../benchmarks/tests/claude-code-judge.test.mjs';
+import { runSynthRecallLinksTests } from '../benchmarks/tests/synth-recall-links.test.mjs';
 import { runUrlGuardTests } from '../test/unit/url-guard.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
 import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
@@ -59,6 +60,7 @@ import { runBackfillImagesTests } from '../test/unit/backfill-images.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 import { runResearchResultShapeTests } from '../test/unit/research-result-shape.test.js';
 import { runLieSurfaceTests } from '../test/unit/lie-surfaces.test.js';
+import { runEvalScoreTests } from '../test/unit/eval-score.test.js';
 
 const suites = [
   ['consent', runConsentTests],
@@ -112,6 +114,8 @@ const suites = [
   ['grounding-check', runGroundingCheckTests],
   ['no-anthropic-on-openrouter', runNoAnthropicOnOpenRouterTests],
   ['claude-code-judge', runClaudeCodeJudgeTests],
+  ['synth-recall-links', runSynthRecallLinksTests],
+  ['eval-score', runEvalScoreTests],
   ['url-guard', runUrlGuardTests],
   ['safety', runSafetyTests],
   ['spend-gate', runSpendGateTests],

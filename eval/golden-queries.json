@@ -5,7 +5,8 @@
     "disclosure_present": "page HTML contains the commission disclosure",
     "min_products": 3,
     "min_sources": 5,
-    "max_age_days": 120
+    "max_age_days": 120,
+    "kinds": "kind defaults to product. service, local and experience pages (CP-415) must show no Amazon button (amazon_free). service pages must use the Recommendations layout (service_layout). local, and experience with location_any, need the #1 pick in one of the location_any places (location_ok). accepted_winners is optional outside product: when absent the pick is not judged. Scorer: scripts/lib/eval-score.mjs"
   },
   "queries": [
     { "query": "best ereader", "accepted_winners": ["kindle", "kobo"] },
@@ -17,6 +18,11 @@
     { "query": "best password manager", "accepted_winners": ["1password", "bitwarden", "proton pass", "keepass"] },
     { "query": "best cast iron skillet", "accepted_winners": ["lodge", "field company", "stargazer", "smithey"] },
     { "query": "best robot vacuum for pet hair", "accepted_winners": ["roborock", "roomba", "irobot", "eufy", "shark", "dreame", "deebot", "ecovacs"] },
-    { "query": "best portable bluetooth speaker", "accepted_winners": ["jbl", "bose soundlink", "sonos roam", "ue boom", "ultimate ears", "anker soundcore", "tribit"] }
+    { "query": "best portable bluetooth speaker", "accepted_winners": ["jbl", "bose soundlink", "sonos roam", "ue boom", "ultimate ears", "anker soundcore", "tribit"] },
+    { "query": "best tax preparation service for freelancers", "kind": "service", "accepted_winners": ["turbotax", "h&r block", "freetaxusa", "taxact", "taxslayer", "keeper tax", "cash app taxes"] },
+    { "query": "best coffee shops in brooklyn", "kind": "local", "location_any": ["brooklyn"] },
+    { "query": "best pho in wichita", "kind": "local", "location_any": ["wichita"] },
+    { "query": "best day hikes near denver colorado", "kind": "experience", "location_any": ["denver", "boulder", "evergreen", "morrison", "colorado"] },
+    { "query": "best national parks to visit in winter", "kind": "experience" }
   ]
 }
