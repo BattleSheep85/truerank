@@ -120,3 +120,70 @@ export function pickExistingSlug(query, candidates) {
   const holdsAll = pages.find((c) => words.every((t) => (c.query || '').toLowerCase().includes(t)));
   return holdsAll ? holdsAll.slug : null;
 }
+
+// ── Groundedness (CP-807) ─────────────────────────────────────────────────
+// Since CP-408 each saved source keeps a snippet: the first 200 characters of
+// its page text. The check asks whether the top products' names and numbers
+// (prices, spec values) appear in those snippets. A miss is a lead, not proof
+// of a lie: 200 characters hold little, and a small number (2 fans) can match
+// an unrelated snippet, so this check stays soft.
+const NUMBER_RE = /(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g;
+// Snippet numbers: links go first, and a number glued after a letter (an ASIN
+// such as B0CP3MZXVH, a model code) is not a value.
+const LINK_RE = /https?:\/\/\S+/g;
+const SNIPPET_NUMBER_RE = /(?<![a-z0-9.,])(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g;
+const NAME_WORD_RE = /[a-z0-9]+/g;
+// A number counts as found when a snippet number is this close (absolute or relative).
+const NUMBER_ABS_TOLERANCE = 0.5;
+const NUMBER_REL_TOLERANCE = 0.03;
+
+const numbersIn = (text, re = NUMBER_RE) => [...String(text || '').matchAll(re)]
+  .map((m) => parseFloat(m[0].replace(/,/g, ''))).filter(Number.isFinite);
+const snippetNumbersIn = (text) => numbersIn(text.replace(LINK_RE, ' '), SNIPPET_NUMBER_RE);
+const nearAny = (n, list) => list.some((s) => Math.abs(n - s) <= NUMBER_ABS_TOLERANCE
+  || (s !== 0 && Math.abs(n - s) / Math.abs(s) <= NUMBER_REL_TOLERANCE));
+const round3 = (x) => Math.round(x * 1000) / 1000;
+
+function productNumbers(p) {
+  const price = Number.isFinite(p?.price) ? [p.price] : [];
+  const specs = p?.specs && typeof p.specs === 'object' ? Object.values(p.specs) : [];
+  return [...price, ...specs.flatMap((v) => numbersIn(v))];
+}
+
+function nameFound(name, snippetTexts) {
+  const words = String(name || '').toLowerCase().match(NAME_WORD_RE) || [];
+  if (!words.length) return false;
+  return snippetTexts.some((text) => words.every((w) => hasWord(text, [w])));
+}
+
+/**
+ * Groundedness of one report against its saved source snippets. `body` is the
+ * GET /api/report/:id answer ({ report: { products }, sources }). Checks the
+ * first checks.grounded_top_n products. grounded_ok compares the share of
+ * names found with checks.min_grounded_names; every fraction is null (not
+ * judged) when no source has a snippet (reports saved before CP-408).
+ */
+export function groundedness(body, checks) {
+  const sources = Array.isArray(body?.sources) ? body.sources : [];
+  const texts = sources.map((s) => s?.snippet).filter((t) => typeof t === 'string' && t.trim())
+    .map((t) => decode(t).toLowerCase());
+  const products = Array.isArray(body?.report?.products) ? body.report.products : [];
+  const top = products.slice(0, checks.grounded_top_n);
+  const snippetNumbers = texts.flatMap(snippetNumbersIn);
+  const ungrounded = texts.length ? top.filter((p) => !nameFound(p?.name, texts)).map((p) => String(p?.name ?? '')) : [];
+  const numbers = top.flatMap(productNumbers);
+  const numbersGrounded = numbers.filter((n) => nearAny(n, snippetNumbers)).length;
+  const judged = texts.length > 0 && top.length > 0;
+  const namesFrac = judged ? round3((top.length - ungrounded.length) / top.length) : null;
+  return {
+    snippet_sources: texts.length,
+    names_checked: judged ? top.length : 0,
+    names_grounded: judged ? top.length - ungrounded.length : 0,
+    ungrounded_names: ungrounded,
+    numbers_checked: judged ? numbers.length : 0,
+    numbers_grounded: judged ? numbersGrounded : 0,
+    grounded_names_frac: namesFrac,
+    grounded_numbers_frac: judged && numbers.length ? round3(numbersGrounded / numbers.length) : null,
+    grounded_ok: namesFrac == null ? null : namesFrac >= checks.min_grounded_names,
+  };
+}
