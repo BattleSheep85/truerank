@@ -1242,6 +1242,17 @@ async function runConcurrentJudgeTests({ eq, ok, report }) {
     ok(`${label}: all fail: the run fails with the first error`, thrown === results[0].error && thrown?.name === 'AbortError');
   });
 
+  await guarded('late judge cost', async () => {
+    const total = await verifyFn('lateJudgeCost')([
+      { costUsd: 0.001 },
+      { costUsd: 0.001, lateCostUsd: Promise.resolve(0.002) },
+      null,
+      { costUsd: 0.001, lateCostUsd: Promise.resolve(0.003) },
+    ]);
+    ok(`${label}: late cost sums only the unfinished hedge calls`, Math.abs(total - 0.005) < 1e-9);
+    eq(`${label}: no late cost is 0`, await verifyFn('lateJudgeCost')([]), 0);
+  });
+
   await guarded('no claims', async () => {
     const out = verifyFn('collectClaimVerdicts')([], []);
     eq(`${label}: no claims: no verdicts and no cost`, out, { claimVerdicts: [], costUsd: 0 });

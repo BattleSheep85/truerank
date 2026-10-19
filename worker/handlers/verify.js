@@ -109,9 +109,13 @@ export async function handleVerifyForm(request, env) {
 }
 
 // A browser sends Origin on a form post, and Sec-Fetch-Site on modern engines.
+// A post with neither carries no proof it came from our own form, so it is
+// refused too (CP-808): every browser in use sends at least one of them.
 function isCrossSite(request) {
-    if (request.headers.get('Sec-Fetch-Site') === 'cross-site') return true;
+    const fetchSite = request.headers.get('Sec-Fetch-Site');
+    if (fetchSite === 'cross-site') return true;
     const origin = request.headers.get('Origin');
+    if (!origin && !fetchSite) return true;
     return Boolean(origin) && origin !== new URL(request.url).origin;
 }
 
@@ -193,7 +197,7 @@ async function velocityGate(env, clientIp) {
     const rateKey = await ipRateKey('verify', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+        ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
         : burst;
     if (velocity.allowed) return null;
     const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));

@@ -67,7 +67,7 @@ async function scoreSlug(slug, golden) {
 // CP-807: the saved source snippets come from the public report API (a free
 // GET). A failed read leaves groundedness unjudged; it never fails the page.
 async function groundSlug(slug) {
-  const { status, body, error } = await getJson(`/api/report/${encodeURIComponent(slug)}`)
+  const { status, body, error } = await getJson(`/api/report/${encodeURIComponent(slug)}?snippets=1`)
     .catch((err) => ({ status: 0, body: null, error: err instanceof Error ? err.message : String(err) }));
   if (status !== 200 || !body) {
     const why = error ? `report API read failed: ${error}` : `report API answered HTTP ${status}`;

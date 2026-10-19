@@ -65,6 +65,9 @@ const ILLEGAL_PATTERNS = [
   // "b o m b making" and "k i l l myself" reach these too. Bath bombs stay allowed.
   /\b(?:make|making|build|building)\s+(?:a\s+)?bombs?\b(?!\s+shelters?\b)/, /(?<!\bbath\s)\bbomb\s?making\b/,
   /\bkill(?:ing)?\s+(?:myself|my\s?self|yourself)\b/,
+  // CP-808: "make an explosive". Spaces are optional so joined spaced letters
+  // ("makean explosive", "makeanexplosive") match too.
+  /\b(?:make|making|build|building)\s?(?:an?\s?)?explosives?\b/,
 ];
 
 const SQL_PROBE_PATTERNS = [

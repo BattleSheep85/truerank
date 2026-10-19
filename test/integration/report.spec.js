@@ -106,7 +106,7 @@ describe('handleFeedback', () => {
   it('returns 429 + Retry-After when feedback rate limit (20/hr) is exceeded', async () => {
     const ip = '203.0.113.80';
     for (let i = 0; i < 20; i++) {
-      await checkRateLimit(env.KV, `feedback:${ip}`, 20, 3600);
+      await checkRateLimit(env.KV, `feedback:${ip}`, 20, 3600, env.DB);
     }
     const r = new Request('https://x/api/feedback', {
       method: 'POST',

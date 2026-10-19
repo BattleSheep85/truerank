@@ -160,7 +160,7 @@ describe('index.js routing', () => {
     const network = vi.fn(async () => { throw new Error('no network in tests'); });
     vi.stubGlobal('fetch', network);
     for (let i = 0; i < 60; i++) {
-      await checkRateLimit(env.KV, `classify:${ip}`, 60, 3600);
+      await checkRateLimit(env.KV, `classify:${ip}`, 60, 3600, env.DB);
     }
     const res = await SELF.fetch(`${BASE}/api/classify`, {
       method: 'POST',

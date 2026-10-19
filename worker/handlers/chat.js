@@ -172,7 +172,7 @@ export async function handleChat(request, env) {
     const rateKey = await ipRateKey('chat', ip, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const rate = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+        ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
         : burst;
     if (!rate.allowed) {
         return jsonResponse({ error: 'Chat limit reached for now — try again in a bit.' }, 429);

@@ -147,7 +147,7 @@ export default {
                 const rateKey = `classify:${clientIp}`;
                 const burst = await checkBurstGate(env.RL_BURST, rateKey);
                 const velocity = burst.allowed
-                    ? await checkRateLimit(env.KV, rateKey, 60, 3600)
+                    ? await checkRateLimit(env.KV, rateKey, 60, 3600, env.DB)
                     : burst;
                 if (!velocity.allowed) {
                     return jres({ accept: true, clarifying_questions: defaultQuestionsForQuery(cq) });
@@ -179,7 +179,7 @@ export default {
 
             const reportMatch = path.match(/^\/api\/report\/([a-z0-9-]+)$/);
             if (reportMatch && method === 'GET') {
-                return handleGetReport(reportMatch[1], env);
+                return handleGetReport(reportMatch[1], env, { includeSnippets: url.searchParams.get('snippets') === '1' });
             }
 
             if (path === '/api/feedback' && method === 'POST') {

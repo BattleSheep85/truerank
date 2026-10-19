@@ -197,7 +197,7 @@ export async function handleSubscribe(request, env) {
     const rateKey = await ipRateKey('subscribe', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, SUBSCRIBE_PER_HOUR, SUBSCRIBE_WINDOW_S)
+        ? await checkRateLimit(env.KV, rateKey, SUBSCRIBE_PER_HOUR, SUBSCRIBE_WINDOW_S, env.DB)
         : burst;
     if (!velocity.allowed) {
         const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));

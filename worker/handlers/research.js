@@ -134,7 +134,7 @@ export async function handleStartResearch(request, env) {
         const rateKey = await ipRateKey('research', clientIp, env);
         const burst = await checkBurstGate(env.RL_BURST, rateKey);
         const velocity = burst.allowed
-            ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+            ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
             : burst;
         if (!velocity.allowed) {
             const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));

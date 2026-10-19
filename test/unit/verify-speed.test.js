@@ -467,6 +467,16 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
     eq('judgeClaim hedge: the fallback starts while a slow primary runs', order.slice(0, 2), ['start primary', 'start second']);
     eq('judgeClaim hedge: a decided slow primary keeps its verdict, although the fallback answered first', decided.judgeModel, 'primary');
     eq('judgeClaim hedge: the cost counts both calls once both finished', decided.costUsd, 0.002);
+    // CP-808: the primary decides while the early fallback still runs. Its
+    // cost is not in costUsd yet; lateCostUsd settles to it when it finishes.
+    const slowSecond = async (_key, model) => {
+      await tick(model === 'primary' ? 10 : 40);
+      return supportReply;
+    };
+    const lateCase = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowSecond, product, hedgeMs: 5 }));
+    eq('judgeClaim hedge: a decided primary returns before the slow fallback, counting only its own cost', [lateCase.judgeModel, lateCase.costUsd], ['primary', 0.001]);
+    eq('judgeClaim hedge: the unfinished fallback cost arrives as lateCostUsd', await lateCase.lateCostUsd, 0.001);
+    eq('judgeClaim hedge: a finished fallback has no lateCostUsd', decided.lateCostUsd, undefined);
     order.length = 0;
     const undecided = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowPrimary(neutralReply), product, hedgeMs: 5 }));
     eq('judgeClaim hedge: an unsubstantiated primary takes the decided fallback verdict, with one fallback call', [undecided.judgeModel, order.filter((o) => o === 'start second').length], ['second', 1]);
