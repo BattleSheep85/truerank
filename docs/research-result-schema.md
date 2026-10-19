@@ -63,6 +63,7 @@ Built by `validateResearchResult` (`worker/engine/validate.js`), then
 | `rank` | number | 1..n after the quality gate |
 | `bestFor` | string | at most 120 chars; may be `""` |
 | `affiliateUrl` | string | optional; only on products the ASIN resolver matched |
+| `criticalReviews` | array | optional (CP-399; rows before it have none); at most 2 `{ quote, stars, sourceUrl, sourceTitle }`: a verbatim source sentence of at most 240 chars, stars 1 to 2, an https source URL, a title of at most 120 chars |
 
 Validation also drops products outside the query's category, above a stated price
 cap, or rated below 3.5 while 3 stronger picks remain (`validate.js`).

@@ -114,5 +114,62 @@ export function runSafetyTests() {
     eq(`CP-723 probe reason for (${desc}): "${q}"`, res.reason, 'probe');
   }
 
+  // ── 9. CP-394: obfuscation bypasses (leetspeak, spacing, symbols, unicode) ──
+  const cp394Blocked = [
+    { q: 'free p0rn videos', reason: 'adult', desc: 'digit for letter' },
+    { q: 'best s3x toys', reason: 'adult', desc: 'digit for letter in a phrase' },
+    { q: 'best $ex toys', reason: 'adult', desc: 'symbol for letter' },
+    { q: 'free p o r n sites', reason: 'adult', desc: 'spaced letters' },
+    { q: 'free p.o.r.n sites', reason: 'adult', desc: 'dotted letters' },
+    { q: 'free p-0-r-n videos', reason: 'adult', desc: 'dashes plus leetspeak' },
+    { q: 'free p\u200Born videos', reason: 'adult', desc: 'zero-width space inside a word' },
+    { q: 'free p\u00F6rn videos', reason: 'adult', desc: 'accented letter' },
+    { q: 'free \u0440\u043Ern videos', reason: 'adult', desc: 'Cyrillic look-alike letters' },
+    { q: 'free \uFF50\uFF4F\uFF52\uFF4E videos', reason: 'adult', desc: 'full-width letters' },
+    { q: 'free pooorn videos', reason: 'adult', desc: 'stretched letters' },
+    { q: 'watch h e n t a i online free', reason: 'adult', desc: 'spaced hentai' },
+    { q: 'buy c0caine online', reason: 'illegal', desc: 'leetspeak drug name' },
+    { q: 'where to buy h-e-r-o-i-n', reason: 'illegal', desc: 'dashed drug name' },
+    { q: 'f3nt4nyl for sale', reason: 'illegal', desc: 'several digits for letters' },
+    { q: 'how to make a b0mb at home', reason: 'illegal', desc: 'leetspeak weapon' },
+    { q: 'how to h4ck someone instagram', reason: 'illegal', desc: 'leetspeak hacking' },
+    { q: 'best 1oli manga', reason: 'illegal', desc: 'digit one for letter l' },
+    { q: 'best p0rn! sites', reason: 'adult', desc: 'leetspeak plus trailing punctuation' },
+    { q: 'free p0rn!', reason: 'adult', desc: 'leetspeak plus a final !' },
+    { q: 'best h3ntai! manga', reason: 'adult', desc: 'leetspeak hentai plus !' },
+    { q: 'best s3x+toys', reason: 'adult', desc: 'plus sign between words' },
+    { q: 'buy c0caine@ home', reason: 'illegal', desc: 'trailing @' },
+    { q: 'how to make a b o m b', reason: 'illegal', desc: 'spaced word after the word "a"' },
+    { q: 'how to make a b-o-m-b', reason: 'illegal', desc: 'dashed word after the word "a"' },
+    { q: 'buy a g u n illegally', reason: 'illegal', desc: 'spaced gun after the word "a"' },
+  ];
+  for (const { q, reason, desc } of cp394Blocked) {
+    const res = screenQuery(q);
+    eq(`CP-394 block (${desc}): "${q}"`, res.blocked, true);
+    eq(`CP-394 reason (${desc}): "${q}"`, res.reason, reason);
+  }
+
+  const cp394Allowed = [
+    'sony wh-1000xm5 vs bose qc ultra',
+    'lg c3 vs samsung s90c oled tv',
+    'best 4k monitor under $400',
+    'sony a7 iv vs canon r6',
+    'best laptop ornament for christmas',
+    'nude lipstick for fair skin',
+    'best usb c to usb a adapter',
+    'ps5 vs xbox series x',
+    'best rx 7900 xtx graphics card',
+    'm4 macbook air 13 inch',
+    'best 3d printer for beginners',
+    'h 1 b visa lawyer near me',
+    'best e bike for commuting',
+    'best x t r a long phone cable',
+    'best cocoa powder for baking',
+    'best heroine fantasy novels',
+  ];
+  for (const q of cp394Allowed) {
+    eq(`CP-394 still allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+
   return report;
 }

@@ -1805,9 +1805,10 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       + screened at EVERY entry (handleStartResearch 422, /api/classify, ensureClassified which now
       ENFORCES the LLM reject too → runResearchPipeline + claimNextPendingJob markRejected). Live:
       "best porn sites"→422, "how to make a bomb"→reject, "best mechanical keyboard"→200. (commit 87739717)
-- [ ] LOW (safety follow-up): red-team the denylist for obfuscation bypasses (leetspeak/spacing);
+- [x] LOW (safety follow-up): red-team the denylist for obfuscation bypasses (leetspeak/spacing);
       LLM classifier is the backstop. Firearms = LEGAL products, intentionally NOT blocked (only illegal
       weapon-making/acquisition).
+      Fixed 2026-10-18 (CP-394): worker/lib/safety.js denylistForms folds look-alike and accented letters, invisible characters, leetspeak (digits and symbols, read as letters or as punctuation), spaced letters (p o r n, p.o.r.n) and stretched letters before the denylist. Folding feeds only the denylist. No new blocks on 14,231 repo query strings. Tests: test/unit/safety.test.js section 9.
 - [x] HIGH (UI, user report): the letter-block fallback rendered OVER working product pictures —
       its inline display:flex overrode the [hidden] attribute's UA display:none. Hide via inline
       display:none; onerror restores display:flex. CACHE_VERSION tr8→tr9. Fixed + live. (commit b046a4b7)
@@ -1839,14 +1840,16 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       health 86%, empty 0, junk 0, products 1962. (2026-06-24)
 - [x] CLEANUP (delete candidates): 12 indexed GIBBERISH/test reviews deleted from D1 + de-indexed.
       Confirmed gone (D1 count = 0). (2026-06-24)
-- [ ] FOLLOW-UP (harvester merges): two adjacent products get harvested as ONE candidate ("Synology Photos
+- [x] FOLLOW-UP (harvester merges): two adjacent products get harvested as ONE candidate ("Synology Photos
       Immich", "Synology Filerun PhotoManagement"). The name-cleaner cleans a name but can't SPLIT one row
       into two, so the merged entry survives + a recall-seeded "Immich" starves of pros/cons (the `seen`
       clause-allocation gave them to the merged row first). Fix: split-aware harvesting OR let cleanup emit
       a split. Low-frequency; surfaced on self-hosted-photo. (engine.js brandTruncate handles SOME merges.)
-- [ ] FOLLOW-UP (linen-class gather gap): some queries return 0 products because the GATHER found no usable
+      Fixed 2026-10-18 (CP-395): worker/engine/extract/candidates.js splitMergedCandidates splits a code-free name when a prefix of 2+ words and the rest are both candidates with their own mentions; the merged row's sentences go to both, without duplicates. Tests: test/unit/extract-candidates.test.js.
+- [x] FOLLOW-UP (linen-class gather gap): some queries return 0 products because the GATHER found no usable
       sources (linen shirts). Recall-supplement can't help (nothing to ground against). Needs better
       apparel/retail source providers or a query-rewrite, not an engine change.
+      Fixed 2026-10-18 (CP-396): worker/engine/thin-corpus.js, wired in worker/engine/engine.js after the recall phase. When a preview of the extraction finds under 3 products, 3 rewritten searches (reddit, honest review, long-term review forum) run in parallel and up to 4 credible unread pages are read (video and social sites skipped), with a 30 s hard cap. Free replay of the saved linen corpus through the real SearXNG: 0 to 2-4 products (search variance). Live effect needs a paid run; not done. Tests: test/unit/thin-corpus.test.js.
 
 ## 2026-06-23 — Keyboard results were garbage (user report) + followups resolved
 
@@ -1949,9 +1952,10 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       off-CF blackbox worker — it polls /api/internal/next-job independently and kept claiming jobs
       (first prod run came back synth_model=kimi-k2.6). Fixed: handleNextJob returns no job when the
       off-CF worker is disabled, so the CF-side consumer (honest engine) processes all. Test added.
-- [ ] LOW (follow-up): apparel/no-model-number categories produce rougher names (descriptive
+- [x] LOW (follow-up): apparel/no-model-number categories produce rougher names (descriptive
       fragments, a few gazetteer collisions like "getaway"); residual sentence-fragment stragglers.
       Rollback if needed: EXTERNAL_WORKER_ENABLED=true + redeploy (blackbox still running, idle).
+      Fixed 2026-10-18 (CP-397): worker/engine/extract/candidates.js. For apparel queries a code-free name ends at its last garment or footwear noun, the brand-led scan can reach that noun, and garment names may have 6 words; a name that is only brands after trimming is dropped (all categories). The "getaway" collision was already gone. Tests: test/unit/extract-candidates.test.js.
 
 ## 2026-06-22 — Dev-box work (on tr-dev only; NOT prod, NOT committed)
 
@@ -1979,9 +1983,10 @@ User testing of the password-protected dev box (tr-dev.chrisputer.tech, extracti
       it's a dealbreaker for you", with an honest note when no criticism was found. Shows on
       both product cards and the Our-pick box. Verified on dev. [DEPLOY TO PROD pending Serper +
       ship-gate.]
-- [ ] MEDIUM (DEEPEN): the critical block reuses extracted `cons`. A stronger version would
+- [x] MEDIUM (DEEPEN): the critical block reuses extracted `cons`. A stronger version would
       capture verbatim 1-2★ review excerpts with source/star attribution so buyers read real
       negative reviews, not summarized clauses. Follow-up after Serper restored.
+      Fixed 2026-10-18 (CP-399): worker/engine/extract/critical-excerpts.js picks up to 2 verbatim sentences per product that give it 1-2 stars, with star count and source; stored in research.result products[].criticalReviews (docs/research-result-schema.md, sanitized in worker/engine/validate.js), shown first in the block by worker/pages/research-cards.js. Dates, fractions, deductions, mixed ratings, rivals' quotes, manufacturer/sponsored and http sources are skipped. The saved corpora hold no real low-star sentences, so most current pages still fall back to cons; proof on live pages needs new runs.
 - [x] MEDIUM (UX): presumptive — the home search box bypassed the clarify step (app.js POSTed
       /api/research directly). Now classifies first via /api/classify and shows inline
       need-questions with a one-tap "Just search for it" skip.
@@ -2169,9 +2174,10 @@ score from ranking high.
           ("Immich review self-hosted", …) so their evidence is actually fetched. This
           was the decisive lever — prompt-only got self-hosted angles searched but didn't
           reliably reach one specific project.
-- [ ] LOW: knockoff floor (3.5) + synth variance can yield thin pages (a verification run
+- [x] LOW: knockoff floor (3.5) + synth variance can yield thin pages (a verification run
       collapsed to 1 product — engine produced 1 pre-gate, so NOT over-filtering, but
       watch for thin results; dial floor back to 3.0 if they become common).
+      Fixed 2026-10-18 (CP-400): worker/engine/validate.js applyQualityGate steps down to a 3.0 floor (FALLBACK_MIN_RATING) before keeping everything when fewer than 3 clear 3.5. The ≥3-survivors guard already existed; the thin run in this note had 1 product before the gate, so the floor was not its cause. Tests: test/unit/validate.test.js.
 - [ ] LOW: GOOGLE_CSE_ID env var (wrangler.toml) is dead since the /find CSE removal — drop
       on next wrangler.toml edit.
 
@@ -2510,8 +2516,9 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
 - [ ] MED/M: Internal-linking + topic-cluster — home/hubs → dynamic hubs + research;
       add category breadcrumb level (Home>Research>Category>title) hub↔spoke.
 - [x] HIGH/M: Log unservable demand (surface-only) (failed/thin/zero-match queries) → content roadmap.
-- [ ] MED/M: Route homepage search into the rich server-rendered processing page
+- [x] MED/M: Route homepage search into the rich server-rendered processing page
       (two different loading UIs today; homepage is a bare text log at peak abandonment).
+      Fixed 2026-10-18 (CP-421): public/js/app.js opens /research/<slug> as soon as the run is queued (saved to history first); the homepage log stays only as a fallback without a slug. Tests: test/unit/home-search-route.test.js runs the real app.js in a stubbed browser.
 - [ ] MED/M: Atomic-ish KV rate limiter (concurrent burst bypasses limit);
       pre-claim dedup so cron fallback + off-CF worker don't both run a paid engine.
 
@@ -2808,3 +2815,10 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] LOW (Product, extraction): some real-corpus prices still look off after the CP-407 fix (Apple AirPods $250, Anker Soundcore Life A1 $13.99 on the earbuds query): a price in a clause that names the product is taken even when it is a bundle, a sale or another model's price. worker/engine/extract/scoring.js
 - [ ] LOW (Product, extraction): a number in a sentence that names only a rival but means the page's subject ("Compared with the Bose QC Ultra, it lasts 30 hours" on a Sony review) still goes to the rival. Needs pronoun handling (the page title names the subject). worker/engine/extract/scoring.js ownerOf
 - [ ] LOW (Product, extraction): Bose QuietComfort Ultra gets no con although two sources say it clamps hard and gets warm (comparative fixture). worker/engine/extract/scoring.js
+
+## 2026-10-18 — fix batch 8 findings (CP-801)
+- [ ] LOW (Product, extraction): Reddit usernames get harvested as products ("Frequent Chapter9874" on the linen replay); the strong-code rule takes the digits as a model code. worker/engine/extract/candidates.js
+- [ ] LOW (Product, extraction): bare brand names ("J Crew", "Lands End") survive as products on apparel pages, where reviews name the brand but not a shirt. worker/engine/extract/candidates.js
+- [ ] LOW (OPS): the free Jina reader answers HTTP 403 for Reddit threads and Etsy listings, so the thin-corpus fallback's direct reads often add nothing; its gain on the linen replay came from the new search results. Check whether production (with JINA_API_KEY) reads them. worker/lib/jina.js
+- [ ] LOW (engine): runSearch takes no abort signal, so a search the thin-corpus fallback stops waiting for keeps its connection until the provider's own timeout. worker/engine/tools.js
+- [ ] LOW (perf): the thin-corpus check runs one extra extraction preview (analyze) per run; measure its CPU on a large corpus. worker/engine/thin-corpus.js

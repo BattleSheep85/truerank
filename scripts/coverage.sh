@@ -43,6 +43,8 @@ INCLUDES=(
   worker/lib/subscribe-flow.js
   worker/lib/listable.js
   worker/engine/validate.js
+  worker/engine/extract/critical-excerpts.js
+  worker/lib/safety.js
   worker/engine/prompts.js
   benchmarks/lib/grounding-check.mjs
   benchmarks/lib/outlet-lexicon.mjs

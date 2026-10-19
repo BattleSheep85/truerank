@@ -66,6 +66,37 @@ export function runValidateTests() {
     eq('keeps all when <3 would survive', names(gated), ['Cheap A', 'Cheap B', 'Cheap C']);
   }
 
+  // CP-400: when fewer than 3 clear the 3.5 floor, fall back to a 3.0 floor before
+  // keeping everything, so a thin page drops 2-star junk but keeps 3.x picks.
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Okay B', 3.2, 2),
+      prod('Okay C', 3.0, 3),
+      prod('Junk D', 2.0, 4),
+      prod('Junk E', 1.5, 5),
+    ]);
+    eq('CP-400 thin page falls back to the 3.0 floor', names(gated), ['Strong A', 'Okay B', 'Okay C']);
+    eq('CP-400 fallback renumbers ranks', ranks(gated), [1, 2, 3]);
+  }
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Okay B', 3.2, 2),
+      prod('Junk D', 2.0, 3),
+    ]);
+    eq('CP-400 keeps all when even the 3.0 floor leaves < 3', names(gated), ['Strong A', 'Okay B', 'Junk D']);
+  }
+  {
+    const gated = applyQualityGate([
+      prod('Strong A', 4.2, 1),
+      prod('Strong B', 3.9, 2),
+      prod('Strong C', 3.5, 3),
+      prod('Okay D', 3.2, 4),
+    ]);
+    eq('CP-400 the 3.5 floor still applies when 3 clear it', names(gated), ['Strong A', 'Strong B', 'Strong C']);
+  }
+
   // Honest null ratings ("too thin to score") are NEVER dropped — we don't
   // punish the synth for abstaining.
   {
@@ -425,6 +456,24 @@ export function runValidateTests() {
     eq('first product cons capped at 10 items', r.products[0].cons.length, 10);
     eq('each pro capped at 240 chars', r.products[0].pros[0].length, 240);
     eq('each con capped at 240 chars', r.products[0].cons[0].length, 240);
+  }
+
+  // ── CP-399: criticalReviews (verbatim low-star quotes) are sanitized ──────
+  {
+    const good = { quote: 'Acme Kettle Pro gets 1 star from me: the lid hinge snapped.', stars: 1, sourceUrl: 'https://www.reddit.com/r/x/1', sourceTitle: 'Kettles' };
+    const withReviews = (list) => validateResearchResult({
+      summary: 'Kettles.', category: 'Kitchen',
+      products: [{ ...fullProd('Acme Kettle Pro', 3.2, 1), criticalReviews: list }, fullProd('Zed Boil 2', 4.2, 2), fullProd('Brio Kettle', 4.0, 3)],
+    }).products.find((p) => p.name === 'Acme Kettle Pro').criticalReviews;
+    eq('CP-399 keeps a valid quote', withReviews([good]), [good]);
+    eq('CP-399 missing list becomes []', withReviews(undefined), []);
+    eq('CP-399 drops a non-https source', withReviews([{ ...good, sourceUrl: 'http://x.example/a' }]), []);
+    eq('CP-399 drops a javascript: source', withReviews([{ ...good, sourceUrl: 'javascript:alert(1)' }]), []);
+    eq('CP-399 drops stars above 2', withReviews([{ ...good, stars: 4 }]), []);
+    eq('CP-399 drops an empty quote', withReviews([{ ...good, quote: '  ' }]), []);
+    eq('CP-399 caps the quote length', withReviews([{ ...good, quote: 'x'.repeat(500) }])?.[0]?.quote.length, 240);
+    eq('CP-399 caps the list at 2', withReviews([good, { ...good, quote: 'Second quote, also 1 star for it.' }, { ...good, quote: 'Third quote, 1 star.' }])?.length, 2);
+    eq('CP-399 drops non-objects', withReviews(['1 star', null, 5]), []);
   }
 
   return report;
