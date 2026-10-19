@@ -23,6 +23,7 @@ import { buildAffiliateUrl, resolveAmazonTag } from '../lib/affiliate-links.js';
 import { resolveAsins } from '../lib/asin-resolver.js';
 import { resolveImages } from '../lib/image-resolver.js';
 import { getResearchById, generateId } from '../lib/db.js';
+import { isAmazonViable } from '../lib/page-kind.js';
 import { sanitizeUrl, slugify, nowEpoch, parseJsonSafe, monthKey, toPersistedSources } from '../lib/utils.js';
 import { submitToIndexNow } from '../lib/indexnow.js';
 import { notifySubscribersForResearch } from '../lib/notify.js';
@@ -181,8 +182,9 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
     const tail = result.products.slice(ENRICH_TOP);
 
     // Recover direct Amazon /dp/ links for products missing/redirect-hidden URLs.
-    // Skipped when the classifier says this category isn't sold on Amazon.
-    const amazonViable = facets?.sold_on_amazon !== false && facets?.is_service !== true;
+    // Skipped when the classifier says this category isn't sold on Amazon, or when
+    // it is a service, local place or experience (CP-803).
+    const amazonViable = isAmazonViable(facets);
     let enriched = head;
     if (amazonViable) {
         await report('Resolving direct product links...');

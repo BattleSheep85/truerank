@@ -52,6 +52,7 @@ import { runClaudeCodeJudgeTests } from '../benchmarks/tests/claude-code-judge.t
 import { runSynthRecallLinksTests } from '../benchmarks/tests/synth-recall-links.test.mjs';
 import { runUrlGuardTests } from '../test/unit/url-guard.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
+import { runPageKindTests } from '../test/unit/page-kind.test.js';
 import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
 import { runViewCounterTests } from '../test/unit/view-counter.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
@@ -123,6 +124,7 @@ const suites = [
   ['eval-score', runEvalScoreTests],
   ['url-guard', runUrlGuardTests],
   ['safety', runSafetyTests],
+  ['page-kind', runPageKindTests],
   ['spend-gate', runSpendGateTests],
   ['view-counter', runViewCounterTests],
   ['extract-candidates', runExtractCandidatesTests],

@@ -45,6 +45,7 @@ INCLUDES=(
   worker/engine/validate.js
   worker/engine/extract/critical-excerpts.js
   worker/lib/safety.js
+  worker/lib/page-kind.js
   worker/engine/prompts.js
   benchmarks/lib/grounding-check.mjs
   benchmarks/lib/outlet-lexicon.mjs

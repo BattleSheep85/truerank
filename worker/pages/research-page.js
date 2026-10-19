@@ -6,7 +6,8 @@ import { getResearchBySlug, getProductsByResearchId, getClusterWinnerSlug } from
 import { searchBar } from '../lib/search-bar.js';
 import { RESEARCH_ETA } from '../lib/engine-config.js';
 import { jsonEmbed, productLayoutBoot } from '../lib/list-layout-boot.js';
-import { BTN_PRIMARY, isNonProductCategory, sourceRel, sourceLabel } from './research-primitives.js';
+import { BTN_PRIMARY, sourceRel, sourceLabel } from './research-primitives.js';
+import { pageKind } from '../lib/page-kind.js';
 import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel } from './research-cards.js';
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
 import { buildResearchSeo } from './research-jsonld.js';
@@ -114,17 +115,13 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
   const failReason = safeUserFacingError(resultData.error, '');
   const buyersGuide = resultData.buyersGuide;
   const hasBuyersGuide = !!(buyersGuide && (buyersGuide.howToChoose || (buyersGuide.pitfalls?.length ?? 0) > 0 || (buyersGuide.marketingToIgnore?.length ?? 0) > 0));
-  // Classifier verdict: this category isn't sold on Amazon (lumber, vehicles,
-  // local venues, ...). Suppresses every Amazon link on the page; CTAs hand
-  // off to Google via /find instead. Legacy rows without the facet default to
-  // Amazon-viable.
+  // Classifier verdict: webOnly = a product Amazon doesn't sell (lumber, vehicles);
+  // isService = a service, local place or experience (CP-803: "coffee shops in Brooklyn"
+  // is is_experience + needs_location, not is_service). Either one suppresses every
+  // Amazon link on the page; CTAs hand off to Google via /find instead. Mirrors the
+  // orchestrator's ASIN-resolution gate. Legacy rows without facets default to products.
   const rowFacets = parseJsonSafe(entry.facets, {}) || {};
-  const webOnly = rowFacets.sold_on_amazon === false;
-  // Service detection must mirror the orchestrator's ASIN-resolution gate
-  // (is_service facet) — the category-string heuristic alone misses services
-  // whose category label isn't in the hints list (e.g. "wedding photographer"),
-  // which would render Amazon CTAs for a hire-a-professional page.
-  const isService = isNonProductCategory(entry.category) || rowFacets.is_service === true;
+  const { isService, webOnly } = pageKind(entry.category, rowFacets);
   // sources persist as either plain URL strings (legacy) or {url, credibility}
   // objects (engine port). Normalize to the URL string for rendering.
   const sourceList = parseJsonSafe(entry.sources, [])
