@@ -39,8 +39,7 @@ import { runStanceVotesTests } from '../test/unit/stance-votes.test.js';
 import { runConnectionGateTests } from '../test/unit/connection-gate.test.js';
 import { runOpeningBookTests } from '../test/unit/opening-book.test.js';
 import { runRecallGatherTests } from '../test/unit/recall-gather.test.js';
-import { runEmailMimeTests } from '../test/unit/email-mime.test.js';
-import { runSmtpTests } from '../test/unit/smtp.test.js';
+import { runResendTests } from '../test/unit/resend.test.js';
 import { runEmailTemplatesTests } from '../test/unit/email-templates.test.js';
 import { runSubscribeFlowTests } from '../test/unit/subscribe-flow.test.js';
 import { runDeadUrlsTests } from '../test/unit/dead-urls.test.js';
@@ -109,8 +108,7 @@ const suites = [
   ['connection-gate', runConnectionGateTests], // async suite (awaited below)
   ['opening-book', runOpeningBookTests], // async suite (awaited below)
   ['recall-gather', runRecallGatherTests], // async suite (awaited below)
-  ['email-mime', runEmailMimeTests],
-  ['smtp', runSmtpTests], // async suite (awaited below)
+  ['resend', runResendTests], // async suite (awaited below)
   ['email-templates', runEmailTemplatesTests],
   ['subscribe-flow', runSubscribeFlowTests],
   ['dead-urls', runDeadUrlsTests],

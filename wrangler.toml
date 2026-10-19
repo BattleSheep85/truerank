@@ -66,22 +66,18 @@ INDEXNOW_KEY = "2b049a04674b366dc9b485b792ad823e"
 # subscribe, confirm and unsubscribe keep working and nothing leaves the
 # worker.
 #
-# OFF since 2026-08-03. The SMTP transport cannot work from a deployed Worker.
-# smtp.hostinger.com resolves to 172.65.255.143 (AS13335, CLOUDFLARENET), and
-# Cloudflare blocks outbound TCP from Workers to its own IP ranges. Every
-# Hostinger mail endpoint (smtp, mx1, mx2) is behind the same network, so no
-# port and no hostname avoids it. Measured at the edge: connect() to
-# 8.8.8.8:853 succeeds, connect() to smtp.hostinger.com:465 and :587 both fail
-# in under 20 ms with "proxy request failed, cannot connect to the specified
-# address". `wrangler dev` passed only because it egresses from the LAN.
-# Turning this back on needs a transport change (docs/email-design.md s.3),
-# not a config change. See issues.md 2026-08-03.
-MAIL_ENABLED = "false"
+# History: OFF from 2026-08-03 to 2026-10-19. The old SMTP transport could not
+# reach smtp.hostinger.com from a deployed Worker (Hostinger's mail hosts sit
+# on Cloudflare's own network, and Workers may not connect() to it). Since
+# CP-622 mail goes through the Resend HTTP API over fetch instead.
+# Sending also needs the TRUERANK_RESEND_API_KEY secret. Without it every send
+# is a logged skip and the signup form says mail is off. Put that secret only
+# after Resend shows chrisputer.tech as verified, or every send gets a 403.
+# Never keep the key in .dev.vars: `wrangler dev` would then send real mail.
+MAIL_ENABLED = "true"
 MAIL_FROM = "chris@chrisputer.tech"
 MAIL_FROM_NAME = "Frank"
-SMTP_HOST = "smtp.hostinger.com"
-SMTP_PORT = "465"                # implicit TLS; v1 supports 465 only
-MAIL_DAILY_CAP = "200"           # global outbound ceiling per UTC day
+MAIL_DAILY_CAP = "100"           # global outbound ceiling per UTC day (Resend free plan: 100/day)
 # (GOOGLE_CSE_ID removed 2026-06-16: the /find Programmable Search Engine widget
 # was retired — /find now 302-redirects to a plain Google search, so the CSE id
 # is dead config. No code reads env.GOOGLE_CSE_ID.)
@@ -152,9 +148,9 @@ period = 60
 # WORKER_SECRET       — gates /api/internal/* and forceFresh
 # METRICS_TOKEN       — bearer token for /metrics (503 until set)
 # GSC_SA_KEY          — Google Search Console service-account key
-# TRUERANK_SMTP_USER  — full Hostinger mailbox address (also the From address)
-# TRUERANK_SMTP_PASSWORD — mailbox password. Without BOTH, every send is a
-#                      logged no-op, so local dev and CI can never send mail.
+# TRUERANK_RESEND_API_KEY — Resend "Sending access" key for chrisputer.tech.
+#                      Without it every send is a logged no-op, so local dev
+#                      and CI can never send mail.
 # Optional, not set in production (the code skips them when absent):
 # SERPER_API_KEY      — Serper.dev Google Search (removed from production 2026-10-08)
 # BRAVE_API_KEY       — Brave web search (deleted 2026-10-15, out of credit)

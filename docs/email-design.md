@@ -4,6 +4,14 @@ Status: DESIGN, approved for implementation. Author: architect session, 2026-07-
 Scope: how the zero-dependency Cloudflare Worker sends mail for the notification
 list, and the full flow spec. No source file changes ship with this document.
 
+**Update 2026-10-19 (CP-622): the transport is now Resend (option B), not SMTP.**
+The SMTP client could not reach Hostinger from a deployed Worker (section 2a,
+issues.md 2026-08-03). `worker/lib/smtp.js` and `worker/lib/mime.js` are gone.
+`worker/lib/resend.js` posts each message to `https://api.resend.com/emails`.
+The provider pick and its data are in section 3. The daily cap is now 100
+(Resend free plan). Sections 4, 5.1 to 5.4, 6 and 7 are kept as the original
+design record, with the current values noted where they changed.
+
 ## 1. Problem statement and design volume
 
 The site stores notification signups (`subscribers` table) but never sends any
@@ -116,6 +124,43 @@ result of this re-check.
 | Reversibility | High: transport is one module behind a seam | High | N/A | Medium (beta) | High |
 | Replies land in the mailbox | Yes, natively. From = the mailbox itself | Yes via verified From + Reply-To, but envelope/bounces go to the provider | N/A | Yes | N/A |
 
+
+### 3a. Option B providers compared (Researcher, CP-356, 2026-10-15)
+
+Volume we need: about 20 sends a day, design ceiling 200 a day.
+
+| | Resend | Postmark | Brevo | MailerSend |
+|---|---|---|---|---|
+| Free volume | 3,000/month, **100/day**, 3 domains, no expiry | **100/month**, no expiry | ~300/day (third-party sources, official page unreadable) | **500/month**, 1 domain, card required |
+| Enough for us (20 typical, 200 ceiling per day)? | Typical yes. Ceiling no: set cap to 100 | No | Yes | No (about 16/day) |
+| Cheapest paid | $20/mo, 50k | $15/mo, 10k | ~$9/mo (sources disagree) | $7/mo, 5k |
+| Send call from a Worker | `POST https://api.resend.com/emails`, `Authorization: Bearer` | `POST https://api.postmarkapp.com/email`, `X-Postmark-Server-Token` | `POST https://api.brevo.com/v3/smtp/email`, `api-key` header | `POST https://api.mailersend.com/v1/email`, Bearer token (not verified on official page) |
+| DNS records | DKIM TXT `resend._domainkey`, MX + SPF TXT on `send` subdomain | DKIM TXT, Return-Path CNAME `pm-bounces` (record names from third-party guides) | `brevo-code` TXT, DKIM, DMARC. May offer to replace our DMARC | SPF TXT on root, 2 DKIM CNAMEs, return-path CNAME `mta` |
+| Merge with Hostinger SPF | **Not needed** (SPF lives on `send.`) | Not needed (Return-Path subdomain) | Unconfirmed | **Needed**: one root SPF with both includes |
+| Manual approval before real sending | None found | Yes, manual review, under 24 h on weekdays | Unconfirmed | Yes, "Get approved", up to 48 h |
+| Narrow API key | Yes: "Sending access", limited to one domain | Per-server token only | Unconfirmed | Custom access per endpoint |
+| Extra risk | 100/day cap | Free tier too small | Its API "IP security" can block unknown IPs. Cloudflare Workers have changing IPs (inference) | Free tier too small, logo likely on free mails |
+| Data location | Stored in US, DPA available | US, DPA with SCCs | EU (France, Germany) | EU (Belgium), DPA available |
+
+**Pick: Resend.** Reasons, in order: (1) the root SPF stays untouched, so no
+risk of the two-SPF-record failure from section 6; (2) no human approval wait;
+(3) a sending-only key scoped to one domain is the smallest secret of all
+options; (4) the free tier covers normal traffic. Fallback if 100/day becomes a
+real limit: Resend Pro ($20/mo). Brevo is the only free option above 200/day,
+but its IP blocking and logo make it second choice.
+
+Confidence: Resend limits, API, key scoping and DNS pattern are from Resend's
+docs. Postmark and MailerSend limits are from vendor pages. Brevo figures are
+the majority view of third-party reviews (its official pages did not load).
+
+Sources: https://resend.com/pricing,
+https://resend.com/docs/api-reference/emails/send-email,
+https://resend.com/docs/api-reference/api-keys/create-api-key,
+https://resend.com/docs/knowledge-base/cloudflare,
+https://resend.com/docs/dashboard/domains/regions,
+https://postmarkapp.com/pricing, https://www.mailersend.com/pricing,
+https://developers.brevo.com/docs/ip-security.
+
 ## 4. Recommendation
 
 **Option A. A hand-written SMTP client over `cloudflare:sockets` `connect()`,
@@ -204,6 +249,12 @@ SMTP_PORT = "465"                # implicit TLS; v1 supports 465 only
 MAIL_DAILY_CAP = "200"           # global outbound ceiling per UTC day
 ```
 
+Current values (CP-622, 2026-10-19): `MAIL_ENABLED = "true"`,
+`MAIL_FROM_NAME = "Frank"`, `MAIL_DAILY_CAP = "100"` (Resend free plan). The
+`SMTP_HOST` and `SMTP_PORT` vars are gone. The one secret is
+`TRUERANK_RESEND_API_KEY` (BWS key of the same name). The original SMTP
+design follows.
+
 Secrets (already being provisioned in BWS, set with `wrangler secret put`):
 
 - `TRUERANK_SMTP_USER` = `chris@chrisputer.tech` (Hostinger requires the full
@@ -277,6 +328,11 @@ export async function sendViaSmtp(cfg, rawMessage, openSocket = openCloudflareSo
 key. Unit tests for `smtp.js` inject `openSocket` with a scripted fake io.
 
 ### 5.4 `worker/lib/mailer.js`
+
+Current (CP-622): gate 2 checks `TRUERANK_RESEND_API_KEY`, step 4 builds the
+JSON body with `buildResendPayload` and the seam is called as
+`transport({ apiKey, to }, payload)`. The default transport is
+`sendViaResend` (15 s timeout, key never in errors or logs).
 
 ```js
 export function mailConfigured(env)  // -> boolean (MAIL_ENABLED !== 'false' && both secrets present)
@@ -594,9 +650,12 @@ Add one bullet to the "Other services we rely on" list in
 
 > **Email notifications.** If you ask for an email when a report is ready, we
 > store your address in our database (Cloudflare D1) and send the message
-> through Hostinger, our mailbox provider. Your address is used only for the
-> notifications you requested. Every notification contains a one-click
-> unsubscribe link.
+> through Resend, our email delivery provider (servers in the US). Your address
+> is used only for the notifications you requested. Every notification
+> contains a one-click unsubscribe link.
+
+(Updated 2026-10-19, CP-622: Resend replaced Hostinger as the sender, so it is
+named as a new data processor.)
 
 ### 5.12 Fallback behaviour summary
 
@@ -631,6 +690,16 @@ code):
    (adds aggregate reporting so alignment is observable).
 2. After 2 weeks of clean reports: tighten to
    `v=DMARC1; p=quarantine; rua=mailto:chris@chrisputer.tech; fo=1`.
+
+**Resend records (CP-622).** Sending through Resend (region us-east-1) adds
+three records, all DNS only. None of them touches the root SPF, the root MX or
+the Hostinger DKIM records above:
+
+| Record | Name | Value |
+|---|---|---|
+| TXT (DKIM) | `resend._domainkey` | the public key shown in the Resend dashboard for `chrisputer.tech` |
+| MX | `send` | `10 feedback-smtp.us-east-1.amazonses.com` |
+| TXT (SPF) | `send` | `v=spf1 include:amazonses.com ~all` |
 
 **SPF conflict rule, for the record.** A name may hold ONE SPF TXT record. If
 a second sender is ever added (Resend class or Cloudflare Email Service), its
@@ -689,8 +758,8 @@ logged skip.
   '../../schema/013_subscribers_confirm.sql?raw'` to the applied list.
 
 **Manual smoke (one-off, owner-run, the only real send):**
-`scripts/send-test-email.mjs --to chris@chrisputer.tech` reuses `smtp.js` with
-a node:tls adapter for the io seam (node built-ins only, never deployed).
+`bws-exec TRUERANK_RESEND_API_KEY -- node scripts/send-test-email.mjs --to chris@chrisputer.tech`
+reuses `resend.js` with Node's built-in fetch (never deployed).
 Then inspect the received message's `Authentication-Results` header for
 `spf=pass` and `dkim=pass` with `header.d=chrisputer.tech`. That validates the
 whole deliverability chain once, end to end.

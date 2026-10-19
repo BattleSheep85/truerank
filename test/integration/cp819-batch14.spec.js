@@ -9,7 +9,7 @@ import { handleStartResearch } from '../../worker/handlers/research.js';
 import { searchEnvFor } from '../../worker/jobs.js';
 
 const SECRET = 'test-worker-secret-819';
-const mailOn = { MAIL_ENABLED: 'true', TRUERANK_SMTP_USER: 'mailbox@example.test', TRUERANK_SMTP_PASSWORD: 'test-only-value' };
+const mailOn = { MAIL_ENABLED: 'true', TRUERANK_RESEND_API_KEY: 'test-only-value' };
 
 beforeAll(async () => {
   await applySchema(env.DB);
@@ -31,9 +31,9 @@ describe('item 1: processing-page notify box follows the mail switch', () => {
     expect(html).toMatch(/Email alerts are not switched on yet/);
   });
 
-  it('mail on but no SMTP secrets counts as off', async () => {
+  it('mail on but no Resend key counts as off', async () => {
     const slug = await pendingSlug('cp819 no secret widget');
-    const { html } = await renderResearchResult(slug, { ...env, MAIL_ENABLED: 'true', TRUERANK_SMTP_USER: '', TRUERANK_SMTP_PASSWORD: '' });
+    const { html } = await renderResearchResult(slug, { ...env, MAIL_ENABLED: 'true', TRUERANK_RESEND_API_KEY: '' });
     expect(html).not.toContain('Want an email');
   });
 

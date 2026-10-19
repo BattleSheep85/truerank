@@ -17,13 +17,12 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.toml' },
       miniflare: {
         // HARD GUARD: the wrangler config also loads .dev.vars, which on a
-        // developer machine holds the real mailbox credentials. Blank them
-        // for the whole pool so no spec can ever open a socket to the mail
-        // server, even if it forgets the env.__mailTransport stub.
+        // developer machine may hold the real Resend key. Blank it for the
+        // whole pool so no spec can ever send real mail, even if it forgets
+        // the env.__mailTransport stub.
         bindings: {
           MAIL_ENABLED: 'false',
-          TRUERANK_SMTP_USER: '',
-          TRUERANK_SMTP_PASSWORD: '',
+          TRUERANK_RESEND_API_KEY: '',
           // Fixed test salt: worker/lib/ip-hash.js fails closed without one,
           // and .dev.vars (gitignored) is not on CI or a fresh checkout.
           IP_HASH_SALT: 'integration-test-salt',
