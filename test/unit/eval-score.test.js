@@ -3,7 +3,7 @@
 // (service, local, experience); the HTML below copies the live page markup
 // as of 2026-10-18.
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug, groundedness } from '../../scripts/lib/eval-score.mjs';
+import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug, groundedness, productNames } from '../../scripts/lib/eval-score.mjs';
 
 const CHECKS = { min_products: 3, min_sources: 5, max_age_days: 120 };
 const NOW = Date.parse('2026-10-18T00:00:00Z');
@@ -163,6 +163,21 @@ export function runEvalScoreTests() {
     const noisy = groundedness(body([{ name: 'Antec C8', price: 3, specs: { fans: '0 fans' } }], [src('Antec C8 at https://www.amazon.com/dp/B0CP3MZXVH page 2')]), G_CHECKS);
     eq('grounded: link and ASIN digits are not snippet numbers', [noisy.numbers_checked, noisy.numbers_grounded], [2, 0]);
     eq('grounded: not a hard failure', hardFailures({ grounded_ok: false }), []);
+  }
+
+  // ── productNames (CP-812: scripts/run-real-world-eval.mjs reads the cards) ──
+  {
+    // The live card (2026-10-19): an image, a "#1" badge span, then the name in an h3.
+    const liveCard = (i, name) => `<article class="product border border-line bg-surface-1 p-5" id="product-${i}">
+<img class="item-image-photo" src="/api/img/x" alt="${name}">
+<div class="flex"><div><span class="inline-block border readout">#${i}</span>
+<h3 class="wrap-anywhere mt-1.5 font-sans text-lg font-bold text-ink">${name}</h3>
+<p class="font-mono text-xs text-ink-2">brand</p></div></div></article>`;
+    const html = page({ pick: 'eufy X9', cards: [liveCard(1, 'eufy Clean RoboVac X9'), liveCard(2, 'Roborock Q7 &amp; Dock'), liveCard(3, 'Shark AI')] });
+    eq('productNames: names in card order from the live markup', productNames(html), ['eufy Clean RoboVac X9', 'Roborock Q7 & Dock', 'Shark AI']);
+    eq('productNames: the old card markup test helper still reads', productNames(page({ pick: 'K', cards: [card(1, 'Kindle'), card(2, 'Kobo')] })), ['#1 Kindle', '#2 Kobo']);
+    eq('productNames: falls back to the Our-pick name', productNames(page({ pick: 'Only Pick', cards: [] })), ['Only Pick']);
+    eq('productNames: an empty page has none', productNames(''), []);
   }
 
   return report;

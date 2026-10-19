@@ -331,6 +331,40 @@ export function runProductLinkUnitTests() {
   eq('CP-807 modelNameFromPage: no page keeps the name', modelNameFromPage('Antec Chamber', null), 'Antec Chamber');
   eq('CP-807 modelNameFromPage: a spec-only number is not a model', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Antec 360mm Full Tower Case : Electronics')), 'Antec Chamber');
 
+  // CP-812 (a): a lone one-digit V/W word is the model, not volts or watts.
+  eq('CP-812 trimProductType: a lone "2V" model stays', trimProductType('Foo Bar 2V'), 'Foo Bar 2V');
+  eq('CP-812 trimProductType: a lone "3W" model stays', trimProductType('Foo Bar 3W'), 'Foo Bar 3W');
+  eq('CP-812 trimProductType: a voltage after a model still goes', trimProductType('DeWalt DCD791 9V'), 'DeWalt DCD791');
+  eq('CP-812 trimProductType: a two-digit watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
+  eq('CP-812 hasModelNumber: a lone "9W" stays a rating, so a page title can give the model', hasModelNumber('Philips Hue Bulb 9W'), false);
+  eq('CP-812 hasModelNumber: "Anker Nano 65W" still has none', hasModelNumber('Anker Nano 65W'), false);
+  eq('CP-812 distillProductName: a lone "2V" model stays', distillProductName('Foo Bar 2V'), 'Foo Bar 2V');
+
+  // CP-812 (b): "+" names a model ("Galaxy S24+"), so it is part of the key.
+  ok('CP-812 productNameKey: "Galaxy S24+" and "Galaxy S24" differ', productNameKey('Samsung Galaxy S24+') !== productNameKey('Samsung Galaxy S24'));
+  eq('CP-812 productNameKey: "S24+" and "S24 Plus" share a key', productNameKey('Samsung Galaxy S24+'), productNameKey('Samsung Galaxy S24 Plus'));
+  eq('CP-812 productNameKey: "+" reads as plus', productNameKey('Synology DS224+'), 'verify:name:ds224 plus synology');
+  eq('CP-812 productNameKey: a "+" between words is not a plus', productNameKey('AirPods + case'), productNameKey('AirPods case'));
+  ok('CP-812 link key: an S24+ slug and an S24 slug for one page differ',
+    parseProductInput('https://shop.example/p/123 Galaxy S24+').key !== parseProductInput('https://shop.example/p/123 Galaxy S24').key);
+
+  // CP-812 (c): a generic path segment is not a name, so the query stays.
+  for (const [label, url, expected] of [
+    ['product_info.php keeps products_id', 'https://shop.example/product_info.php?products_id=42&utm_source=x',
+      { name: null, url: 'https://shop.example/product_info.php?products_id=42', key: 'verify:url:shop.example/product_info.php?products_id=42' }],
+    ['product-detail keeps id', 'https://shop.example/product-detail?id=7',
+      { name: null, url: 'https://shop.example/product-detail?id=7', key: 'verify:url:shop.example/product-detail?id=7' }],
+    ['product/view keeps ref used as the id', 'https://shop.example/catalog/product-view?ref=AB123&fbclid=z',
+      { name: null, url: 'https://shop.example/catalog/product-view?ref=AB123', key: 'verify:url:shop.example/catalog/product-view?ref=AB123' }],
+  ]) {
+    const got = parseProductInput(url);
+    eq(`CP-812 generic path: ${label}`, { name: got.name, url: got.url, key: got.key }, expected);
+  }
+  ok('CP-812 generic path: two products on product_info.php get two keys',
+    parseProductInput('https://shop.example/product_info.php?products_id=42').key !== parseProductInput('https://shop.example/product_info.php?products_id=43').key);
+  eq('CP-812 a real name slug still drops the query',
+    parseProductInput('https://shop.example/sony-wh-1000xm6-headphones?ref=home').url, 'https://shop.example/sony-wh-1000xm6-headphones');
+
   return report;
 }
 

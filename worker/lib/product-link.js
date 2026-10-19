@@ -94,6 +94,11 @@ const TYPE_TRIM_MIN_WORDS = 2;
 // ("MX Master 3S", "iPhone 5c", "Pixel 4a 5G"). Volts and watts are the
 // exceptions ("DCD791 20V", "Nano 65W").
 const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
+// A trailing one-digit V or W word stays in the name when no other word is a
+// model ("Foo Bar 2V"); a rating has two digits or follows a model ("DCD791
+// 9V"). Only trimming uses this: hasModelNumber still reads a lone "9W" as a
+// rating ("Hue Bulb 9W"), so the page title can still supply the model (CP-812).
+const SHORT_VOLT_WATT_RE = /^\d[vw]$/;
 
 // "Dual" and "compact" name a variant ("Torrent Compact") unless the next word
 // is the thing they describe ("Dual Chamber", "Compact Drill", "Dual Tower"):
@@ -126,7 +131,10 @@ const AMAZON_DOMAINS = Object.freeze(new Set([
 ]));
 const AMAZON_SUBDOMAINS = Object.freeze(new Set(['www', 'smile', 'm']));
 // Query parameters that track the visit and never identify the product.
-const TRACKING_PARAM_RE = /^(?:utm_.*|ref|fbclid|gclid)$/i;
+const TRACKING_PARAM_RE = /^(?:utm_.*|fbclid|gclid)$/i;
+// "ref" is usually tracking, but some shops use it as the product id, so it
+// stays when it is the only parameter left (CP-812).
+const REF_PARAM_RE = /^ref$/i;
 const SHORT_LINK_HOSTS = new Set(['a.co', 'amzn.to', 'amzn.eu', 'amzn.asia']);
 const ASIN_RE = /\/(?:dp|gp\/product|gp\/aw\/d)\/([a-z0-9]{10})(?=[/?#]|$)/i;
 // One word: a run of letters, numbers, and their marks (Devanagari vowel
@@ -138,6 +146,15 @@ const TWO_LETTERS_RE = /\p{L}{2}/u;
 const HEX_WORD_RE = /^[0-9a-f]+$/i;
 const DIGIT_RE = /\d/;
 const FILE_EXT_RE = /\.[a-z0-9]{1,5}$/i;
+// A "+" right after a word names a model ("Galaxy S24+", "DS224+"), so a key
+// reads it as the word "plus" (CP-812).
+const PLUS_SUFFIX_RE = /([\p{L}\p{N}])\+(?![\p{L}\p{N}])/gu;
+// Path words that name a page type, never a product ("product_info.php",
+// "product-detail"). A segment made only of these is not a name (CP-812).
+const GENERIC_PATH_WORDS = new Set([
+  'product', 'products', 'prod', 'item', 'items', 'info', 'detail', 'details',
+  'view', 'show', 'page', 'catalog', 'shop', 'store', 'goods', 'index', 'p',
+]);
 
 const EMPTY_URL_RESULT = Object.freeze({ kind: 'url', name: null, url: null, key: null });
 
@@ -171,7 +188,7 @@ export function isNameKey(key) {
 function nameTokens(name) {
   if (typeof name !== 'string') return null;
   const trimmed = trimProductType(name.normalize('NFKC'), { specs: false, tails: KEY_TYPE_TAILS });
-  const words = trimmed.toLowerCase().match(NAME_TOKEN_RE) || [];
+  const words = trimmed.replace(PLUS_SUFFIX_RE, '$1 plus').toLowerCase().match(NAME_TOKEN_RE) || [];
   const tokens = [...new Set(words)].sort();
   if (tokens.length === 0 || tokens.length > NAME_KEY_MAX_TOKENS) return null;
   return tokens.join(' ');
@@ -289,10 +306,21 @@ function isGenericTail(tail, rest) {
   return true;
 }
 
-// True when the last word is a spec (128GB, 20V), not a model suffix (3S).
+// A digit word that is not a spec, or a number with a one-letter suffix.
+function isModelWord(lower, i) {
+  const w = lower[i];
+  return DIGIT_RE.test(w) && (!isSlugSpecToken(lower, i) || ONE_LETTER_SUFFIX_RE.test(w));
+}
+
+// A one-digit V or W word when no other word is a model ("Foo Bar 2V").
+function isLoneVoltWattModel(lower, i) {
+  return SHORT_VOLT_WATT_RE.test(lower[i]) && !lower.some((_, j) => j !== i && isModelWord(lower, j));
+}
+
+// True when the last word is a spec (128GB, 20V), not a model suffix (3S) or a lone model (2V).
 function isTrailingSpec(lower) {
   const last = lower.length - 1;
-  return isSlugSpecToken(lower, last) && !ONE_LETTER_SUFFIX_RE.test(lower[last]);
+  return isSlugSpecToken(lower, last) && !isModelWord(lower, last) && !isLoneVoltWattModel(lower, last);
 }
 
 /**
@@ -341,7 +369,7 @@ const TITLE_CUT_RE = /\s*(?:[,|]|\s[-–—]\s)/;
  */
 export function hasModelNumber(name) {
   const lower = String(name ?? '').split(/\s+/).filter(Boolean).map(lowerWord);
-  return lower.some((w, i) => DIGIT_RE.test(w) && (!isSlugSpecToken(lower, i) || ONE_LETTER_SUFFIX_RE.test(w)));
+  return lower.some((_, i) => isModelWord(lower, i));
 }
 
 function pageTitle(page) {
@@ -374,6 +402,7 @@ function slugToName(segment, sep) {
   const text = safeDecode(segment).replace(FILE_EXT_RE, '');
   const words = text.split(sep).filter(Boolean);
   if (words.length < SLUG_NAME_MIN_WORDS || !LETTER_RE.test(text)) return null;
+  if (words.every((w) => GENERIC_PATH_WORDS.has(w.toLowerCase()))) return null;
   return distillSlugWords(words).join(' ');
 }
 
@@ -406,9 +435,11 @@ function isAmazonHost(host) {
 }
 
 // '?' + the non-tracking params sorted by name, or '' when none are left.
+// "ref" goes too unless nothing else is left.
 function productQuery(searchParams) {
-  const kept = [...searchParams]
-    .filter(([name]) => !TRACKING_PARAM_RE.test(name))
+  const untracked = [...searchParams].filter(([name]) => !TRACKING_PARAM_RE.test(name));
+  const withoutRef = untracked.filter(([name]) => !REF_PARAM_RE.test(name));
+  const kept = (withoutRef.length > 0 ? withoutRef : untracked)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return kept.length > 0 ? `?${new URLSearchParams(kept)}` : '';
 }

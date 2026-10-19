@@ -41,6 +41,22 @@ const UNITS = new Map([
 // "Nm" is left out too: it is torque or nanometres (a 3 nm chip).
 const SINGLE_RE = /(\d+(?:\.\d+)?)\s*-?\s*(air\s*watts?|aw|hours?|hrs?|h|minutes?|mins?|mm|cm|inch(?:es)?|grams|kg|g|oz|lbs?|watts|kw|w|mah|ml|wh|db|khz|hz|nits|liters?|litres?|l|rpm|psi|%)(?![a-z])/gi;
 const UP_TO_RE = /\bup\s+to\b|\bmax(?:imum)?\b|\bpeak\b/i;
+// "5G", "4G LTE", "3G/2G" are mobile networks, not grams (CP-812). An
+// upper-case G right after one digit 2 to 6 is always the network. A lower-case
+// "5g" is the network only when a network word sits right next to it.
+const NETWORK_G_RE = /^[2-6]G$/;
+const NETWORK_G_LOOSE_RE = /^[2-6]g$/;
+const NETWORK_WORD_RE = /\b(?:lte|nr|network|networks|cellular|carrier|modem|mmwave|connectivity|sub-6)\b/i;
+// How far either side of "5g" a network word may sit.
+const NETWORK_WINDOW_CHARS = 24;
+
+// True when the matched "<digit>G" at `index` names a mobile network.
+function isNetworkName(match, text, index) {
+  if (NETWORK_G_RE.test(match)) return true;
+  if (!NETWORK_G_LOOSE_RE.test(match)) return false;
+  const near = text.slice(Math.max(0, index - NETWORK_WINDOW_CHARS), index + match.length + NETWORK_WINDOW_CHARS);
+  return NETWORK_WORD_RE.test(near);
+}
 
 /**
  * Returns the figures in `text` as [{ dim, value }], each value in its
@@ -58,7 +74,9 @@ export function extractQuantities(text) {
       if (Number(den) > 0) out.push({ dim: 'length', value: (Number(whole) + Number(num) / Number(den)) * 25.4 });
       return ' ';
     });
-  for (const [, num, unit] of rest.matchAll(SINGLE_RE)) {
+  for (const found of rest.matchAll(SINGLE_RE)) {
+    const [match, num, unit] = found;
+    if (isNetworkName(match, rest, found.index)) continue;
     const entry = UNITS.get(unit.toLowerCase().replace(/\s+/g, ' '));
     if (entry) out.push({ dim: entry[0], value: Number(num) * entry[1] });
   }

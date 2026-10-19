@@ -135,10 +135,25 @@ namespace_id = "1002"
 limit = 6
 period = 60
 
-# Secrets (set via wrangler secret put):
+# Secrets (set via wrangler secret put; values live in BWS, names only here).
+# Set in production (wrangler secret list, 2026-10-19):
 # OPENROUTER_API_KEY  — paid OpenRouter key (planner/synth/classifier models)
-# SERPER_API_KEY      — Serper.dev Google Search (web + news providers)
-# AMAZON_ASSOCIATE_TAG — optional; AMAZON_AFFILIATE_TAG in [vars] is the default
+# LLM_PROVIDER        — "litellm" routes LLM calls through LiteLLM, OpenRouter fallback
+# LITELLM_BASE_URL    — LiteLLM proxy address
+# LITELLM_API_KEY     — LiteLLM proxy key
+# LITELLM_GATE_TOKEN  — X-Edge-Gate header for the LiteLLM and SearXNG edge
+# SEARXNG_URL         — self-hosted SearXNG, first web search provider
+# EXA_API_KEY         — Exa web search, fallback after SearXNG
+# JINA_API_KEY        — lifts Jina Reader's free rate cap for read_page
+# WORKER_SECRET       — gates /api/internal/* and forceFresh
+# METRICS_TOKEN       — bearer token for /metrics (503 until set)
+# GSC_SA_KEY          — Google Search Console service-account key
 # TRUERANK_SMTP_USER  — full Hostinger mailbox address (also the From address)
 # TRUERANK_SMTP_PASSWORD — mailbox password. Without BOTH, every send is a
 #                      logged no-op, so local dev and CI can never send mail.
+# Optional, not set in production (the code skips them when absent):
+# SERPER_API_KEY      — Serper.dev Google Search (removed from production 2026-10-08)
+# BRAVE_API_KEY       — Brave web search (deleted 2026-10-15, out of credit)
+# TAVILY_API_KEY      — Tavily web search (local benchmarks)
+# IP_HASH_SALT        — salt for IP hashes (falls back to WORKER_SECRET)
+# AMAZON_ASSOCIATE_TAG — AMAZON_AFFILIATE_TAG in [vars] is the default

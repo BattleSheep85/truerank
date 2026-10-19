@@ -763,10 +763,19 @@ function reportDescription(product, overall) {
 
 // Old or malformed rows can hold non-array evidence ({}, "abc", [null]).
 // Return a new claim whose evidence lists hold only plain objects.
+function isEvidenceItem(item) {
+    return Boolean(item) && typeof item === 'object' && !Array.isArray(item);
+}
+
 function evidenceList(value) {
-    return Array.isArray(value)
-        ? value.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
-        : [];
+    return Array.isArray(value) ? value.filter(isEvidenceItem) : [];
+}
+
+// Items normalizeClaim drops from one list: every bad item, or 1 for a
+// present value that is not a list.
+function droppedEvidenceCount(value) {
+    if (value === undefined || value === null) return 0;
+    return Array.isArray(value) ? value.filter((item) => !isEvidenceItem(item)).length : 1;
 }
 
 function normalizeClaim(claim) {
@@ -777,14 +786,22 @@ function normalizeClaim(claim) {
     };
 }
 
+// One log line per page render when stored evidence was malformed (CP-812).
+function logDroppedEvidence(slug, claims) {
+    const dropped = claims.reduce((sum, c) => sum + droppedEvidenceCount(c.supporting) + droppedEvidenceCount(c.contradicting), 0);
+    if (dropped > 0) console.warn(`[verify-page] dropped malformed evidence ${JSON.stringify({ slug, dropped })}`);
+}
+
 async function renderCompleteReport(row, env) {
     const prettyProduct = displayQuery(row.query);
     // Old rows can hold odd JSON (null, a number, a list). Treat those as empty.
     const parsed = parseJsonSafe(row.result, {});
     const result = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    const claims = Array.isArray(result.claims)
-        ? result.claims.filter((c) => c && typeof c === 'object' && !Array.isArray(c) && isTestableClaim(c)).map(normalizeClaim)
+    const storedClaims = Array.isArray(result.claims)
+        ? result.claims.filter((c) => c && typeof c === 'object' && !Array.isArray(c) && isTestableClaim(c))
         : [];
+    logDroppedEvidence(row.slug, storedClaims);
+    const claims = storedClaims.map(normalizeClaim);
     const overall = honestOverall({ claims });
     const evidenceCount = Number.isFinite(result.evidenceCount) ? result.evidenceCount : 0;
     const productUrl = result.productUrl || row.subject_url || '';
