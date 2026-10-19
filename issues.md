@@ -1106,7 +1106,7 @@ User: "Grok 4.5 is out, use only this model" + "improve our searches via BaitBen
       (b) video-hype listicle title patterns ("RANKED"/"N that matter") to isListicle, (c) marketplace domains
       (etsy/ebay) to MANUFACTURER_RETAILER_DOMAINS, (d) conservative thin-promo detector IF it holds 100%
       specificity. Then re-run bait-detector-oracle.mjs to confirm recall climbs + specificity stays ~100%.
-      Done 2026-10-19 (CP-822): (a) geni.us, lmg.gg and tidd.ly added to AFFILIATE_HOPS; (b) isListicle
+      Done 2026-10-19 (CP-822): (a) geni.us, lmg.gg and tidd.ly count as affiliate hops (own hostname list, AFFILIATE_SHORTLINK_HOSTS in credibility.js); (b) isListicle
       catches "(RANKED)", all-caps RANKED, a title ending in "Ranked", and "N <things> that (actually)
       matter" ("Top-ranked" and "ranked choice" stay clean); (c) etsy.com, ebay.com, ebay.co.uk added to
       MANUFACTURER_RETAILER_DOMAINS (plus eBay de/fr/it/es/ca/com.au). Oracle (36 sources, grok-4.5, $0.128, verdicts saved in
