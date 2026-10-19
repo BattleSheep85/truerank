@@ -273,5 +273,27 @@ export function runSafetyTests() {
     eq(`CP-804 allow: "${q}"`, screenQuery(q).blocked, false);
   }
 
+  // ── 13. CP-807: the verb spaced out, the article after it ("m a k e a bomb") ──
+  const cp807Blocked = [
+    'm a k e a bomb',
+    'how to m a k e a bomb',
+    'm a k e a b o m b',
+    'b u i l d a bomb',
+    'm a k i n g a bomb',
+    'm 4 k 3 a bomb',
+  ];
+  for (const q of cp807Blocked) {
+    eq(`CP-807 block: "${q}"`, screenQuery(q).blocked, true);
+  }
+  const cp807Allowed = [
+    'm a k e a bath bomb',
+    'b u i l d a bomb shelter',
+    'a v receiver with a 4k pass through',
+    'sony a 7 iv vs canon r 6',
+  ];
+  for (const q of cp807Allowed) {
+    eq(`CP-807 allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+
   return report;
 }

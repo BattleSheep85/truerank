@@ -33,11 +33,12 @@ import {
   distillProductName,
   harvestBuyerReviews,
   readBuyerReviewPages,
+  isUsableClaimPage,
   MAX_RESOLVE_READS,
   CLAIM_PAGES_WANTED,
 } from './verify-resolve.js';
 import { verdictForClaim, overallVerdict, verificationWeight } from '../lib/verdict.js';
-import { trimProductType } from '../lib/product-link.js';
+import { trimProductType, hasModelNumber, modelNameFromPage } from '../lib/product-link.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
 import { deadlineSignal, deferred, delay, hedged } from '../lib/deadline.js';
@@ -46,6 +47,8 @@ import { rerankClaimEvidence } from './verify-rerank.js';
 import { isNearSpecValue } from '../lib/quantity.js';
 import { readCachedClaims, writeCachedClaims } from '../lib/claim-cache.js';
 import { mergeStanceVotes } from './stance-votes.js';
+import { readPageInto } from './tools.js';
+import { screenQuery } from '../lib/safety.js';
 
 // Claim page text & retailer buyer-review helpers live in verify-resolve.js.
 // Re-exported here, where the harnesses and tests import them.
@@ -1146,7 +1149,7 @@ function positiveMs(value) {
  * then, the fallback judge starts (judgeClaim). extractHedgeMs: when the
  * extract call has no reply by then, a second request goes out
  * (extractClaims). 0 = off. overlapGather: the gather starts with the check
- * instead of after the test pages.
+ * instead of after the test pages. pastedNameReadMs: see nameFromPastedPage.
  */
 export function verifyBudget(config) {
   return {
@@ -1159,6 +1162,7 @@ export function verifyBudget(config) {
     hedgeMs: positiveMs(config?.verifyHedgeMs),
     extractHedgeMs: positiveMs(config?.verifyExtractHedgeMs),
     overlapGather: config?.verifyOverlapGather === true,
+    pastedNameReadMs: positiveMs(config?.verifyPastedNameReadMs),
   };
 }
 
@@ -1170,16 +1174,17 @@ function stageDeadline(ms) {
 /**
  * Step 1, RESOLVE: the product's own pages to extract claims from. Candidates
  * come from searches for the product's own pages (see verify-resolve.js). A
- * pasted productUrl is the first candidate. The candidate reads run at the
+ * pasted productUrl is the first candidate (`pastedPage` when it was read
+ * already, see nameFromPastedPage). The candidate reads run at the
  * same time (readClaimPages); `readMs` (optional) is their stage deadline,
  * and `patienceMs` (optional, 0 = none) the wait for a slow better ranked
  * candidate. `search`, `read`, and `focusedRead` are injectable for tests.
  * Returns { claimSources, candidates, nextIndex, readsLeft, rejected, queries,
  * found, spares } (spares: see readClaimPages).
  */
-export async function resolveClaimSources({ product, productUrl, env, search, read, focusedRead, readMs = 0, patienceMs = 0 }) {
+export async function resolveClaimSources({ product, productUrl, pastedPage = null, env, search, read, focusedRead, readMs = 0, patienceMs = 0 }) {
   const { candidates: ranked, queries, found } = await findClaimCandidates({ product, env, search });
-  const pasted = productUrl ? [{ url: productUrl, title: productUrl, content: '', source: 'manual' }] : [];
+  const pasted = productUrl ? [pastedPage ?? { url: productUrl, title: productUrl, content: '', source: 'manual' }] : [];
   const candidates = [...pasted, ...ranked.filter((c) => c.url !== productUrl)];
   const stage = stageDeadline(readMs);
   const first = await readClaimPages(candidates, env, {
@@ -1332,6 +1337,32 @@ const VERIFY_FACETS = Object.freeze({ is_buyable: true, sold_on_amazon: true, re
 // that verify does not read.
 const VERIFY_GATHER_PROVIDERS = Object.freeze(['web']);
 
+/**
+ * CP-807: a link name with no model number ("Antec Chamber", from an Amazon
+ * slug that drops "C8") finds almost no evidence. The pasted page is then read
+ * first, for at most `readMs`, and its title gives the model ("Antec C8",
+ * modelNameFromPage). A title name the safety screen blocks is not used. A
+ * usable read becomes the pasted claim candidate, so it is not read twice; a
+ * page that is not usable (a bot check) is read once more during resolve.
+ * Returns { product, pastedPage } (pastedPage null when no usable page).
+ */
+export async function nameFromPastedPage({ product, productUrl, env, readMs = 0, read = readPageInto }) {
+  if (!productUrl || hasModelNumber(product)) return { product, pastedPage: null };
+  const stage = stageDeadline(readMs);
+  const page = { url: productUrl, title: productUrl, content: '', source: 'manual' };
+  try {
+    await read(page, env, { signal: stage?.signal });
+  } catch (err) {
+    console.warn(`[verify] pasted page read for the name failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    stage?.cancel();
+  }
+  const titled = modelNameFromPage(product, page);
+  const named = titled !== product && !screenQuery(titled, { allowUrl: true }).blocked ? titled : product;
+  if (named !== product) console.log(`[verify] name from the pasted page title: "${product}" -> "${named}"`);
+  return { product: named, pastedPage: isUsableClaimPage(page.content) ? page : null };
+}
+
 // Step 4, GATHER independent evidence for the product (gatherParallel, without
 // notes: verify never reads them). Reads go through the shared `readPage`.
 function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, startGate, readGate }) {
@@ -1364,17 +1395,20 @@ function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, 
  * reader, and reads still running when the evidence is in are stopped.
  * `extractCallLLM` (optional) replaces callLLM for the extraction call
  * (benchmarks/verify-product.mjs logs it).
+ * The product name can gain its model number from the pasted page first
+ * (nameFromPastedPage); `product` in the result is the name checked.
  * Returns { status: 'needs_url', resolved, costUsd } or { status: 'ok',
- * resolved, claims, claimSources, tests, gathered, scoredEvidence, costUsd,
+ * product, resolved, claims, claimSources, tests, gathered, scoredEvidence, costUsd,
  * marks: { startedAt, extractedAt, gatheredAt } }.
  */
-export async function collectClaimsAndEvidence({ product, productUrl, config, apiKey, env: callerEnv, onEvent, callLLM, extractCallLLM }) {
+export async function collectClaimsAndEvidence({ product: givenProduct, productUrl, config, apiKey, env: callerEnv, onEvent, callLLM, extractCallLLM }) {
   // CP-718 round 3: the check's searches and page reads share a few
   // connection slots, so a read's timer starts only when it can connect.
   const env = withConnectionGate(callerEnv);
   const emit = onEvent || (() => {});
   const budget = verifyBudget(config);
   const startedAt = Date.now();
+  const { product, pastedPage } = await nameFromPastedPage({ product: givenProduct, productUrl, env, readMs: budget.pastedNameReadMs });
   const evidenceReads = new AbortController();
   const readPage = evidenceReader(env, { signal: evidenceReads.signal });
   const gate = deferred();
@@ -1387,7 +1421,7 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
   try {
     // 1. RESOLVE the product's own pages. No page and no pasted URL: stop
     //    before the gather searches spend anything.
-    const resolved = await resolveClaimSources({ product, productUrl, env, readMs: budget.resolveReadMs, patienceMs: budget.claimPatienceMs });
+    const resolved = await resolveClaimSources({ product, productUrl, pastedPage, env, readMs: budget.resolveReadMs, patienceMs: budget.claimPatienceMs });
     if (resolved.claimSources.length === 0 && !productUrl) {
       gate.resolve(false);
       return { status: 'needs_url', resolved, costUsd: 0 };
@@ -1425,6 +1459,7 @@ export async function collectClaimsAndEvidence({ product, productUrl, config, ap
     const scoredEvidence = scoreEvidence(evidencePool(allCandidateSources, product, productUrl));
     return {
       status: 'ok',
+      product,
       resolved,
       claims: extracted.claims,
       claimSources: extracted.claimSources,
@@ -1467,11 +1502,12 @@ export async function runVerification({ product, productUrl, config, apiKey, env
     };
   }
   const { claims, claimSources, scoredEvidence, marks } = collected;
+  const checked = collected.product || subject;
 
   // 6. PER-CLAIM: top evidence → stance → build claim evidence → verdict.
   //    Claims run concurrently. A failed claim is unsubstantiated and the run
   //    goes on. Only when every claim failed is the first error rethrown.
-  const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product: subject, env });
+  const judged = await judgeClaims({ claims, scoredEvidence, config, apiKey, callLLM, product: checked, env });
   const { claimVerdicts, costUsd: stanceCost } = collectClaimVerdicts(claims, judged);
   const judgedAt = Date.now();
   console.log(
@@ -1483,7 +1519,8 @@ export async function runVerification({ product, productUrl, config, apiKey, env
 
   return {
     status: 'ok',
-    product,
+    // The name from the pasted page title, when it gave one (CP-807).
+    product: checked === subject ? product : checked,
     productUrl: productUrl || null,
     subjectClaimSources: claimSources.map((s) => s.url),
     overall,

@@ -72,6 +72,13 @@ const PRODUCT_TYPE_TAILS = Object.freeze([
   'cordless drill', 'power supply', 'computer case', 'pc case', 'cell phone', 'air fryer',
   'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires', 'vacuum', 'drill',
 ].map((phrase) => phrase.split(' ')));
+// The tails a saved-verdict key drops (CP-807): words that name the kind of
+// thing, never which product of a line it is. "drill", "impact driver" and
+// "robot vacuum" stay in keys ("M18 Fuel hammer drill" vs "impact driver").
+const KEY_TYPE_TAILS = Object.freeze([
+  'ice cream maker', 'espresso machine', 'coffee maker', 'power supply', 'computer case',
+  'pc case', 'cell phone', 'air fryer', 'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires',
+].map((phrase) => phrase.split(' ')));
 // "case" after one of these is an accessory, not a PC case ("iPhone 16 case").
 const CASE_WORDS = Object.freeze(['case', 'chassis']);
 const DEVICE_WORDS = Object.freeze([
@@ -158,16 +165,19 @@ export function isNameKey(key) {
 
 // The sorted unique lowercase words of name (NFKC first, so full-width
 // letters fold) joined by ' '. null when there is no word or more than
-// NAME_KEY_MAX_TOKENS.
+// NAME_KEY_MAX_TOKENS. Trailing KEY_TYPE_TAILS words go first
+// (trimProductType), so "X" and "X case", which the engine checks the same
+// way, share one key (CP-807). Spec words and years stay.
 function nameTokens(name) {
   if (typeof name !== 'string') return null;
-  const words = name.normalize('NFKC').toLowerCase().match(NAME_TOKEN_RE) || [];
+  const trimmed = trimProductType(name.normalize('NFKC'), { specs: false, tails: KEY_TYPE_TAILS });
+  const words = trimmed.toLowerCase().match(NAME_TOKEN_RE) || [];
   const tokens = [...new Set(words)].sort();
   if (tokens.length === 0 || tokens.length > NAME_KEY_MAX_TOKENS) return null;
   return tokens.join(' ');
 }
 
-/** 'verify:name:' + the sorted unique lowercase words of name joined by ' '. null when no word or more than 20. */
+/** 'verify:name:' + the sorted unique lowercase words of name, less a trailing type word such as "case", joined by ' '. null when no word or more than 20. */
 export function productNameKey(name) {
   const tokens = nameTokens(name);
   return tokens ? NAME_KEY_PREFIX + tokens : null;
@@ -260,9 +270,9 @@ function lowerWord(word) {
   return word.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
 }
 
-// Length of the longest PRODUCT_TYPE_TAILS phrase that ends `lower`, or 0.
-function typeTailLength(lower) {
-  const tail = PRODUCT_TYPE_TAILS.find((phrase) => phrase.length <= lower.length
+// Length of the longest `tails` phrase that ends `lower`, or 0.
+function typeTailLength(lower, tails = PRODUCT_TYPE_TAILS) {
+  const tail = tails.find((phrase) => phrase.length <= lower.length
     && phrase.every((w, i) => lower[lower.length - phrase.length + i] === w));
   if (!tail || !isGenericTail(tail, lower.slice(0, -tail.length))) return 0;
   return tail.length;
@@ -290,12 +300,14 @@ function isTrailingSpec(lower) {
  * words ("DeWalt DCD791 20V drill" -> "DeWalt DCD791", "Antec C8 PC case"
  * -> "Antec C8"), so "X" and "X case" search the same way (CP-777). Never
  * leaves fewer than TYPE_TRIM_MIN_WORDS words: "OtterBox case" stays.
+ * `specs: false` keeps trailing spec words (keys: "MacBook Air 2024" and
+ * "2022" are two products); `tails` replaces the type phrases.
  */
-export function trimProductType(product) {
+export function trimProductType(product, { specs = true, tails = PRODUCT_TYPE_TAILS } = {}) {
   const words = String(product ?? '').trim().split(/\s+/).filter(Boolean);
   let lower = words.map(lowerWord);
   for (;;) {
-    const cut = typeTailLength(lower) || (isTrailingSpec(lower) ? 1 : 0);
+    const cut = typeTailLength(lower, tails) || (specs && isTrailingSpec(lower) ? 1 : 0);
     if (cut === 0 || lower.length - cut < TYPE_TRIM_MIN_WORDS) break;
     lower = lower.slice(0, -cut);
   }
@@ -313,6 +325,48 @@ export function distillProductName(product) {
   const words = raw.split(/\s+/).filter(Boolean);
   if (words.length < SLUG_DISTILL_MIN_WORDS) return trimProductType(raw);
   return distillSlugWords(words).join(' ');
+}
+
+// A Jina read starts with "Title: ..."; a page title from a search is a
+// field. Amazon wraps it as "Amazon.com: <name> : <Department>".
+const READ_TITLE_RE = /^Title:[ \t]*(.+)$/m;
+const STORE_PREFIX_RE = /^amazon\.[a-z.]+\s*:\s*/i;
+const DEPARTMENT_SUFFIX_RE = /\s+:\s+[^:]*$/;
+// The name part of a title ends at the first comma, bar, or dash between words.
+const TITLE_CUT_RE = /\s*(?:[,|]|\s[-–—]\s)/;
+
+/**
+ * True when one word of the name is a model number: a digit that is not a
+ * spec, or a number with a one-letter suffix ("MX Master 3S", "iPhone 5c").
+ */
+export function hasModelNumber(name) {
+  const lower = String(name ?? '').split(/\s+/).filter(Boolean).map(lowerWord);
+  return lower.some((w, i) => DIGIT_RE.test(w) && (!isSlugSpecToken(lower, i) || ONE_LETTER_SUFFIX_RE.test(w)));
+}
+
+function pageTitle(page) {
+  const fromRead = String(page?.content ?? '').match(READ_TITLE_RE)?.[1];
+  const field = typeof page?.title === 'string' && page.title !== page?.url ? page.title : '';
+  return (fromRead || field).trim();
+}
+
+/**
+ * The product name with its model number taken from the pasted page's title,
+ * when the name has none (an Amazon slug such as
+ * "Antec-Chamber-Compatible-Full-Tower" drops "C8"). The title name must
+ * start with the name's first word (the brand) and hold a model number;
+ * otherwise the name stays. `page` is { url, title, content } (a page read).
+ * Pure. Never throws.
+ */
+export function modelNameFromPage(name, page) {
+  const current = String(name ?? '').trim();
+  if (!current || hasModelNumber(current)) return current;
+  const title = pageTitle(page).replace(STORE_PREFIX_RE, '').replace(DEPARTMENT_SUFFIX_RE, '');
+  const candidate = distillProductName(title.split(TITLE_CUT_RE)[0] ?? '');
+  const brand = lowerWord(current.split(/\s+/)[0]);
+  const sameBrand = lowerWord(candidate.split(/\s+/)[0] ?? '') === brand;
+  if (!sameBrand || !hasModelNumber(candidate)) return current;
+  return capName(candidate) ?? current;
 }
 
 // Turn one path segment into a name, or null. sep splits the words.

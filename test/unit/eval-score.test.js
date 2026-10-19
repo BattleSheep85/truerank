@@ -3,7 +3,7 @@
 // (service, local, experience); the HTML below copies the live page markup
 // as of 2026-10-18.
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug } from '../../scripts/lib/eval-score.mjs';
+import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug, groundedness } from '../../scripts/lib/eval-score.mjs';
 
 const CHECKS = { min_products: 3, min_sources: 5, max_age_days: 120 };
 const NOW = Date.parse('2026-10-18T00:00:00Z');
@@ -130,6 +130,39 @@ export function runEvalScoreTests() {
     eq('lookup: a test word the golden query holds is not a test run', pickExistingSlug('fentanyl test strips', strips), 'fentanyl-test-strips-abc');
     eq('lookup: nothing that matches', pickExistingSlug('best password manager', vacuum), null);
     eq('lookup: tolerates a bad answer', pickExistingSlug('best password manager', null), null);
+  }
+
+  // ── CP-807: groundedness against the saved per-source snippets ───────────
+  {
+    const G_CHECKS = { ...CHECKS, grounded_top_n: 3, min_grounded_names: 0.5 };
+    const src = (snippet) => ({ url: 'https://example.com/a', credibility: { score: 70 }, ...(snippet ? { snippet } : {}) });
+    const body = (products, sources) => ({ report: { products }, sources });
+    const products = [
+      { name: 'Kindle Paperwhite', price: 159.99, specs: { screen: '7 inch' } },
+      { name: 'Kobo Clara BW', price: 129, specs: { storage: '16 GB' } },
+      { name: 'Boox Go 7', price: 249, specs: {} },
+      { name: 'Ignored Fourth', price: 1, specs: {} },
+    ];
+    const sources = [
+      src('The Kindle Paperwhite costs $160 and has a 7 inch screen.'),
+      src('We tested the Kobo Clara BW for a month. 16 GB of storage.'),
+      src(null),
+    ];
+    const g = groundedness(body(products, sources), G_CHECKS);
+    eq('grounded: snippet sources counted', g.snippet_sources, 2);
+    eq('grounded: top N names checked, two found', [g.names_checked, g.names_grounded], [3, 2]);
+    eq('grounded: the missing name is listed', g.ungrounded_names, ['Boox Go 7']);
+    eq('grounded: prices and spec numbers checked, near price counts', [g.numbers_checked, g.numbers_grounded], [5, 3]);
+    eq('grounded: fractions', [g.grounded_names_frac, g.grounded_numbers_frac], [0.667, 0.6]);
+    eq('grounded: ok against the threshold', g.grounded_ok, true);
+    eq('grounded: a name word must be a whole word', groundedness(body([{ name: 'Kobo Clara' }], [src('Kobold Claravision')]), G_CHECKS).names_grounded, 0);
+    const old = groundedness(body(products, [src(null), src(null)]), G_CHECKS);
+    eq('grounded: a page with no snippets is not judged', [old.snippet_sources, old.grounded_names_frac, old.grounded_ok], [0, null, null]);
+    eq('grounded: tolerates a bad answer', groundedness(null, G_CHECKS).grounded_ok, null);
+    eq('grounded: low share fails the soft check', groundedness(body(products, [src('Nothing here about any reader at all.')]), G_CHECKS).grounded_ok, false);
+    const noisy = groundedness(body([{ name: 'Antec C8', price: 3, specs: { fans: '0 fans' } }], [src('Antec C8 at https://www.amazon.com/dp/B0CP3MZXVH page 2')]), G_CHECKS);
+    eq('grounded: link and ASIN digits are not snippet numbers', [noisy.numbers_checked, noisy.numbers_grounded], [2, 0]);
+    eq('grounded: not a hard failure', hardFailures({ grounded_ok: false }), []);
   }
 
   return report;

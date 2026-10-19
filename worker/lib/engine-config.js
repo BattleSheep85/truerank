@@ -146,6 +146,9 @@ export const ENGINE_CONFIG = {
   // and extract, its searches wait for the claims, and its reads wait for the
   // test page reads. false runs it after the test pages.
   verifyOverlapGather: true,
+  // CP-807: a link name with no model number waits at most this long for the
+  // pasted page's title before the check goes on with the name it has.
+  verifyPastedNameReadMs: 10_000,
   maxConcurrency: 6, // parallel sub-researchers on the CF queue consumer (6 = validated memory-safe; bumping to 12 gave no latency gain — bottleneck is the agent loop + synth, not gather)
   reportSections: ['summary', 'products', 'comparison', 'categories', 'pitfalls', 'buyerGuide', 'methodology'],
 };

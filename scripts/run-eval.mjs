@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Golden-query eval: scores the LIVE site's research output against
 // eval/golden-queries.json. This measures honesty at the OUTPUT layer —
-// pick correctness, disclosure presence, depth thresholds, freshness —
+// pick correctness, disclosure presence, depth thresholds, freshness, and
+// groundedness against the saved source snippets (free report API) —
 // complementing the model-selection benchmarks that picked the synth tiers.
 //
 //   node scripts/run-eval.mjs                # audit existing pages (free)
@@ -14,7 +15,7 @@
 // "missing" and only run when --spend is passed. Zero dependencies.
 
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, pickExistingSlug } from './lib/eval-score.mjs';
+import { scorePage, hardFailures, pickExistingSlug, groundedness } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -60,7 +61,20 @@ async function runAndWait(query) {
 async function scoreSlug(slug, golden) {
   const res = await fetch(`${BASE}/research/${slug}`);
   if (!res.ok) return { error: `page answered HTTP ${res.status}` };
-  return { slug, ...scorePage(await res.text(), golden, config.checks) };
+  return { slug, ...scorePage(await res.text(), golden, config.checks), ...(await groundSlug(slug)) };
+}
+
+// CP-807: the saved source snippets come from the public report API (a free
+// GET). A failed read leaves groundedness unjudged; it never fails the page.
+async function groundSlug(slug) {
+  const { status, body, error } = await getJson(`/api/report/${encodeURIComponent(slug)}`)
+    .catch((err) => ({ status: 0, body: null, error: err instanceof Error ? err.message : String(err) }));
+  if (status !== 200 || !body) {
+    const why = error ? `report API read failed: ${error}` : `report API answered HTTP ${status}`;
+    process.stderr.write(`groundedness: ${why} for ${slug}\n`);
+    return { ...groundedness(null, config.checks), grounded_error: why };
+  }
+  return groundedness(body, config.checks);
 }
 
 const results = [];
@@ -87,6 +101,11 @@ const ratio = (rows, key) => {
   const judged = rows.filter((r) => r[key] != null);
   return judged.length ? `${judged.filter((r) => r[key]).length}/${judged.length}` : 'n/a';
 };
+// "found/checked" summed over the scored pages.
+const sumPair = (rows, found, checked) => {
+  const total = rows.reduce((n, r) => n + (r[checked] || 0), 0);
+  return total ? `${rows.reduce((n, r) => n + (r[found] || 0), 0)}/${total}` : 'n/a';
+};
 const summary = {
   base: BASE,
   scored: scored.length,
@@ -100,6 +119,10 @@ const summary = {
   amazon_free: ratio(scored, 'amazon_free'),
   service_layout: ratio(scored, 'service_layout'),
   location_ok: ratio(scored, 'location_ok'),
+  // CP-807: soft, not judged for reports saved before the snippets (null).
+  grounded_ok: ratio(scored, 'grounded_ok'),
+  grounded_names: sumPair(scored, 'names_grounded', 'names_checked'),
+  grounded_numbers: sumPair(scored, 'numbers_grounded', 'numbers_checked'),
 };
 
 console.log(JSON.stringify({ summary, results }, null, 2));
