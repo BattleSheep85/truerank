@@ -24,6 +24,10 @@ cpu_ms = 300000
 [vars]
 ENVIRONMENT = "production"
 MONTHLY_BUDGET_USD = "60"
+# Site-wide ceiling on TAGGED affiliate clicks per hour (/api/go, CP-353).
+# Over it, a click still redirects but without our associate tag and unlogged.
+# Read by worker/lib/affiliate-gate.js; 30 is above the busiest real hour (24).
+AFFILIATE_GLOBAL_HOURLY_LIMIT = "30"
 # Programmatic-SEO flywheel: max keyword research runs the cron will start per
 # UTC day. The flywheel also stays dormant until SERPER_API_KEY is set.
 # Raised 6->12 (2026-07-01, full eval): budget was 19% utilized ($11/mo of $60)

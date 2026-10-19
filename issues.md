@@ -34,7 +34,7 @@ Last updated: 2026-10-19
 - [x] MEDIUM (Product, verify): a stance reply cut off at the token limit ("0 of 15 sources judged") left a claim unjudged in one run and judged in the next. Fixed in 839cc50: the unjudged sources go again in two smaller calls. worker/engine/verify.js.
 - [x] HIGH (Product, verify): production page reads time out at random (fixed in 13cf1ef, see 2026-10-17 above; 127 Jina timeouts of 8 s in 7 live runs; test pages "2 of 8 filled" in some runs, "8 of 8" in others). A Worker keeps about 6 connections open, so reads wait in a queue while their 8 s timer runs. The same claims then get different evidence, and repeat runs still swing. Live pairs on 2026-10-16 (22:36 to 23:00 UTC, same claims in both runs): Fractal Design North 70 vs 75, Dyson V15 Detect 50 vs 50, DeWalt DCD791 no score vs 50, Galaxy S25 Ultra no score (1 claim extracted) vs 36, Ninja Creami 40 vs 75, Pixel 9 Pro no score vs no score, CrossClimate 2 50 vs no score (2 of 7 within 15 points, 3 counting Pixel). After 839cc50: Fractal 25 (Tom's Hardware read this time: thumbscrew side panels, wood veneer), DeWalt 50, S25 39, Creami 70. Antec C8 by name 50; by Amazon link "Not enough independent evidence" in production (0 of 8), 50 in a local run that read GamersNexus and KitGuru. worker/lib/jina.js, worker/engine/verify-resolve.js.
 - [x] MEDIUM (Product, verify): an Amazon link whose slug has no model number (".../Antec-Chamber-Compatible-Full-Tower/dp/...") checks a name without the model, and almost no evidence matches. The page title is not used to fix the name. worker/lib/product-link.js. Fixed 2026-10-19 (CP-807): when the link name has no model number, the check reads the pasted page first (at most verifyPastedNameReadMs, 10 s) and takes the model from its title (modelNameFromPage: same brand word, holds a model number, passes the safety screen), so ".../Antec-Chamber-Compatible-Full-Tower/dp/B0CP3MZXVH" checks "Antec C8" (the live Amazon title, read 2026-10-19). The read page is reused as the claim page. worker/engine/verify.js nameFromPastedPage. Tests: test/unit/product-link.test.js, test/integration/verify-speed.spec.js. Merged in 79da27b (PR #19), deployed 2026-10-19.
-- [x] LOW (Product, verify): a first run with weak claims keeps them for 30 days; only bumping CLAIM_CACHE_VERSION clears every saved set. worker/lib/claim-cache.js. Fixed 2026-10-19 (CP-819): a check that ends with no score ("Not enough independent evidence") re-saves its claim set with a 1-day TTL (CLAIM_CACHE_WEAK_TTL_SECONDS) and marks it short, so the next run after that day extracts again. A set already marked short is not re-saved, so checks that reuse it within the day do not push its expiry out (code review finding). A scored check keeps the 30-day set. Rule chosen from the code: "no score" is the one outcome a reused set can never improve on its own; a count rule would also cut sets that score fine. CLAIM_CACHE_VERSION stays v1. worker/lib/claim-cache.js (shortenCachedClaims), worker/engine/verify.js (keepClaimsByOutcome). Tests: test/unit/claim-cache.test.js.
+- [x] LOW (Product, verify): a first run with weak claims keeps them for 30 days; only bumping CLAIM_CACHE_VERSION clears every saved set. worker/lib/claim-cache.js. Fixed 2026-10-19 (CP-819): a check that ends with no score ("Not enough independent evidence") re-saves its claim set with a 1-day TTL (CLAIM_CACHE_WEAK_TTL_SECONDS) and marks it short, so the next run after that day extracts again. A set already marked short is not re-saved, so checks that reuse it within the day do not push its expiry out (code review finding). A scored check keeps the 30-day set. Rule chosen from the code: "no score" is the one outcome a reused set can never improve on its own; a count rule would also cut sets that score fine. CLAIM_CACHE_VERSION stays v1. worker/lib/claim-cache.js (shortenCachedClaims), worker/engine/verify.js (keepClaimsByOutcome). Tests: test/unit/claim-cache.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## 2026-10-16: Stage 3 cross-model verification of the 200-buyer-review audit (CP-723)
 
@@ -351,12 +351,44 @@ looked at total volume.
   possible commission beats losing the Associates account.
 
 ### Open
-- [ ] MEDIUM (security): a native binding only supports a 10 s or 60 s window,
+- [x] MEDIUM (security): a native binding only supports a 10 s or 60 s window,
       so it can express a rate ceiling but not "700 an hour is abnormal". A
       slow, wide attacker under 6 a minute still passes. If the trip log shows
       that shape, add a global hourly counter with the existing KV limiter
       (`checkRateLimit(env.KV, 'go:global', N, 3600)`), which has no window
       restriction.
+      Fixed 2026-10-19 (CP-822): the trip lines are not kept (no Workers Logs
+      in wrangler.toml), so the check used production D1 affiliate_clicks
+      (read-only). It shows the slow, wide shape: from 2026-09-05 on, 74 to
+      2,897 logged clicks a day, almost all one click per address, on 48 to
+      874 pages a day, against a pre-incident median of 4 a day and near-zero
+      search traffic. On quiet days every hour has clicks, 1 to 11 an hour,
+      far below the 360 an hour the per-minute gate allows. Added the hourly
+      counter: isAffiliateHourlyCapHit in worker/lib/affiliate-gate.js,
+      checkRateLimit(env.KV, 'go:global', N, 3600, env.DB), N from [vars]
+      AFFILIATE_GLOBAL_HOURLY_LIMIT = "30" (above the busiest real hour on
+      record, 24). It runs last, so only clicks every other layer passed
+      spend it. Over the cap a click still redirects, untagged and unlogged.
+      Replayed on the 2026-09-05 to 2026-10-19 clicks it would have held back
+      9,164 of 20,642 (in 174 of 1,027 hours). It does not stop the trickle
+      under 30 an hour; no volume limit can tell that apart from real
+      visitors. env.DB is passed (ASSUMED, code review): one key written
+      from every location is where the KV window undercounts, and the D1
+      window (CP-808) is one exact count; KV stays the fallback. Guide-page
+      clicks (/api/go/search) share the budget, as they share the per-minute
+      gate: Amazon sees both. Known consequence, same as the per-minute gate:
+      once an attack fills the hour, real clicks that hour lose the tag.
+      Fails open on a storage error. Tests:
+      test/unit/affiliate-gate.test.js,
+      test/integration/affiliate-global-gate.spec.js.
+- [ ] MEDIUM (security): one address put 174 clicks through in two minutes
+      on 2026-10-12 13:50 UTC (all logged, so neither the 6-a-minute global
+      gate nor the 30-an-hour per-IP cap flagged them). Likely causes: the
+      native binding counts per Cloudflare location, and the per-IP KV
+      window is read-then-write, so a parallel burst passes. Moving the
+      per-IP cap to the atomic D1 window (pass env.DB) would close the
+      second. Could also be an internal check run; not confirmed.
+      worker/handlers/affiliate.js.
 - [ ] LOW (data): the incident's 1,232 rows are still in `affiliate_clicks` and
       inflate click reporting for 2026-08-14/15. Not deleted, kept as evidence.
 
@@ -798,7 +830,7 @@ They stay as they are. This section does not repeat their detail.
       claim extraction, not for ranking (the ranking path moved to
       worker/engine/engine.js when the blackbox worker retired 2026-07-22,
       and that path does thread facets through). A location/service/
-      experience VERIFY run could still get a product-shaped plan. Fixed 2026-10-19 (CP-819): decompose() takes the classifier facets; when they name a location, service, experience, content or comparison query it adds the same facetFocusBlocks text engine.js gives the agent loop (plannerFocusBlock). A plain product and a row with no facets keep the plain prompt. Note: the live caller, the verify gather, always passes VERIFY_FACETS (a buyable product), so live verify plans are unchanged; the fix matters for the stopped research-worker.mjs path, which passes real classifier facets. The fixed fallback aspects ("best budget X") are still product-shaped. worker/engine/parallel-engine.js, worker/engine/prompts.js. Tests: test/integration/parallel-engine.spec.js.
+      experience VERIFY run could still get a product-shaped plan. Fixed 2026-10-19 (CP-819): decompose() takes the classifier facets; when they name a location, service, experience, content or comparison query it adds the same facetFocusBlocks text engine.js gives the agent loop (plannerFocusBlock). A plain product and a row with no facets keep the plain prompt. Note: the live caller, the verify gather, always passes VERIFY_FACETS (a buyable product), so live verify plans are unchanged; the fix matters for the stopped research-worker.mjs path, which passes real classifier facets. The fixed fallback aspects ("best budget X") are still product-shaped. worker/engine/parallel-engine.js, worker/engine/prompts.js. Tests: test/integration/parallel-engine.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 - [ ] MEDIUM (unvalidated, carried forward): the planner role
       (google/gemini-2.5-flash) is still the one model role never measured
       on an in-house gold bench. It was deferred as the hardest to
@@ -812,7 +844,7 @@ They stay as they are. This section does not repeat their detail.
       three duplicated concurrency-pool copies across the engine. The homelab rollback
       copy (`research-worker.mjs`, stopped, `EXTERNAL_WORKER_ENABLED=false`) imports
       `worker/engine/parallel-engine.js`, so it now needs both new files synced before
-      it could be re-enabled. Stale 2026-10-19 (CP-819): the rollback copy is still in the repo (research-worker.mjs, deploy/truerank-research-worker.yml), but its documented deploy rsyncs the whole worker/ folder with --delete, so llm-json.js and pool.js go with it; there is nothing to sync by hand. `node` loads worker/engine/parallel-engine.js with both files (checked 2026-10-19). It is still stopped (EXTERNAL_WORKER_ENABLED = "false").
+      it could be re-enabled. Stale 2026-10-19 (CP-819): the rollback copy is still in the repo (research-worker.mjs, deploy/truerank-research-worker.yml), but its documented deploy rsyncs the whole worker/ folder with --delete, so llm-json.js and pool.js go with it; there is nothing to sync by hand. `node` loads worker/engine/parallel-engine.js with both files (checked 2026-10-19). It is still stopped (EXTERNAL_WORKER_ENABLED = "false"). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## 2026-07-28: rate-limit atomicity closed (burst gate + consumer budget backstop)
 
@@ -1069,11 +1101,31 @@ User: "Grok 4.5 is out, use only this model" + "improve our searches via BaitBen
       no ECHO/FLIP). Baseline gpt-5.4-mini: 0/5 echo, 0/5 flip; synth actively DEBUNKS injected bait. Durable guard.
 - [x] SHIPPED: benchmarks/bait-detector-oracle.mjs — grok-4.5 as offline oracle vs our detectors: SPECIFICITY 100%
       (0 over-flags), RECALL 46%. Grok used offline only (zero live honesty/cost/latency risk).
-- [ ] FOLLOW-UP (Increment 3, NOT done — builder cut off by a session limit before editing; tree left clean):
+- [x] FOLLOW-UP (Increment 3, done 2026-10-19 CP-822 except (d) — builder cut off by a session limit before editing; tree left clean):
       close the measured recall gaps → (a) video-affiliate shortlinks (geni.us/lmg.gg) to AFFILIATE_HOPS,
       (b) video-hype listicle title patterns ("RANKED"/"N that matter") to isListicle, (c) marketplace domains
       (etsy/ebay) to MANUFACTURER_RETAILER_DOMAINS, (d) conservative thin-promo detector IF it holds 100%
       specificity. Then re-run bait-detector-oracle.mjs to confirm recall climbs + specificity stays ~100%.
+      Done 2026-10-19 (CP-822): (a) geni.us, lmg.gg and tidd.ly added to AFFILIATE_HOPS; (b) isListicle
+      catches "(RANKED)", all-caps RANKED, a title ending in "Ranked", and "N <things> that (actually)
+      matter" ("Top-ranked" and "ranked choice" stay clean); (c) etsy.com, ebay.com, ebay.co.uk added to
+      MANUFACTURER_RETAILER_DOMAINS (plus eBay de/fr/it/es/ca/com.au). Oracle (36 sources, grok-4.5, $0.128, verdicts saved in
+      benchmarks/results/bait-oracle-verdicts.json, re-score free with REPLAY=1): recall 46% -> 54%
+      (11 -> 13 of 24), specificity 100% -> 92% (12 -> 11 of 12). The one new over-flag is an Etsy
+      shirt listing that grok calls "a product listing, not a review": that is what the manufacturer
+      tag means, and Amazon listings already get it. ASSUMED kept; revert = drop the etsy line.
+      The shortlinks match on the hostname, not as a substring. Verify treats an Etsy page as a
+      retailer page, not the maker's (worker/engine/verify-resolve.js RETAILER_LABELS).
+      (d) not shipped: no signal in the gaps separates thin promo from clean pages (promo-code and
+      "% off" each hit one gap; 12 clean pages is too few to claim 100% specificity).
+      worker/lib/credibility.js. Tests: test/unit/credibility.test.js.
+- [ ] LOW (detector coverage): only the main eBay country sites are in the marketplace list, and
+      the "Ranked" title rule needs "Ranked" at the end or before a " | " / " - " suffix. Extend
+      both if the oracle shows misses. worker/lib/credibility.js
+- [ ] LOW (detector recall): 11 of 24 grok-bait sources still pass. Most are retailer-channel videos
+      (seattlecoffeegear, wholelattelove, letsrunmoore) whose links go to the channel's own shop, plus
+      expert-site "best of" roundups and "Top 10" video titles. A "links to its own store" detector
+      for video sources is the next candidate. benchmarks/bait-detector-oracle.mjs (REPLAY=1 is free).
 
 
 ## 2026-07-08 — UI/UX review board (14-persona, focus: improve UI/UX)
@@ -1596,7 +1648,7 @@ underfed/undercapped growth flywheel. Fixed everything in my control; 3 items ne
   seeding with actual demand data. (memory: gsc-ingestion-built-dormant)
 
 ### Known, not fixed (pre-existing, out of scope for this pass)
-- [x] LOW — 4 other integration test files (report.spec.js + others) reference stale db.js helpers Stale 2026-10-19 (CP-819): completeResearch and insertProductV2 now live in test/integration/_helpers.js and every spec that uses them imports them from there (grep, 2026-10-19). The full suite passes: npx vitest run, 50 files, 674 tests.
+- [x] LOW — 4 other integration test files (report.spec.js + others) reference stale db.js helpers Stale 2026-10-19 (CP-819): completeResearch and insertProductV2 now live in test/integration/_helpers.js and every spec that uses them imports them from there (grep, 2026-10-19). The full suite passes: npx vitest run, 50 files, 674 tests. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
   (`completeResearch`, `insertProductV2`) that don't exist — pre-existing breakage, unrelated to today's
   change, found while running the full `npx vitest run` suite. Needs its own pass.
 
@@ -2782,7 +2834,7 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 - [x] MEDIUM: Tailwind loaded from the Play CDN. (Fixed: prebuilt `public/css/tailwind.css` via the standalone CLI, no runtime CDN. Verified in a real browser across static pages and a full dynamic report.)
 - [x] LOW: Unused vendored htmx shipped publicly. (Fixed: removed; docs updated.)
-- [x] LOW (deploy step): Guide click logging needs migration `002_guide_clicks.sql` run. Logging is best-effort, so redirects work regardless. Stale 2026-10-19 (CP-819): the guide_clicks table exists in production D1 and holds 3,047 rows (read-only query, 2026-10-19).
+- [x] LOW (deploy step): Guide click logging needs migration `002_guide_clicks.sql` run. Logging is best-effort, so redirects work regardless. Stale 2026-10-19 (CP-819): the guide_clicks table exists in production D1 and holds 3,047 rows (read-only query, 2026-10-19). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## Code Quality
 
@@ -2804,11 +2856,11 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 ## 2026-10-18 — fix batch 5 follow-ups (CP-795)
 - [x] MEDIUM (monitoring): run-eval.mjs has no groundedness check against the new per-source snippets yet. scripts/run-eval.mjs Fixed 2026-10-19 (CP-807): run-eval.mjs reads GET /api/report/:slug (free) and scores, for the top 5 products, the share of names (every word) and of prices and spec numbers found in the saved snippets (groundedness in scripts/lib/eval-score.mjs; thresholds in eval/golden-queries.json). It is a soft check. Live 2026-10-19: the new robot-vacuum page (from the run noted in the batch 11 section) scores 4 of 5 names and 16 of 16 numbers grounded (the miss is "Shark PowerDetect 2-in-1 Robot Vacuum", a long generic name); the other 13 golden pages predate the snippets (CP-408), so they read "n/a" until they are re-run. Tests: test/unit/eval-score.test.js. Merged in 79da27b (PR #19), deployed 2026-10-19.
-- [x] LOW (benchmark): the SearXNG cache also serves forceFresh runs, so two stability-harness runs of one query within 4 hours share search answers and can look more stable than cold runs. Pass a cache bypass down from forceFresh if the harness needs cold gathers. worker/engine/tools.js Fixed 2026-10-19 (CP-819): a worker-secret forceFresh request adds bypassSearchCache to the queue message; the consumer (worker/jobs.js searchEnvFor) sets SEARXNG_CACHE_BYPASS for that run, and tools.js passes cacheBypass to searxngSearch, which skips the KV read but still saves the fresh answer. A public forceFresh or fresh run is unchanged. Left: a run claimed by the off-CF worker or the cron fallback has no queue message, so it reads the cache. worker/handlers/research.js, worker/jobs.js, worker/engine/tools.js, worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js, test/integration/searxng-cache.spec.js, test/integration/cp819-batch14.spec.js.
+- [x] LOW (benchmark): the SearXNG cache also serves forceFresh runs, so two stability-harness runs of one query within 4 hours share search answers and can look more stable than cold runs. Pass a cache bypass down from forceFresh if the harness needs cold gathers. worker/engine/tools.js Fixed 2026-10-19 (CP-819): a worker-secret forceFresh request adds bypassSearchCache to the queue message; the consumer (worker/jobs.js searchEnvFor) sets SEARXNG_CACHE_BYPASS for that run, and tools.js passes cacheBypass to searxngSearch, which skips the KV read but still saves the fresh answer. A public forceFresh or fresh run is unchanged. Left: a run claimed by the off-CF worker or the cron fallback has no queue message, so it reads the cache. worker/handlers/research.js, worker/jobs.js, worker/engine/tools.js, worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js, test/integration/searxng-cache.spec.js, test/integration/cp819-batch14.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 - [x] LOW (API): GET /api/report returns the new source snippets (about 20 KB per report). Strip them in the handler if the payload or quoting becomes a concern. worker/handlers/report.js Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): the API leaves each source's snippet out unless the request has ?snippets=1. The report page does not use the API; scripts/run-eval.mjs (groundedness) asks with ?snippets=1. On the newest page (robot vacuum, 372 sources) that is 69 KB of the 194 KB answer. worker/handlers/report.js, worker/index.js. Tests: test/integration/cp808-batch12.spec.js.
-- [ ] LOW (OPS): two runs of the same query that start together both miss the SearXNG cache (no in-flight dedupe). worker/engine/searxng.js Left open 2026-10-19 (CP-819): no small safe fix. The two runs are separate queue invocations, often in different isolates, so an in-memory in-flight map rarely sees both; KV has no lock or compare-and-set and its writes take up to a minute to show in other locations, so a "searching now" marker in KV would not stop the second run either. A real fix needs a Durable Object or a D1 lease per query, which is more than this item is worth (one extra free SearXNG request).
-- [x] LOW (architecture): worker/lib/keywords.js still imports budgetExhausted from worker/pipeline/orchestrator.js. Move the budget helpers to a lib module. worker/lib/keywords.js Fixed 2026-10-19 (CP-819): the budget helpers (incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, monthlyBudgetUsd, budgetExhausted) moved to worker/lib/budget.js. keywords.js and orchestrator.js import them from there, and so do jobs.js, the chat, research, verify and internal handlers, pages/metrics.js, verify-orchestrator.js and monthly-cost.spec.js. Guard: test/unit/lib-pure.test.js fails if any worker/lib module imports worker/pipeline.
-- [x] LOW (OPS): a SearXNG answer where some engines were blocked but 3 or more results came back counts as usable, so it stays cached for 4 hours with the thinner result set (QA note on PR #13). worker/engine/searxng.js Fixed 2026-10-19 (CP-819): a usable web answer is cached for 30 minutes (SEARXNG_PARTIAL_CACHE_TTL_S) instead of 4 hours when SearXNG lists unresponsive_engines AND it has fewer than 20 raw results (SEARXNG_THIN_RAW_RESULTS). Failed engines alone are not enough: gmx and neosearch failed on 6 of 6 live queries (2026-10-19, free requests) while those answers held 47 to 74 raw results, so that rule would have cut almost every answer to 30 minutes and brought back the CAPTCHA load the 4-hour cache removed. Site and image answers are small by nature and keep 4 hours. worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js.
+- [ ] LOW (OPS): two runs of the same query that start together both miss the SearXNG cache (no in-flight dedupe). worker/engine/searxng.js Left open 2026-10-19 (CP-819): no small safe fix. The two runs are separate queue invocations, often in different isolates, so an in-memory in-flight map rarely sees both; KV has no lock or compare-and-set and its writes take up to a minute to show in other locations, so a "searching now" marker in KV would not stop the second run either. A real fix needs a Durable Object or a D1 lease per query, which is more than this item is worth (one extra free SearXNG request). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (architecture): worker/lib/keywords.js still imports budgetExhausted from worker/pipeline/orchestrator.js. Move the budget helpers to a lib module. worker/lib/keywords.js Fixed 2026-10-19 (CP-819): the budget helpers (incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, monthlyBudgetUsd, budgetExhausted) moved to worker/lib/budget.js. keywords.js and orchestrator.js import them from there, and so do jobs.js, the chat, research, verify and internal handlers, pages/metrics.js, verify-orchestrator.js and monthly-cost.spec.js. Guard: test/unit/lib-pure.test.js fails if any worker/lib module imports worker/pipeline. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (OPS): a SearXNG answer where some engines were blocked but 3 or more results came back counts as usable, so it stays cached for 4 hours with the thinner result set (QA note on PR #13). worker/engine/searxng.js Fixed 2026-10-19 (CP-819): a usable web answer is cached for 30 minutes (SEARXNG_PARTIAL_CACHE_TTL_S) instead of 4 hours when SearXNG lists unresponsive_engines AND it has fewer than 20 raw results (SEARXNG_THIN_RAW_RESULTS). Failed engines alone are not enough: gmx and neosearch failed on 6 of 6 live queries (2026-10-19, free requests) while those answers held 47 to 74 raw results, so that rule would have cut almost every answer to 30 minutes and brought back the CAPTCHA load the 4-hour cache removed. Site and image answers are small by nature and keep 4 hours. worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## 2026-10-18 — fix batch 6 findings (CP-796)
 - [ ] MEDIUM (Product, extraction recall): on the recalled-car-seat fixture the extraction synth finds only UPPAbaby Mesa Max (Chicco KeyFit 35, the expert top pick, is not harvested), and validateResearchResult's category gate then drops Mesa Max too, so the run would fail with zero products. benchmarks/synth-fixture-lie-surfaces.mjs RECALLED_SCENARIO, worker/engine/extract/candidates.js, worker/engine/validate.js
@@ -2861,13 +2913,13 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [ ] LOW (code quality): worker/engine/verify.js is about 1,550 lines, past the 800-line cap; the judge and its cost handling could move to their own module. worker/engine/verify.js
 
 ## 2026-10-19 — batch 13 (CP-812)
-- [x] LOW (UX): the processing-page notify box still asks "Want an email when it's ready?" while mail is off; only the answer after submit is honest now. worker/pages/research-page.js Fixed 2026-10-19 (CP-819): the box uses mailConfigured(env), the same signal as the signup answer. With mail off it shows no form and says "Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready." With mail on it is unchanged. worker/pages/research-page.js. Tests: test/integration/cp819-batch14.spec.js. Left: the "Get notified when we re-research this category" footer form on finished pages still shows while mail is off (its answer after submit is honest).
-- [x] HIGH (Ops): apply schema/022_rekey_plus_names.sql to production D1 right after the CP-812 deploy (CI never runs migrations). Until then a plain "iRobot Roomba j7" check reuses the j7+ verdict. schema/022_rekey_plus_names.sql Done 2026-10-19 (CP-819): applied to production D1 right after the 4e9fdb7 deploy; one row written, and the only "verify:name:irobot j7%" row is now 6x525e1n0d3q3739 with key "verify:name:irobot j7 plus roomba".
-- [x] LOW (Product, verify): other parseFencedJson callers that treat null as "no data" still drop a bad model reply without a log line; only recall-supplement logs it now. Logging inside the shared parser would cover all of them. worker/lib/llm-json.js Fixed 2026-10-19 (CP-819): parseFencedJson logs one console.warn line for every null it returns: "[llm-json] <caller> reply is not JSON (N chars)" or "... no reply (undefined)" (no "dropped": verify-stance still salvages complete verdicts from a cut-off reply). No model text. Each caller passes its name (classifier, planner, notes, synthesis, name-cleaner, verify-stance, verify-extract, recall-supplement). The duplicate recall-supplement line is gone; its "no missing list" line stays. worker/lib/llm-json.js. Tests: test/unit/llm-json.test.js, test/unit/silent-drops.test.js.
+- [x] LOW (UX): the processing-page notify box still asks "Want an email when it's ready?" while mail is off; only the answer after submit is honest now. worker/pages/research-page.js Fixed 2026-10-19 (CP-819): the box uses mailConfigured(env), the same signal as the signup answer. With mail off it shows no form and says "Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready." With mail on it is unchanged. worker/pages/research-page.js. Tests: test/integration/cp819-batch14.spec.js. Left: the "Get notified when we re-research this category" footer form on finished pages still shows while mail is off (its answer after submit is honest). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] HIGH (Ops): apply schema/022_rekey_plus_names.sql to production D1 right after the CP-812 deploy (CI never runs migrations). Until then a plain "iRobot Roomba j7" check reuses the j7+ verdict. schema/022_rekey_plus_names.sql Done 2026-10-19 (CP-819): applied to production D1 right after the 4e9fdb7 deploy; one row written, and the only "verify:name:irobot j7%" row is now 6x525e1n0d3q3739 with key "verify:name:irobot j7 plus roomba". Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (Product, verify): other parseFencedJson callers that treat null as "no data" still drop a bad model reply without a log line; only recall-supplement logs it now. Logging inside the shared parser would cover all of them. worker/lib/llm-json.js Fixed 2026-10-19 (CP-819): parseFencedJson logs one console.warn line for every null it returns: "[llm-json] <caller> reply is not JSON (N chars)" or "... no reply (undefined)" (no "dropped": verify-stance still salvages complete verdicts from a cut-off reply). No model text. Each caller passes its name (classifier, planner, notes, synthesis, name-cleaner, verify-stance, verify-extract, recall-supplement). The duplicate recall-supplement line is gone; its "no missing list" line stays. worker/lib/llm-json.js. Tests: test/unit/llm-json.test.js, test/unit/silent-drops.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 - [ ] LOW (Testing): the real-world eval has no live page for 9 of 18 queries (mesh wifi, budget earbuds, budget espresso, home NAS, iPhone power bank, budget gaming headset, pet vacuum, 2026 laptop, local food). Filling them needs --spend (about $0.90). eval/real-world-benchmark.json
 
 ## 2026-10-19 — batch 14 (CP-819)
-- [x] LOW (cost): parallel-engine extractNotes read parsed.notes on a reply that did not parse, threw inside its own try, and returned cost 0, so a billed notes call was left out of the run cost and the month. Fixed 2026-10-19 (CP-819): it reads parsed?.notes and keeps the cost; a failed call now logs one line. worker/engine/parallel-engine.js. Tests: test/integration/parallel-engine.spec.js.
+- [x] LOW (cost): parallel-engine extractNotes read parsed.notes on a reply that did not parse, threw inside its own try, and returned cost 0, so a billed notes call was left out of the run cost and the month. Fixed 2026-10-19 (CP-819): it reads parsed?.notes and keeps the cost; a failed call now logs one line. worker/engine/parallel-engine.js. Tests: test/integration/parallel-engine.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 - [ ] LOW (UX): the "Get notified when we re-research this category" footer form on finished report pages still shows while mail is off; only its answer after submit is honest. Same fix as the processing box (mailConfigured). worker/pages/research-page.js
 - [ ] LOW (privacy, logs): worker/lib/classifier.js logs up to 200 characters of an unparseable classifier reply ("[classifier] unparseable response"), which can echo the user's query, and it now doubles the shared parser's line. Drop the text or the whole line. worker/lib/classifier.js
 

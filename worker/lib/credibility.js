@@ -58,6 +58,16 @@ const AFFILIATE_HOPS = [
   'commission-junction.com',
 ];
 
+// Video-description shortlink hosts (CP-370): Genius Link, Linus Media Group,
+// Tradedoubler. They only exist to route a click through an affiliate tag.
+// Matched on the hostname, not as a substring: "homegeni.us" is not one.
+const AFFILIATE_SHORTLINK_HOSTS = ['geni.us', 'lmg.gg', 'tidd.ly'];
+
+function isShortlinkHost(url) {
+  const h = hostOf(url);
+  return AFFILIATE_SHORTLINK_HOSTS.some((d) => h === d || h.endsWith('.' + d));
+}
+
 // Amazon affiliate tag param pattern — Amazon tags look like `xxxxx-20` or
 // `xxxxx-21`. The trailing `-20/-21/-22` is the Amazon regional affiliate code.
 const AMAZON_TAG = /[?&]tag=[a-z0-9_-]+-\d{2}\b/i;
@@ -88,6 +98,7 @@ export function isAffiliateUrl(url) {
   for (const hop of AFFILIATE_HOPS) {
     if (lower.includes(hop)) return true;
   }
+  if (isShortlinkHost(url)) return true;
   for (const pat of GENERIC_AFFILIATE_PARAMS) {
     if (pat.test(url)) return true;
   }
@@ -488,6 +499,14 @@ const LISTICLE_TITLE = [
   /\b\d+\s+(of the\s+)?best\s+[a-z][a-z\s-]{2,50}\b/i,
   /\bbest\s+[a-z][a-z\s-]{2,50}\s+20\d{2}\b/i,
   /\b\d+\s+[a-z][a-z\s-]{2,50}\s+you\s+(can|should|need|must)\b/i,
+  // Video-hype rankings (CP-370): "(RANKED)", all-caps RANKED, or "Ranked" at
+  // the end of the title or before a " | Channel" / " - YouTube" suffix.
+  // "top-ranked", "TOP-RANKED" and "ranked choice" stay clean.
+  /\(ranked\)/i,
+  /(?<![-\w])RANKED\b/,
+  /(?<![-\w])ranked\s*[!.]*\s*(?:$|[|\-–—]\s)/i,
+  // "N things that (actually) matter".
+  /\b\d+\s+[a-z][a-z\s-]{2,50}\s+that\s+(?:actually\s+|really\s+)?matter\b/i,
 ];
 
 /**
@@ -569,6 +588,9 @@ const MANUFACTURER_RETAILER_DOMAINS = new Set([
   'apple.com', 'samsung.com', 'sony.com', 'lg.com',
   'microsoft.com', 'google.com', 'dell.com', 'hp.com',
   'lenovo.com', 'asus.com', 'acer.com',
+  // Marketplaces (CP-370): a listing is seller copy, not a review.
+  'etsy.com', 'ebay.com', 'ebay.co.uk', 'ebay.de', 'ebay.fr', 'ebay.it',
+  'ebay.es', 'ebay.ca', 'ebay.com.au',
 ]);
 
 function hostOf(url) {
