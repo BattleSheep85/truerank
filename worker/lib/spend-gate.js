@@ -19,9 +19,9 @@
  * Mechanism: the sliding-window limiter counts per key string (atomic on D1
  * when env.DB is bound and migration 021 is applied, CP-808; KV otherwise). A CONSTANT
  * key makes one counter the whole site shares, which is exactly a site-wide
- * throttle. The KV limiter is used rather than the native binding because the
- * native binding only supports a 10 s or 60 s window, and the thing worth
- * bounding here is spend per hour, not requests per minute.
+ * throttle. The sliding-window limiter is used rather than the native binding
+ * because the native binding only supports a 10 s or 60 s window, and the thing
+ * worth bounding here is spend per hour, not requests per minute.
  *
  * FAIL-OPEN: a missing KV binding or a KV error never blocks a run. The per-IP
  * cap and the monthly governor stay behind it.

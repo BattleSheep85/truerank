@@ -317,6 +317,10 @@ export function runSafetyTests() {
     'make an espresso at home',
     'best bath bomb maker',
     'best blender to make smoothies',
+    'best plyo box to build explosive power',
+    'shoes for building explosive speed',
+    'resistance bands to build explosive strength',
+    'best bluetooth speaker making explosive bass',
   ];
   for (const q of cp808Allowed) {
     eq(`CP-808 allow: "${q}"`, screenQuery(q).blocked, false);

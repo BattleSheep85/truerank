@@ -4,7 +4,7 @@ import { env } from 'cloudflare:test';
 import { beforeAll, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import { handleGetReport, handleFeedback } from '../../worker/handlers/report.js';
-import { checkRateLimit } from '../../worker/lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from '../../worker/lib/rate-limit.js';
 import { generateId, insertResearch, updateResearchStatus } from '../../worker/lib/db.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
@@ -106,7 +106,7 @@ describe('handleFeedback', () => {
   it('returns 429 + Retry-After when feedback rate limit (20/hr) is exceeded', async () => {
     const ip = '203.0.113.80';
     for (let i = 0; i < 20; i++) {
-      await checkRateLimit(env.KV, `feedback:${ip}`, 20, 3600, env.DB);
+      await checkRateLimit(env.KV, await ipRateKey('feedback', ip, env), 20, 3600, env.DB);
     }
     const r = new Request('https://x/api/feedback', {
       method: 'POST',

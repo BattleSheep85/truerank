@@ -113,3 +113,20 @@ describe('cron prunes rate-limit hits (CP-808)', () => {
     expect(left.n).toBe(0);
   });
 });
+
+describe('no raw IP in the D1 window (CP-808 review)', () => {
+  it('feedback stores a hashed key', async () => {
+    const { SELF } = await import('cloudflare:test');
+    const ip = '203.0.113.211';
+    const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM rate_limit_hits WHERE bucket LIKE 'ratelimit:feedback:%'").first();
+    await SELF.fetch('https://chrisputer.tech/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip },
+      body: JSON.stringify({ reportId: 'nope', rating: 5 }),
+    });
+    const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM rate_limit_hits WHERE bucket LIKE 'ratelimit:feedback:%'").first();
+    expect(after.n).toBe(before.n + 1);
+    const raw = await env.DB.prepare('SELECT COUNT(*) AS n FROM rate_limit_hits WHERE bucket LIKE ?1').bind(`%${ip}%`).first();
+    expect(raw.n).toBe(0);
+  });
+});

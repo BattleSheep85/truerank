@@ -5,7 +5,7 @@ import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeAll, describe, it, expect, vi } from 'vitest';
 import { applySchema } from './_schema.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
-import { checkRateLimit } from '../../worker/lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from '../../worker/lib/rate-limit.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
 const BASE = 'https://chrisputer.tech';
@@ -160,7 +160,7 @@ describe('index.js routing', () => {
     const network = vi.fn(async () => { throw new Error('no network in tests'); });
     vi.stubGlobal('fetch', network);
     for (let i = 0; i < 60; i++) {
-      await checkRateLimit(env.KV, `classify:${ip}`, 60, 3600, env.DB);
+      await checkRateLimit(env.KV, await ipRateKey('classify', ip, env), 60, 3600, env.DB);
     }
     const res = await SELF.fetch(`${BASE}/api/classify`, {
       method: 'POST',

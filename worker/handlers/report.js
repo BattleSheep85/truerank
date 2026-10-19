@@ -7,7 +7,7 @@
 import { getResearchById, getResearchBySlug, getProductsByResearchId, insertFeedback } from '../lib/db.js';
 import { parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
 import { apiStatus } from '../lib/status.js';
-import { checkRateLimit } from '../lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 
 // Saved sources keep a ~200-character snippet each (CP-408), about 20 KB or
@@ -76,7 +76,8 @@ function sourcesForApi(sources, includeSnippets) {
  */
 export async function handleFeedback(request, env) {
     const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const rateKey = `feedback:${clientIp}`;
+    // Salted IP hash: the key is stored in D1 (CP-808).
+    const rateKey = await ipRateKey('feedback', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
         ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
