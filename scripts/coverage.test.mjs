@@ -32,6 +32,8 @@ import { runListableTests } from '../test/unit/listable.test.js';
 import { runGroundingCheckTests } from '../benchmarks/tests/grounding-check.test.mjs';
 import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
+import { runSafetyTests } from '../test/unit/safety.test.js';
+import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
 
 const suites = [
   ['credibility', runCredibilityTests],
@@ -58,6 +60,8 @@ const suites = [
   ['subscribe-flow', runSubscribeFlowTests],
   ['listable', runListableTests],
   ['grounding-check', runGroundingCheckTests],
+  ['safety', runSafetyTests],
+  ['critical-excerpts', runCriticalExcerptsTests],
 ];
 
 for (const [name, fn] of suites) {
