@@ -708,6 +708,8 @@ export async function runVerifyDefectTests({ eq, ok, report }) {
     eq(`${d2}: a maker subdomain is the maker's page`, ownPageKind('https://us.soundcore.com/products/liberty-4-nc-a3947z11', product), 'maker');
     eq(`${d2}: a retailer on a country domain is a retailer page`, ownPageKind('https://www.amazon.co.uk/dp/B0C6KKQ7ND', product), 'retailer');
     eq(`${d2}: a review site is neither`, ownPageKind('https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', product), null);
+    // CP-370 put etsy.com in the manufacturer list; a marketplace listing is a seller's page, not the maker's.
+    eq(`${d2}: an Etsy listing is a retailer page`, ownPageKind('https://www.etsy.com/listing/1043833373/liberty-4-nc-case', product), 'retailer');
 
     const found = [
       { url: 'https://www.rtings.com/headphones/reviews/anker/soundcore-liberty-4-nc', title: 'Anker Soundcore Liberty 4 NC Review' },

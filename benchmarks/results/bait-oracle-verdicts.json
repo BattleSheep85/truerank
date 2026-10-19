@@ -1,0 +1,889 @@
+{
+ "oracle": "x-ai/grok-4.5",
+ "cost": 0.127902456,
+ "oracleFail": 0,
+ "results": [
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.youtube.com/watch?v=ICPtW85nPwQ",
+    "title": "These May Now Be The Best Value In Wireless Earbuds!",
+    "content": "[Jan 16, 2026]\nBuy Them here: https://amzn.to/47l0D09 For business inquiries email me : keith@officialgamesky.com Find Me Here Twitter: OfficialGamesky ...\n\n[description]\nBuy Them here: https://amzn.to/47l0D09\n\nFor business inquiries email me : keith@officialgamesky.com\n\nFind Me Here\nTwitter: OfficialGamesky\n\n**DISCLOSURE**\n\nThis post may contain affiliate links.\n#EarFun #AirPro4Plus #TrueWireless",
+    "source": "video",
+    "publishedAt": 1768543200,
+    "credibility": {
+     "tags": [
+      "affiliate-conflict"
+     ],
+     "score": 5,
+     "reasons": [
+      "contains affiliate-tracked outbound links"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.001669536,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Affiliate Amazon links with hype title; thinly-disguised monetization promo"
+   }
+  },
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.scarbir.com/guide/best-earbuds-for-small-ears",
+    "title": "Best Budget Wireless Earbuds for Small Ears - June 2026",
+    "content": "The Best Cheap Wireless Earbuds for Small Ears - June 2026 The top 5 best compact earbuds BUYING GUIDE - Do most wireless earbuds fall out of your ears, or don't they fit all? No worries, there are plenty of good compact earphones.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [
+      "listicle"
+     ],
+     "score": 20,
+     "reasons": [
+      "top-N listicle title/structure"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002495196,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Low-effort top-5 SEO buying-guide listicle with dated hype"
+   }
+  },
+  {
+   "src": {
+    "query": "best self-hosted photo backup software",
+    "url": "https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html",
+    "title": "Data hoarders, here are the best free Docker containers to help you ...",
+    "content": "Title: Data hoarders, here are the best free Docker containers to help you access, store and organise every type of media\n\nURL Source: https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html\n\nPublished Time: 2025-10-27T16:36:00+01:00\n\nMarkdown Content:\n[![Image 1: Notebookcheck Logo](https://www.notebookcheck.net/fileadmin/templates/nbc_v5/images/logo_alone_header.svg)![Image 2: Notebookcheck Logo](https://www.notebookcheck.net/fileadmin/templates/nbc_v5/images/logo_simplified_unicolor_t.svg)](https://www.notebookcheck.net/ \"Notebookcheck Home\")\n\n[![Image 3: dark mode](https://www.notebookcheck.net/fileadmin/templates/images/moon-filled.svg)](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#)[![Image 4: light mode](https://www.notebookcheck.net/fileadmin/templates/images/sun-filled.svg)](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#)\n\n[▼![Image 5: US Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/us.svg)](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#footer)\n\n*   [Reviews](https://www.notebookcheck.net/Reviews.55.0.html)\n*   [News](https://www.notebookcheck.net/News.152.0.html)\n*   [Videos](https://www.notebookcheck.net/Videos.1174615.0.html)\n*   [Benchmarks / Tech](https://www.notebookcheck.net/Benchmarks-Tech.123.0.html)\n*   [Buyers Guide](https://www.notebookcheck.net/Laptop-Buying-Guide-Tool.13212.0.html)\n*   [Magazine](https://www.notebookcheck.net/Magazine.614549.0.html)\n*   [Library](https://www.notebookcheck.net/Library.279.0.html)\n*   [Search](https://www.notebookcheck.net/Search.8222.0.html)\n*   [Jobs](https://www.notebookcheck.net/Jobs.2095.0.html)\n*   [...](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#)\n\n*   [![Image 6: DE Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/de.svg) Deutsch](https://www.notebookcheck.com/)\n*   [![Image 7: US Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/us.svg) English](https://www.notebookcheck.net/)\n*   [![Image 8: ES Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/es.svg) Español](https://www.notebookcheck.org/)\n*   [![Image 9: FR Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/fr.svg) Français](https://www.notebookcheck.biz/)\n*   [![Image 10: IT Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/it.svg) Italiano](https://www.notebookcheck.it/)\n*   [![Image 11: NL Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/nl.svg) Nederlands](https://www.notebookcheck.nl/)\n*   [![Image 12: PL Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/pl.svg) Polski](https://www.notebookcheck.pl/)\n*   [![Image 13: PT Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/pt.svg) Português](https://www.notebookcheck.info/)\n*   [![Image 14: RU Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/ru.svg) Русский](https://www.notebookcheck-ru.com/)\n*   [![Image 15: TR Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/tr.svg) Türkçe](https://www.notebookcheck-tr.com/)\n*   [![Image 16: SE Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/se.svg) Svenska](https://www.notebookcheck.se/)\n*   [![Image 17: CN Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/cn.svg) Chinese](https://www.notebookcheck-cn.com/)\n*   [![Image 18: HU Flag](https://www.notebookcheck.net/fileadmin/templates/images/svg_flags/hu.svg) Magyar](https://www.notebookcheck-hu.com/)\n\n# CheckMag | Data hoarders, here are the best free Docker containers to help you access, store and organise every type of media\n\n[![Image 19: Regardless of media type, there are docker containers to help you self-host and manage almost every type of media, all accessible from any device through a browser. (Image Source: Notebookcheck)](https://www.notebookcheck.net/fileadmin/_processed_/4/b/csm_MediaDockersTeaser27-10-2570_c4bfcc426a.png)](https://www.notebookcheck.net/fileadmin/Notebooks/News/_nc5/MediaDockersTeaser27-10-2570.png \"Regardless of media type, there are docker containers to help you self-host and manage almost every type of media, all accessible from any device through a browser. (Image Source: Notebookcheck)\")\n\nRegardless of media type, there are docker containers to help you self-host and manage almost every type of media, all accessible from any device through a browser. (Image Source: Notebookcheck)\n\nIf you are looking to step away from subscription services, reduce reliance on big tech, or simply have fun while learning, self-hosting is a great way to make your media collections available across all of your devices while keeping data under your control. Here are the best containers for managing almost every type of media.\n\n[David Devey](https://www.notebookcheck.net/Notebookcheck-Team.212978.0.html?tx_nbc2journalist_pi1%5Bmode%5D=show&tx_nbc2journalist_pi1%5Buid%5D=351&cHash=a3fb80f2145f60e1ffb0219c937c54cc)👁, Published 10/27/2025[🇪🇸](https://www.notebookcheck.org/Acaparadores-de-datos-he-aqui-los-mejores-contenedores-Docker-gratuitos-que-le-ayudaran-a-acceder-almacenar-y-organizar-todo-tipo-de-soportes.1148311.0.html)[🇵🇹](https://www.notebookcheck.info/Acumuladores-de-dados-aqui-estao-os-melhores-conteineres-Docker-gratuitos-para-ajuda-lo-a-acessar-armazenar-e-organizar-todos-os-tipos-de-midia.1148347.0.html)[...](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#)[🇮🇹](https://www.notebookcheck.it/Accumulatori-di-dati-ecco-i-migliori-contenitori-Docker-gratuiti-per-aiutarla-ad-accedere-archiviare-e-organizzare-ogni-tipo-di-media.1148383.0.html)[🇳🇱](https://www.notebookcheck.nl/Gegevensverzamelaars-hier-zijn-de-beste-gratis-Docker-containers-om-u-te-helpen-elk-type-media-te-openen-op-te-slaan-en-te-organiseren.1148419.0.html)[🇫🇷](https://www.notebookcheck.biz/Accumulateurs-de-donnees-voici-les-meilleurs-conteneurs-Docker-gratuits-pour-vous-aider-a-acceder-stocker-et-organiser-tous-les-types-de-medias.1148455.0.html)[🇵🇱](https://www.notebookcheck.pl/Zbieracze-danych-oto-najlepsze-darmowe-kontenery-Docker-ktore-pomoga-Panstwu-uzyskac-dostep-przechowywac-i-organizowac-kazdy-rodzaj-mediow.1148491.0.html)[🇷🇺](https://www.notebookcheck-ru.com/KHraniteli-dannykh-vot-luchshie-besplatnye-konteinery-Docker-kotorye-pomogut-Vam-poluchit-dostup-khranit-i-uporjadochivat-ljubye-tipy-mediafailov.1148527.0.html)[🇭🇺](https://www.notebookcheck-hu.com/Adatgyujtok-ime-a-legjobb-ingyenes-Docker-kontenerek-amelyek-segitsegevel-minden-tipusu-mediahoz-hozzaferhet-tarolhat-es-rendszerezhet.1148563.0.html)[🇨🇳](https://www.notebookcheck-cn.com/Docker.1148600.0.html)[🇸🇪](https://www.notebookcheck.se/Datahamstrare-haer-aer-de-baesta-gratis-Docker-containrarna-som-hjaelper-dig-att-komma-aat-lagra-och-organisera-alla-typer-av-media.1148636.0.html)\n\n[DIY](https://www.notebookcheck.net/Topics.92152.0.html?tag=237)[NAS](https://www.notebookcheck.net/Topics.92152.0.html?tag=269)[Open Source](https://www.notebookcheck.net/Topics.92152.0.html?tag=255)[Software](https://www.notebookcheck.net/Topics.92152.0.html?tag=77)\n\nloading ...\n\n4\n\n- [x]  Reviews \n\n← - [x] exclude selected types \n\n← - [x] exclude selected tags \n\n[![Image 20: Oppo Pad Mini Review ](https://www.notebookcheck.net/fileadmin/_processed_/d/8/csm_Oppo_Pad_Mini_review_6_bac90b88ba.jpg)](https://www.notebookcheck.net/Ultra-light-OLED-tablet-is-miles-ahead-of-the-competition-Oppo-Pad-Mini-Review.1325870.0.html)\n\n90%[Ultra-light OLED tablet is miles ahead of the competition - Oppo Pad Mini Review](https://www.notebookcheck.net/Ultra-light-OLED-tablet-is-miles-ahead-of-the-competition-Oppo-Pad-Mini-Review.1325870.0.html)\n\n[![Image 21: Aulumu G05 Pro multi-function magnetic phone stand.](https://www.notebookcheck.net/fileadmin/_processed_/7/c/csm_Aulumu-G05-Pro-stand-Teaser-_246bc94654.jpg)](https://www.notebookcheck.net/Aulumu-G05-Pro-hands-on-review-Multi-tool-MagSafe-phone-stand-for-everyday-carry.1326159.0.html)\n\n[Aulumu G05 Pro hands-on review: Multi-tool MagSafe phone stand for everyday carry](https://www.notebookcheck.net/Aulumu-G05-Pro-hands-on-review-Multi-tool-MagSafe-phone-stand-for-everyday-carry.1326159.0.html)\n\n[![Image 22: Sihoo Doro C300 Pro V2 Review](https://www.notebookcheck.net/fileadmin/_processed_/d/8/csm_Sihoo-doro-C300-Pro-V2-Test_6358c2e7e8.jpg)](https://www.notebookcheck.net/Even-more-ergonomic-and-comfortable-The-Sihoo-Doro-C300-Pro-V2-office-chair-put-to-the-test.1325631.0.html)\n\n[Even more ergonomic and comfortable: The Sihoo Doro C300 Pro V2 office chair put to the test](https://www.notebookcheck.net/Even-more-ergonomic-and-comfortable-The-Sihoo-Doro-C300-Pro-V2-office-chair-put-to-the-test.1325631.0.html)\n\n[![Image 23: The translation headphones make it easy to translate conversations.](https://www.notebookcheck.net/fileadmin/_processed_/f/f/csm_iFLYTEK_AI_Translation_Earbuds_45707dcd73.jpg)](https://www.notebookcheck.net/IFLYTEK-AI-Translation-Earbuds-Real-time-translation-headphones.1325176.0.html)\n\n[IFLYTEK AI Translation Earbuds: Real-time translation headphones](https://www.notebookcheck.net/IFLYTEK-AI-Translation-Earbuds-Real-time-translation-headphones.1325176.0.html)\n\n[Next Page ⟩](https://www.notebookcheck.net/Data-hoarders-here-are-the-best-free-Docker-containers-to-help-you-access-store-and-organise-every-type-of-media.1147703.0.html#)\n\nWhether you run an off the shelf [NAS](https://www.notebookcheck.net/Ugreen-Budget-friendly-2-bay-NAS-supports-60TB-of-storage-and-AI-features.1139092.0.html), or [build your own](https://www.notebookcheck.net/Pre-built-or-DIY-NAS-price-comparison-Is-it-really-better-to-buy-from-QNAP-Synology-or-another-big-brand.850739.0.html), Docker can be installed on almost anything, and will allow you to build libraries of media that can be accessed from any web browser connected to your home network. Here are some of the best free containers to help you get started with the most common types of media.\n\n### Immich\n\n[![Image 24: Immich is the premiere solution for those who enjoy the features offered by Google Photos, while still keeping all your data under your control (Image Source: Notebookcheck)](https://www.notebookcheck.net/fileadmin/_processed_/8/2/csm_Immich27-10-25_ff6adbadcd.png)](https://www.notebookcheck.net/fileadmin/Notebooks/News/_nc5/Immich27-10-25.png \"Immich is the premiere solution for those who enjoy the features offered by Google Photos, while still keeping all your data under your control (Image Source: Notebookcheck)\")\n\nImmich is the premiere solution for those who enjoy the features offered by Google Photos, while still keeping all your data under your control (Image Source: Notebookcheck)\n\n[Immich](https://www.notebookcheck.net/Ditch-Google-Photos-and-embrace-Immich-Here-s-why-there-is-so-much-hype-around-hosting-your-own-photo-backup-solution.833862.0.html) is one of those pieces of software that is so good, it has no right being free. Unlike 'free' [where you become the product](https://medium.com/change-your-mind/if-you-are-not-paying-for-the-product-you-are-the-product-4dbc15b9a3f2), Immich mimic's Google Photos but is completely self-hosted.\n\nIn addition to the native [iOS](https://apps.apple.com/us/app/immich/id1613945652) and [Android](https://play.google.com/store/apps/details?id=app.alextran.immich&hl=en&pli=1) apps, which will let you automatically back up your phone camera roll every time you connect to your home Wi-Fi, as well as browse your photo library, Immich automatically organises all your photos and videos into a timeline, and plots where they were taken onto an interactive map.\n\nPictures can still be uploaded through the web interface (for those that still use a digital camera), and automated facial recognition and keyword searching help you find specific photos in what will likely be a massive library. There is even an [Andoid TV app](https://www.notebookcheck.net/3-free-ways-to-turn-your-Android-TV-or-tablet-into-a-digital-photo-frame-without-Google-Photos.1083592.0.html) where you can set your Immich library as a screensaver.\n\nWhile Immich is completely free, with no feature limitations, I find the $25 for a single user lifetime purchase well worth the price for supporting the project.\n\n### Navidrome\n\n[![Image 25: Navidrome is a great self-hosted player, but does not give you the ability to manage your library. For that, you will need MusicBrainz Picard (Image Source: Notebookcheck)](https://www.notebookcheck.net/fileadmin/_processed_/7/4/csm_Navidrome-27-10-25_46dc4a42e3.png)](https://www.notebookcheck.net/fileadmin/Notebooks/News/_nc5/Navidrome-27-10-25.png \"Navidrome is a great self-hosted player, but does not give you the ability to manage your library. For that, you will need MusicBrainz Picard (Image Source: Notebookcheck)\")\n\nNavidrome is a great self-hosted player, but does not give you the ability to manage your library. For that, you will need MusicBrainz Picard (Image Source: Notebookcheck)\n\n[Navidrome](https://www.navidrome.org/) is a web based music player and browser. It supports most features you'd expect from an MP3 player, including favourites, playlists, ratings, album art and randomization. It also supports curating online radio stations.\n\nNavidrome is not a library management tool. There is no way to edit the metadata of individual files, it will only organise a collection into albums and artists, unlike iTunes on Mac or Rhythmbox on Linux. Therefore, Navidrome does require your library to be correctly tagged.\n\nIf you want to modify the metadata and manage your library, you can also self-host [MusicBrainz Picard](https://picard.musicbrainz.org/) and have it access and edit the same files, giving you a pleasant cross-platform listening experience, as well as the ability to manage your library.\n\nloading ...\n\n4\n\n- [x]  News \n\n← - [x] exclude selected types \n\n← - [x] exclude selected tags \n\n[![Image 26: The Pocket Micro 2 has a new button on the left side.](https://www.notebookcheck.net/fileadmin/_processed_/9/3/csm_Ayaneo-Pocket-Micro-2-side-view-featured_512c358568.jpg)](https://www.notebookcheck.net/Latest-Ayaneo-Pocket-Micro-2-teaser-reveals-upgraded-thumbsticks-and-ergonomic-design.1326614.0.html)\n\n[Latest Ayaneo Pocket Micro 2 teaser reveals upgraded thumbsticks and ergonomic design](https://www.notebookcheck.net/Latest-A",
+    "source": "web",
+    "publishedAt": 1761541200,
+    "credibility": {
+     "tags": [
+      "hands-on",
+      "expert-domain"
+     ],
+     "score": 90,
+     "reasons": [
+      "hands-on testing language detected",
+      "established review outlet"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004102956,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Clickbait 'best free' SEO listicle title with thin excerpt"
+   }
+  },
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.reddit.com/r/Earbuds/comments/1pgiyr1/best_bluetooth_earbuds_under_100/",
+    "title": "Best bluetooth earbuds under $100? - Reddit",
+    "content": "Title: \n\nURL Source: https://www.reddit.com/r/Earbuds/comments/1pgiyr1/best_bluetooth_earbuds_under_100/\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n![Image 1](blob:http://localhost/7c466567fbe25390de55d6f3b6eed7c5)\n\nYou've been blocked by network security.\n\nTo continue, log in to your Reddit account or use your developer token\n\nIf you think you've been blocked by mistake, file a ticket below and we'll look into it.\n\n[Log in](https://www.reddit.com/login/)[File a ticket](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140)\n",
+    "source": "web",
+    "publishedAt": 1765087200,
+    "credibility": {
+     "tags": [
+      "community"
+     ],
+     "score": 55,
+     "reasons": [
+      "community discussion source"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003049596,
+    "bait": false,
+    "category": "none",
+    "reason": "Reddit community question thread; genuine discussion despite access block"
+   }
+  },
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds",
+    "title": "The best noise-cancelling earbuds for all budgets, tested by experts",
+    "content": "Title: The best noise-cancelling earbuds for all budgets, tested by experts | TechRadar\n\nURL Source: https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds\n\nPublished Time: 2025-09-30T15:56:59Z\n\nMarkdown Content:\n[Skip to main content](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds#main)\n\n![Image 2](https://cdn.mos.cms.futurecdn.net/flexiimages/zdve3chhhn1770884186.jpg)\n\n![Image 3](https://cdn.mos.cms.futurecdn.net/flexiimages/ay9ub1r1gc1775132364.svg)Become a TechRadar Insider\n\n- Join our community\n\nJOIN NOW\n\n5\n\nExclusive perks\n\n24/7\n\nInsider insights\n\n44K+\n\nActive Members\n\n![Image 4](https://cdn.mos.cms.futurecdn.net/flexiimages/dguzmo7zgs1770884431.svg)\n\nWeekly newsletters\n\nGet daily news, weekly deals and the week’s top tech stories\n\n![Image 5](https://cdn.mos.cms.futurecdn.net/flexiimages/bmmrou9qte1770884450.svg)\n\nCommenting access\n\nJoin the conversation, share your thoughts and get expert advice\n\n![Image 6](https://cdn.mos.cms.futurecdn.net/flexiimages/qt8r3iglph1770885239.svg)\n\nMember badges\n\nEarn badges as you explore news, deals, reviews, guides and more\n\n![Image 7](https://cdn.mos.cms.futurecdn.net/flexiimages/a5se7egktb1770885207.svg)\n\nExclusive deals\n\nSave on gadgets, subscriptions and accessories with handpicked discounts\n\nBecome a TechRadar Insider\n\nSign up with your email below to instantly access member features, newsletters and exclusive Insider perks\n\n- [x]  Contact me with news and offers from other Future brands  \n\n By submitting your information you agree to the [Terms & Conditions](https://futureplc.com/future-member-terms-and-conditions/) and [Privacy Policy](https://futureplc.com/privacy-policy/) and are aged 16 or over. \n\nFIND OUT ABOUT OUR MAGAZINE\n\nWant to subscribe to the magazine? Click the button below to find out more information.\n\n[Find out more](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)\n\n Become a TechRadar Insider now \n\nSign up with your email below to instantly access member features, newsletters and exclusive Insider perks\n\n- [x]  Contact me with news and offers from other Future brands   Sign Up \nBy submitting your information, you confirm you are aged 16 or over, have read our [Privacy Policy](https://futureplc.com/privacy-policy/) and agree to the [Terms & Conditions](https://futureplc.com/future-member-terms-and-conditions/). Geographical rules apply.\n\n![Image 8: Background](https://cdn.mos.cms.futurecdn.net/flexiimages/h0mke6edxz1770889266.jpg)\n\nWelcome to Tech Radar club ! \n\nHi, \n\nYour membership journey starts here.\n\nKeep exploring and earning more as a member.\n\n[MY ACCOUNT](https://www.techradar.com/my-account)\n\n* * *\n\n![Image 9: Badge picture](https://cdn.mos.cms.futurecdn.net/flexiimages/2lfo9jmvho1765179166.svg)\n\n Earn your first badge \n\n Start reading to unlock your first badge \n\n Keep earning badges \n\n Explore ways to get more involved as a member. \n\n![Image 10: Latest in phones](https://cdn.mos.cms.futurecdn.net/flexiimages/vbtd3vndqp1770887431.svg)\n\nLatest in phones\n\nNews, deals, reviews, guides and more…\n\n[Start reading](https://www.techradar.com/phones)\n\n![Image 11: Latest in computing](https://cdn.mos.cms.futurecdn.net/flexiimages/cegtrmmdzd1770887455.svg)\n\nLatest in computing\n\nNews, deals, reviews, guides and more on the newest computing gadgets\n\n[Start reading](https://www.techradar.com/computing)\n\n* * *\n\n Your membership perks \n\nStart exploring exclusive deals, expert advice and more\n\n[Explore now](https://www.techradar.com/membership)\n\nMember Rewards\n\nUnlock and manage exclusive Techradar member rewards.\n\n[See rewards](https://www.techradar.com/my-account/rewards)\n\n* * *\n\n[Sign Out](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)\n\nOpen menu\n\n[![Image 12: TechRadar](https://www.techradar.com/media/img/techradar_logo_v2.svg)TechRadar the technology experts](https://www.techradar.com/)\n\nUS Edition![Image 13: US Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/US.svg)\n\nAsia \n\n[![Image 14: SG Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/SG.svg)Singapore](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)\n\nEurope \n\n[![Image 15: DK Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/DK.svg)Danmark](https://global.techradar.com/da-dk)[![Image 16: FI Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/FI.svg)Suomi](https://global.techradar.com/fi-fi)[![Image 17: NO Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/NO.svg)Norge](https://global.techradar.com/no-no)[![Image 18: SE Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/SE.svg)Sverige](https://global.techradar.com/sv-se/audio/earbuds-airpods/basta-brusreducerande-earbuds)[![Image 19: UK Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/GB.svg)UK](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)[![Image 20: IT Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/IT.svg)Italia](https://global.techradar.com/it-it)[![Image 21: NL Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/NL.svg)Nederland](https://global.techradar.com/nl-nl/best/beste-noise-cancelling-oordopjes)[![Image 22: BE (NL) Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/BE.svg)België (Nederlands)](https://global.techradar.com/nl-be/best/beste-noise-cancelling-oordopjes)[![Image 23: FR Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/FR.svg)France](https://global.techradar.com/fr-fr)[![Image 24: DE Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/DE.svg)Deutschland](https://global.techradar.com/de-de)[![Image 25: ES Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/ES.svg)España](https://global.techradar.com/es-es)\n\nNorth America \n\n[![Image 26: US Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/US.svg)US (English)](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)[![Image 27: CA Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/CA.svg)Canada](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)[![Image 28: MX Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/MX.svg)México](https://global.techradar.com/es-mx)\n\nAustralasia \n\n[![Image 29: AU Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/AU.svg)Australia](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)[![Image 30: NZ Edition](https://vanilla.futurecdn.net/techradar/media/shared/img/flags/nosize/NZ.svg)New Zealand](https://www.techradar.com/audio/earbuds-airpods/best-noise-cancelling-earbuds)\n\n[](https://www.facebook.com/TechRadar)[](https://twitter.com/intent/user?screen_name=techradar)[](https://www.youtube.com/user/techradar?sub_confirmation=1)[](https://flipboard.com/@TechRadar)[RSS](https://www.techradar.com/how-to/techradar-rss)\n\nSign in\n\n*   View Profile\n*   Sign out\n\n- [x] Search Search TechRadar \n\n*   [Phones](https://www.techradar.com/phones)\n    *    Popular Phone Brands \n        *   [iPhone](https://www.techradar.com/phones/iphone)\n        *   [Samsung Galaxy](https://www.techradar.com/phones/samsung-galaxy-phones)\n        *   [Google Pixel](https://www.techradar.com/phones/google-pixel-phones)\n        *   [Nothing](https://www.techradar.com/phones/nothing-phones)\n        *   [Motorola](https://www.techradar.com/phones/motorola-phones)\n        *   [OnePlus](https://www.techradar.com/phones/oneplus-phones)\n        *   [Xiaomi](https://www.techradar.com/phones/xiaomi-phones)\n        *   [Honor](https://www.techradar.com/phones/honor-phones)\n        *   [Oppo](https://www.techradar.com/phones/oppo-phones)\n        *   [Huawei](https://www.techradar.com/phones/huawei-phones)\n\n    *    Operating Systems \n        *   [Android](https://www.techradar.com/phones/android)\n        *   [iOS](https://www.techradar.com/phones/ios)\n\n    *    More from Phones \n        *   [Network Carriers](https://www.techradar.com/phones/network-providers)\n        *   [Phone Accessories](https://www.techradar.com/phones/phone-accessories)\n        *   [Phone Reviews](https://www.techradar.com/phones/reviews)\n        *   [Phone Buying Guides](https://www.techradar.com/phones/best)\n        *   [Phone Deals](https://www.techradar.com/phones/deals)\n        *   [Phone Coupons](https://www.techradar.com/coupons/category/mobile-cell-phones)\n        *   [Phone News](https://www.techradar.com/phones/news)\n\n*   [Computing](https://www.techradar.com/computing)\n    *   [Laptops](https://www.techradar.com/computing/laptops)\n        *   [Chromebooks](https://www.techradar.com/computing/laptops/chromebooks)\n        *   [MacBooks](https://www.techradar.com/computing/laptops/macbooks)\n        *   [Windows Laptops](https://www.techradar.com/computing/laptops/windows-laptops)\n        *   [Gaming Laptops](https://www.techradar.com/computing/gaming-computers/gaming-laptops)\n\n    *    PCs \n        *   [Desktop PCs](https://www.techradar.com/computing/desktop-pcs)\n        *   [Macs](https://www.techradar.com/computing/desktop-pcs/macs)\n        *   [Gaming PCs](https://www.techradar.com/computing/gaming-computers/gaming-pcs)\n\n    *   [Software & Security](https://www.techradar.com/computing/software)\n        *   [Windows](https://www.techradar.com/computing/software/windows)\n        *   [macOS](https://www.techradar.com/computing/software/mac-os)\n        *   [Windows 10 End of Life](https://www.techradar.com/computing/windows-10-end-of-life)\n        *   [Antivirus](https://www.techradar.com/computing/computing-security/antivirus)\n        *   [Cyber Security](https://www.techradar.com/computing/computing-security/cyber-security)\n\n    *   [Components](https://www.techradar.com/computing/computing-components)\n        *   [CPUs](https://www.techradar.com/computing/computing-components/cpu)\n        *   [GPUs](https://www.techradar.com/computing/computing-components/gpu)\n        *   [Storage](https://www.techradar.com/computing/computing-components/storage-backup)\n        *   [Nvidia](https://www.techradar.com/tag/nvidia)\n        *   [Intel](https://www.techradar.com/tag/intel)\n\n    *   [Internet](https://www.techradar.com/computing/internet)\n        *   [Websites & Apps](https://www.techradar.com/computing/internet/websites-apps)\n        *   [Wi-Fi & Broadband](https://www.techradar.com/computing/internet/wi-fi-broadband)\n        *   [Social Media](https://www.techradar.com/computing/internet/social-media)\n        *   [Wordle](https://www.techradar.com/news/wordle-today)\n\n    *   [Tablets](https://www.techradar.com/tablets)\n        *   [eReaders](https://www.techradar.com/tablets/ereaders)\n        *   [iPad](https://www.techradar.com/tablets/ipad)\n\n    *   [VR & AR](https://www.techradar.com/computing/software/virtual-reality-augmented-reality)\n    *   [Peripherals](https://www.techradar.com/computing/peripherals-accessories)\n        *   [Monitors](https://www.techradar.com/computing/peripherals-accessories/monitors)\n        *   [Keyboards](https://www.techradar.com/computing/peripherals-accessories/keyboards)\n        *   [Webcams](https://www.techradar.com/computing/peripherals-accessories/webcams)\n        *   [Mice](https://www.techradar.com/computing/peripherals-accessories/mice)\n\n    *    Popular Computing Brands \n        *   [Dell](https://www.techradar.com/tag/dell)\n        *   [HP](https://www.techradar.com/tag/hp)\n        *   [Lenovo](https://www.techradar.com/tag/lenovo)\n        *   [Acer](https://www.techradar.com/tag/acer)\n\n    *    More from Computing \n        *   [Computing Reviews](https://www.techradar.com/computing/reviews)\n        *   [Computing Buying Guides](https://www.techradar.com/computing/best)\n        *   [Computing Deals](https://www.techradar.com/computing/deals)\n        *   [Computing Coupons](https://www.techradar.com/coupons/category/computing)\n        *   [Computing News](https://www.techradar.com/computing/news)\n\n*   [AI](https://www.techradar.com/tag/ai)\n    *   [AI Platforms & Assistants](https://www.techradar.com/ai-platforms-assistants)\n    *   [OpenAI](https://www.techradar.com/ai-platforms-assistants/openai)\n    *   [ChatGPT](https://www.techradar.com/ai-platforms-assistants/openai/chatgpt)\n    *   [Gemini](https://www.techradar.com/ai-platforms-assistants/gemini)\n    *   [Apple Intelligence](https://www.techradar.com/ai-platforms-assistants/apple-intelligence)\n    *   [Claude](https://www.techradar.com/ai-platforms-assistants/claude)\n\n*   [TVs](https://www.techradar.com/televisions)\n    *    TV Insights \n        *   [TV Reviews](https://www.techradar.com/televisions/reviews)\n        *   [TV Buying Guides](https://www.techradar.com/televisions/best)\n        *   [TV Deals](https://www.techradar.com/televisions/deals)\n        *   [TV News](https://www.techradar.com/televisions/news)\n        *   [TVs & home theater coupons](https://www.techradar.com/coupons/category/televisions)\n\n    *    More for your TV \n        *   [Home Theatre](https://www.techradar.com/televisions/home-theater)\n        *   [Soundbars](https://www.techradar.com/televisions/soundbars)\n        *   [Streaming Devices](https://www.techradar.com/televisions/streaming-devices)\n        *   [Projectors](https://www.techradar.com/televisions/home-theater/projectors)\n        *   [Blu-ray](https://www.techradar.com/televisions/home-theater/blu-ray)\n\n*   [Streaming](https://www.techradar.com/streaming)\n    *   [Entertainment](https://www.techradar.com/streaming/entertainment)\n    *   [Netflix](https://www.techradar.com/streaming/netflix)\n    *   [Prime Video](https://www.techradar.com/streaming/amazon-prime-video)\n    *   [Disney+](https://www.techradar.com/streaming/disney-plus)\n    *   [Apple TV](https://www.techradar.com/streaming/apple-tv-plus)\n    *   [HBO Max](https://www.techradar.com/streaming/hbo-max)\n    *   [Hulu](https://www.techradar.com/streaming/hulu)\n    *   [Paramount+](https://www.techradar.com/streaming/paramount-plus)\n    *   [How to Watch](https://www.techradar.com/how-to-watch)\n    *   [Streaming coupons](https://www.techradar.com/coupons/category/tv-subscription-services)\n\n*   [Fitness](https://www.techradar.com/health-fitness)\n    *    Fitness \n        *   [Smartwatches](https://www.techradar.com/health-fitness/smartwatches)\n        *   [Fitness Trackers](https://www.techradar.com/health-fitness/fitness-trackers)\n        *   [Exercise Equipment](https://www.techradar.com/health-fitness/exercise-equipment)\n        *   [Fitness Headphones](https://www.techradar.com/health-fitness/fitness-headphones)\n        *   [Fitness Apps](https://www.techradar.com/health-fitness/fitness-apps)",
+    "source": "web",
+    "publishedAt": 1777266000,
+    "credibility": {
+     "tags": [
+      "expert-domain"
+     ],
+     "score": 65,
+     "reasons": [
+      "established review outlet"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.005546376,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Classic SEO 'best of' roundup listicle with affiliate commercial intent"
+   }
+  },
+  {
+   "src": {
+    "query": "best self-hosted photo backup software",
+    "url": "https://www.reddit.com/r/macapps/comments/1rsf44t/os_i_made_a_free_opensource_screen_studio/",
+    "title": "[OS] I made a free, open-source Screen Studio alternative that adds auto-zoom, cursor animations and more to your videos",
+    "content": "Title: \n\nURL Source: https://www.reddit.com/r/macapps/comments/1rsf44t/os_i_made_a_free_opensource_screen_studio/\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n![Image 1](blob:http://localhost/7c466567fbe25390de55d6f3b6eed7c5)\n\nYou've been blocked by network security.\n\nTo continue, log in to your Reddit account or use your developer token\n\nIf you think you've been blocked by mistake, file a ticket below and we'll look into it.\n\n[Log in](https://www.reddit.com/login/)[File a ticket](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140)\n",
+    "source": "video",
+    "publishedAt": 1773378000,
+    "credibility": {
+     "tags": [
+      "community"
+     ],
+     "score": 60,
+     "reasons": [
+      "community discussion source",
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002770416,
+    "bait": false,
+    "category": "none",
+    "reason": "Genuine Reddit OSS project share, not commercial bait"
+   }
+  },
+  {
+   "src": {
+    "query": "best robot vacuum for pet hair",
+    "url": "https://hometosight.com/best-robot-vacuum-for-pet-hair-under-300/",
+    "title": "9 Best Robot Vacuum For Pet Hair Under $300 | Smarter Than Fur",
+    "content": "For most users, the robot vacuum for pet hair under $300 winner is the Tikom L8000 Plus because it delivers 6000Pa suction, a 90-day self-emptying base, and reliable LiDAR navigation at a mid-range price that leaves room for accessories.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [
+      "listicle"
+     ],
+     "score": 20,
+     "reasons": [
+      "top-N listicle title/structure"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002566476,
+    "bait": true,
+    "category": "listicle",
+    "reason": "SEO top-N listicle declaring a winner with marketing specs, no testing evidence"
+   }
+  },
+  {
+   "src": {
+    "query": "best robot vacuum for pet hair",
+    "url": "https://stuckathomemom.com/reviews/best-robot-vacuum-for-long-pet-hair/",
+    "title": "Best Robot Vacuum for Long Pet Hair - 2026 Reviews",
+    "content": "Struggling with pet hair? Our 2025 guide reviews the best robot vacuums for long pet hair, featuring models with powerful suction, anti-tangle brushes, and self-emptying bases to keep your home fur-free effortlessly.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [
+      "listicle"
+     ],
+     "score": 20,
+     "reasons": [
+      "top-N listicle title/structure"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002881296,
+    "bait": true,
+    "category": "listicle",
+    "reason": "SEO 'best of' affiliate review listicle with generic marketing puffery"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=BDCPHonwee0",
+    "title": "Best Standing Desks of 2024: Rise to Productivity",
+    "content": "[Jan 10, 2024]\n... ergonomic experience, though this is also extremely useful to ... My NEW Ultimate Desk Setup & Office Tour 2023! UrAvgConsumer•645K ...\n\n[description]\nOla Amigo, We Have The Best Standing Desks Fit For You Here!\n\n➟ Hadulcet: https://geni.us/y7g5Nb\n\n➟ KOUPA: https://geni.us/0Apnjvq\n\n➟ AVLT: https://geni.us/gkZJWw\n\n➟ BONTEC: https://geni.us/GG67l\n\n➟ Azonanor: https://geni.us/ILMe\n\n➟ Monomi: https://geni.us/whqSZ\n\nTIMESTAMPS\n00:00 Intro\n00:17 Hadulcet\n01:42 KOUPA\n02:46 AVLT\n03:52 BONTEC\n05:36 Azonanor\n06:50 Monomi\n\nHadulcet's mobile standing desk is a near-perfect combination of everything a small standing desk should have. The affordable desk sits on four casters, making it easy to move between rooms at any time. Plus, the built-in power strip makes it so just one outlet can support an entire workstation. The desk is stacked with extra features that most users will love. A small shelf on the back of the base is the perfect place for some storage and helps stabilize the desk when the top is full. The keyboard shelf can be angled for a more ergonomic experience, though this is also extremely useful to digital artists using a drawing pad. There's a hook for headsets or backpacks, a separate space for drinks or a mouse, plus ample room for monitors and keyboards. Additionally, with a minimum height of 26 inches and a max height of 45 inches, the desk is suitable for most users of any height, whether they want to be standing or sitting. The Hadulcet mobile standing desk is a compact PC workstation ready to serve users wherever they want to work. Although its biggest let-down is the manual height adjustment, which can be tedious to deal with, the desk is otherwise built with fairly durable and stylish materials. As a cherry on top, this desk is available for just $100, and is often on sale for less, making the Hadulcet small standing desk tough to dethrone as the best choice for most users.\nThe KOUPA Adjustable Height Standing Desk offers a unique writable tempered glass desktop, allowing you to jot down notes and ideas as you work. The 360° flip and adjustable height features make it ideal for both sitting and standing, catering to your comfort throughout the day. Even in tight spaces, this desk is easy to maneuver with its four swivel caster wheels. Assembly isn’t a hassle, and the included instructions make it a one-person job. But keep in mind that attaching the drawer may prevent the whiteboard from lying flat. Keep in mind that if you’re going to raise the desk, you must tighten the screws very well. Otherwise, the angle of the desk could make your things slide down. Some user have reported issue with the screw holes for the tabletop not being centered correctly, which may cause a slight misalignment on the legs. Overall, the KOUPA Adjustable Height Standing Desk is a convenient and unique option for those working in small spaces. Its writable surface, easy assembly, and portability make it an appealing choice but be cautious with its minor drawbacks.\n\n===============================\n\nHey, What's Good!? Welcome to wiredtech! In this channel, you can expect videos related to tech product reviews and much more every day.\n\nWe guarantee that each video will be worth watching, and they are some of the most visually captivating and intriguing techs you can have. There's always going to be something fresh, useful, or entertaining to watch. @wiredtech#\n\nJOIN THE SQUAD: https://bit.ly/Join-the-squad\n===============================\n\nDISCLAIMER:\nPortions of footage found in this video are not original content produced by team wiredtech. Pieces of products' stock footage were gathered from multiple sources, including manufacturers, fellow creators, and various other sources. If something belongs to you, and you want it to be excluded, please do not hesitate to contact us at ydotnet [at] gmail.com",
+    "source": "video",
+    "publishedAt": 1704866400,
+    "credibility": {
+     "tags": [
+      "listicle"
+     ],
+     "score": 25,
+     "reasons": [
+      "top-N listicle title/structure",
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003085236,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Affiliate-linked 'best of' listicle with promotional product blurbs"
+   }
+  },
+  {
+   "src": {
+    "query": "best mechanical keyboard for programming",
+    "url": "https://www.reddit.com/r/DuckyKeyboard/comments/kld6gh/my_keyboard_is_completely_not_working_i_have/",
+    "title": "My keyboard is completely not working I have tried ...",
+    "content": "Title: \n\nURL Source: https://www.reddit.com/r/DuckyKeyboard/comments/kld6gh/my_keyboard_is_completely_not_working_i_have/\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n![Image 1](blob:http://localhost/7c466567fbe25390de55d6f3b6eed7c5)\n\nYou've been blocked by network security.\n\nTo continue, log in to your Reddit account or use your developer token\n\nIf you think you've been blocked by mistake, file a ticket below and we'll look into it.\n\n[Log in](https://www.reddit.com/login/)[File a ticket](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140)\n",
+    "source": "video",
+    "publishedAt": 1609048800,
+    "credibility": {
+     "tags": [
+      "community"
+     ],
+     "score": 60,
+     "reasons": [
+      "community discussion source",
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002501136,
+    "bait": false,
+    "category": "none",
+    "reason": "Genuine Reddit troubleshooting post; fetch error only"
+   }
+  },
+  {
+   "src": {
+    "query": "best mechanical keyboard for programming",
+    "url": "https://perfectfitliving.com/vetted/best-ergonomic-split-keyboards-for-programmers/",
+    "title": "15 Best Ergonomic Split Keyboards for Programmers in 2025 — Enhance ...",
+    "content": "If you're a programmer looking for a comfortable, reliable keyboard that minimizes strain during long coding sessions, the E-YOOSO Wireless Keyboard and Mouse Combo is an excellent choice. Its split ergonomic design, with a detachable wrist rest and wave-shaped keys, promotes natural hand positioning and reduces fatigue.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [
+      "listicle"
+     ],
+     "score": 20,
+     "reasons": [
+      "top-N listicle title/structure"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002936736,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Low-effort SEO top-N listicle with affiliate-style product puffery"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=M2lZfieaHTQ",
+    "title": "Desk setup upgrades that just work",
+    "content": "[Nov 13, 2025]\nMy New Hybrid Mac & PC Dream Desk Setup 2026 - Vernal Core-3 Standing Desk ... My Desk Setup 2026 | Best Accessories for Productivity and Gaming.\n\n[description]\nI’ve made a lot of tweaks to my desk setup over time, but these six upgrades are the ones that actually made a real difference. Practical workspace accessories and ergonomic improvements that made my setup cleaner, more comfortable, better for productivity, and just nicer to use every day — no gimmicks, just genuinely useful desk upgrades.\n\nSponsored by Vernal — the desks I personally use (I’ve got three!).\nCheck them out below!\n\nUS: https://bit.ly/4lZnDpU\nUK: https://bit.ly/4l9VoEh\n\nProducts featured (all with great Black Friday deals)\nLofree Flow2 Keyboard: https://geni.us/z14G7N (amazon) / https://tidd.ly/4pahYPu (direct)\nUGREEN 8K KVM: https://geni.us/I4A4l\nCable Genie Cable Management: https://geni.us/DCzb4FP\nDeltaHub Ergonomic Wrist Rest: https://geni.us/2ttGnEK (direct) / https://geni.us/danb7 (amazon)\nWolfbox Turbo Blower: https://geni.us/emhzA\nGame Changing Chair from Libernovo: https://geni.us/bVmTnFM\n\n\nNeed Good Music? http://share.epidemicsound.com/chriswilmshurst\n\nFollow me: \nhttps://bsky.app/profile/chriswilmshurst.com\nThreads & Instagram: @ChrisWilmshurst\nBusiness enquiries: chris[ a t ]chriswilmshurst [d o t] com\n\n*Any purchases using these Amazon links will help support this channel.\n\n#desksetup #standingdesk #vernaldesk #libernovo",
+    "source": "video",
+    "publishedAt": 1763013600,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002618748,
+    "bait": true,
+    "category": "sponsored",
+    "reason": "Explicit Vernal sponsorship plus multiple affiliate links for featured products"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=NhaQ-PBibQg",
+    "title": "The BEST Sit Stand Desk in 2026? | DESKY Review",
+    "content": "[Jan 20, 2026]\nI'm so excited to share my new Desky Dual Sit Stand Desk! This has been a complete game changer for my productivity and overall workspace.\n\n[description]\nI'm so excited to share my new Desky Dual Sit Stand Desk! This has been a complete game changer for my productivity and overall workspace. Setting up this electric standing desk has made my work from home experience much more enjoyable. If you're looking to elevate your home office setup, a standing desk from DESKY is definitely the way to go!\n\nDESKY Dual Hardwood Sit Stand Desk, Teak, 48 x 30 inches, Matte Black - https://desky.com/products/dual-hardwood-stand-up-desk?ref=nickanderson?utm_source=nickanderson&utm_medium=affiliate&utm_campaign=nickanderson&utm_term=deskyreview\nDESKY Integrated cable & Data channel, 6 powerpoints - https://desky.com/products/intergrated-cable-data-channel?ref=nickanderson?utm_source=nickanderson&utm_medium=affiliate&utm_campaign=nickanderson&utm_term=deskyreview\nDESKY Minimal Monitor Stand, Teak Hardwood - https://desky.com/products/desky-monitor-stand?ref=nickanderson?utm_source=nickanderson&utm_medium=affiliate&utm_campaign=nickanderson&utm_term=deskyreview\n\nThis dual sit-stand hardwood DESKY desk has changed the way I work forever. Getting 2 miles in on the walking pad everyday while working at a desk that actually makes me more productive has been such a huge boost in 2026. I love the beautiful hardwood and the quiet BUT STRONG motors to effortlessly move the desk from standing to sitting in just seconds.",
+    "source": "video",
+    "publishedAt": 1768888800,
+    "credibility": {
+     "tags": [
+      "affiliate-conflict",
+      "listicle"
+     ],
+     "score": 0,
+     "reasons": [
+      "contains affiliate-tracked outbound links",
+      "top-N listicle title/structure"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002514996,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Affiliate links with tracking params; pure promotional puffery, no real testing"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=QuQqx3gBN84",
+    "title": "The Desk Setup That Makes Me Excited to Work Every Morning",
+    "content": "[1 month ago]\nThank you to Vernal for sponsoring this video! Check out their full range of Core3 standing desks and accessories ... My Ultimate Home Office Desk ...\n\n[description]\nThank you to Vernal for sponsoring this video! Check out their full range of Core3 standing desks and accessories through the links below.\n\nUS: https://bit.ly/3PDypYi\nUK: https://bit.ly/4uOmbLg\n\nThis is a dream desk setup for me and the way that I work. It’s taken 10 years to figure out the best way for me to optimize my time, while also enjoying the space that I’m in. I really love the way everything has turned out and can’t wait to share the full basement renovation video with you all soon :)\n\n📸 My day job: https://www.instagram.com/stevenmschultz\n\n📝 Business Inquiries & Collaborations: for brand partnerships or media production requests, please reach out through my website → https://stevenschultz.co/contact\n________________________________________\n\nProducts Mentioned:\n\nKeychron Mat: https://amzn.to/4eOkXeq\nCool Timer: https://amzn.to/4uW9Epi\nKanto Ora: https://amzn.to/4dy2bpt\nEveryday Pen: https://amzn.to/3UTEGhX \nLogitech MX Master 4: https://amzn.to/4tIkVbE\nLogitech MX Keys: https://amzn.to/4uqnMaE\nCalDigit TS5: https://amzn.to/4fqWOe2'\nUgmonk Accessories: https://ugmonk.com\nSaloon Lamp: https://saloon.shop\n\n________________________________________\n\nChapters:\n\n00:00 My Dream Desk Setup\n00:21 M1 Max MacBook Pro\n00:59 Apple Studio Display\n01:44 CalDigit TS5\n02:19 My Standing Desk (Sponsored)\n04:15 Desk Mat\n04:35 Logitech MX Master 4 & MX Keys\n04:50 Seagate IronWolf Pro\n05:00 Cool Work Timer & Accessories\n05:40 Universal Audio Apollo Solo & Kanto Ora\n06:00 Personality Pieces\n06:54 Stationery & Ugmonk\n07:50 Big Video Coming Soon!\n\n________________________________________\n\n#desksetup #standingdesk #vernalcore3\n\n*Disclosure: Some of the links above may be affiliate links through assorted associate programs. This means that, at zero cost to you, I will earn an affiliate commission if you click through the link and finalize a purchase.*",
+    "source": "video",
+    "credibility": {
+     "tags": [
+      "affiliate-conflict"
+     ],
+     "score": 5,
+     "reasons": [
+      "contains affiliate-tracked outbound links"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003309768,
+    "bait": true,
+    "category": "sponsored",
+    "reason": "Sponsored desk promo with heavy affiliate links and product placements"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.youtube.com/watch?v=hsYtYqNWpL4",
+    "title": "Should You Buy a Rancilio Silvia in 2025? (Full Review ...",
+    "content": "[Apr 18, 2025]\nShould You Buy a Rancilio Silvia in 2025? (Full Review & Honest Opinion) Thinking about buying the Rancilio Silvia in 2025?\n\n[description]\nShould You Buy a Rancilio Silvia in 2025? (Full Review & Honest Opinion)\n\nThinking about buying the Rancilio Silvia in 2025? 🤔 In this video, we dive deep into whether this classic espresso machine still holds up in today’s world of home barista gear. From build quality and performance to its quirks and learning curve, we break down everything you need to know before spending your hard-earned money.\n\n🔧 Specs & Features\n⚖️ Pros & Cons\n💡 Who It's For (and NOT for)\n🚀 How It Stacks Up Against Newer Machines\n\nWhether you're an aspiring home barista or just looking to upgrade your coffee game, this review will help you make the right call.\n\nIf you enjoyed this video, don’t forget to like 👍, subscribe 🔔, and drop your questions in the comments below!\n\nBuy my Merch!\nhttps://www.etsy.com/shop/CabeensCoffeeCorner\n\nSupport me on Patreon for more reviews and a chance to win gear!\nhttps://www.patreon.com/user?u=37763358&fan_landing=true\n\nPlease support my videos by purchasing your coffee supplies from my affiliate links where I make a small commission at no charge to you!\n\nGet a free bag of coffee through trade: http://s.trdcfe.me/3z6nsW\n\nGear Featured in this Video:\nRancilio Silvia: https://a.co/d/bRM6lzh\nTurin Legato: https://www.turingrinders.com?sca_ref=2881196.irg5W9yneP\n\nVideo Equipment I use:\nSony a7iv: https://amzn.to/3XKe17H\nSigma 24-70: https://amzn.to/3YUaUcn\nDJI Mic: https://amzn.to/3YTxAtt\nTz Stellar Mic: https://amzn.to/3T7wxVk\nTripod: https://amzn.to/3Tg6Uly\nKey lights: https://amzn.to/4ab2cfF\nLight Tubes: https://amzn.to/4adWV6V\n\n#RancilioSilvia #EspressoMachineReview #HomeBarista #Coffee2025",
+    "source": "video",
+    "publishedAt": 1744952400,
+    "credibility": {
+     "tags": [
+      "affiliate-conflict"
+     ],
+     "score": 5,
+     "reasons": [
+      "contains affiliate-tracked outbound links"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003914856,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "YouTube review heavy on affiliate links, merch, Patreon monetization"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.reddit.com/r/espresso/comments/rybfbp/am_i_allowed_to_brag_about_my_5_dollar_machine_im/",
+    "title": "Am I allowed to brag about my 5 dollar machine? I'm by no ...",
+    "content": "Title: \n\nURL Source: https://www.reddit.com/r/espresso/comments/rybfbp/am_i_allowed_to_brag_about_my_5_dollar_machine_im/\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n![Image 1](blob:http://localhost/7c466567fbe25390de55d6f3b6eed7c5)\n\nYou've been blocked by network security.\n\nTo continue, log in to your Reddit account or use your developer token\n\nIf you think you've been blocked by mistake, file a ticket below and we'll look into it.\n\n[Log in](https://www.reddit.com/login/)[File a ticket](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140)\n",
+    "source": "video",
+    "publishedAt": 1641535200,
+    "credibility": {
+     "tags": [
+      "community"
+     ],
+     "score": 60,
+     "reasons": [
+      "community discussion source",
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002952576,
+    "bait": false,
+    "category": "none",
+    "reason": "Reddit community post; genuine discussion, not commercial bait"
+   }
+  },
+  {
+   "src": {
+    "query": "best running shoes for flat feet",
+    "url": "https://www.reddit.com/r/RunningShoeGeeks/comments/100rx3w/running_shoes_for_flat_feet/",
+    "title": "Running Shoes For Flat Feet : r/RunningShoeGeeks - Reddit",
+    "content": "Title: \n\nURL Source: https://www.reddit.com/r/RunningShoeGeeks/comments/100rx3w/running_shoes_for_flat_feet/\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n![Image 1](blob:http://localhost/7c466567fbe25390de55d6f3b6eed7c5)\n\nYou've been blocked by network security.\n\nTo continue, log in to your Reddit account or use your developer token\n\nIf you think you've been blocked by mistake, file a ticket below and we'll look into it.\n\n[Log in](https://www.reddit.com/login/)[File a ticket](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140)\n",
+    "source": "web",
+    "publishedAt": 1672552800,
+    "credibility": {
+     "tags": [
+      "community"
+     ],
+     "score": 55,
+     "reasons": [
+      "community discussion source"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003031776,
+    "bait": false,
+    "category": "none",
+    "reason": "Blocked Reddit thread; community discussion source, not commercial bait"
+   }
+  },
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.youtube.com/watch?v=Vo8mmwH7Ir8",
+    "title": "Best BUDGET Earbuds Under $50 in 2026 (RANKED)",
+    "content": "Title: Best BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)\n\nURL Source: https://www.youtube.com/watch?v=Vo8mmwH7Ir8\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\nBack [![Image 1](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)](https://www.youtube.com/ \"YouTube Home\")\n\nSkip navigation\n\n Search \n\n Search with your voice \n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[Sign in](https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Den%26next%3Dhttps%253A%252F%252Fwww.youtube.com%252Fwatch%253Fv%253DVo8mmwH7Ir8&hl=en&ec=65620)\n\n[![Image 2](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)](https://www.youtube.com/ \"YouTube Home\")\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[Video 1](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[Best BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\nTap to unmute\n\n2x\n\n[![Image 3](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n## Best BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)\n\nPicky Audio 85,955 views 3 months ago\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\nCopy link\n\nInfo\n\nShopping\n\n![Image 4](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n[![Image 5](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\nIf playback doesn't begin shortly, try restarting your device.\n\n•\n\nYou're signed out\n\nVideos you watch may be added to the TV's watch history and influence TV recommendations. To avoid this, cancel and sign in to YouTube on your computer.\n\nCancel Confirm\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\nShare\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8 \"Share link\")- [x] Include playlist \n\nAn error occurred while retrieving sharing information. Please try again later.\n\n![Image 6](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n0:00\n\n[](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)[](https://www.youtube.com/watch?v=2W98qgfhw1M)\n\n0:00 / 0:00\n\nLive\n\n•Watch full video\n\n•\n\nIntro\n\n•\n\n[18:53 5 Best Noise Cancelling Earbuds under $50 (2026)EL JEFE REVIEWS 38K views • 2 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=2W98qgfhw1M)[23:57 Top 11 Earbuds Under $100 in 2025 (With CUSTOM RANKING)Picky Audio 290K views • 10 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=gu9CGbCK0xQ)[22:09 6 Earbud Brands SCAMMING You Every Day (And 4 Hidden Gems)TechTruth 3.2K views • 2 weeks ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=ylFPq_BygHU)[7:32 Soundcore P30i vs P31i The Bass Arena 2.2K views • 3 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=o-Y9CLV33iE)[9:16 The 5 Best Wireless Earbuds for Under $200 (Don't BUY until you watch this!)Amazon HOT Deals Hub 911 views • 4 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=3eIwrEckICY)[9:08 The Best Earbuds Under $50 For 2026 Are SERIOUSLY Impressive Audioviser 5.7K views • 4 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=6a_1j_Owjgo)[16:48 I'll Never Listen To Music Normally Again Switch and Click 440K views • 3 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=92MsSAwSFGg)[7:02 My Top 5 Wireless Earbuds Under $30!Gamesky 57K views • 10 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=bQlBl7tTFGQ)[11:22 HUGE UPGRADE! soundcore P31i vs P30i Picky Audio 45K views • 3 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=Fj2bRt51cms)[13:34 Is there any reason to pay more? - CMF Buds Pro 2 ShortCircuit 1M views • 1 year ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=o_-5wmM071o)[22:06 Don't Buy Under $100 Earbuds Until You Watch This!Scott's Tek 19K views • 7 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=gU4c_d85ZmY)[11:35 Top 5 BEST Budget Noise Cancelling Earbuds 2026 (Under $50)Total Tech 7.7K views • 4 months ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=7S27lLG769M)\n\nSign in to confirm you’re not a bot This helps protect our community. [Learn more](https://support.google.com/youtube/answer/3037019#zippy=%2Ccheck-that-youre-signed-into-youtube)\n\n[Sign in](https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Den%26next%3D%252Fwatch%253Fv%253DVo8mmwH7Ir8&hl=en)\n\n# Best BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)\n\n[![Image 7: Picky Audio](https://yt3.ggpht.com/awdKJyE1HAZPTvN4T2-L-pD3BV1q7R61EdOyYhe6H-YWjlhsSZ7Ixyix5mj6jqSuX8uyxivsAA=s48-c-k-c0x00ffffff-no-rj)](https://www.youtube.com/@pickyaudio)\n\n[Picky Audio](https://www.youtube.com/@pickyaudio)\n\n Picky Audio \n\n128K subscribers\n\nJoin\n\nSubscribe\n\nSubscribed\n\n1.3K\n\nShare\n\nSave\n\nDownload\n\n Download \n\n85K views 3 months ago[#budgetearbuds](https://www.youtube.com/hashtag/budgetearbuds)[#truewireless](https://www.youtube.com/hashtag/truewireless)[#budgettech](https://www.youtube.com/hashtag/budgettech)\n\n 85,955 views • Mar 10, 2026 • #budgetearbuds #truewireless #budgettech \n\n———————Custom Scoring Spreadsheet —————— ▶️ [https://ko-fi.com/s/9dccc9b9c9](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbDladlJ4azhzWENJaUpNLUQ5enVIMHA0OVlSUXxBQ3Jtc0ttcmQta2tqSUJBZ2gzcUpnMm9hX1J1ckNvUTZHOUZORkVmOXJYeVN1Sl9vOFNIVVRSNTFIWE5RSTV4d2szVDVqUVEzZ2xwa2ttVTQwbG5SRHlOZWRGdUI5cmpxd3JURDk1WFBNYUhiOF92VUdGXzMtYw&q=https%3A%2F%2Fko-fi.com%2Fs%2F9dccc9b9c9&v=Vo8mmwH7Ir8) (Ko-fi) I added a new tab for the earbuds featured in this video…...more \n\n...more \n\nHow this was made\n\nAuto-dubbed\n\nAudio tracks for some languages were automatically generated. [Learn more](https://support.google.com/youtube/answer/15569972?hl=en)\n\n## Chapters\n\nView all\n\n[![Image 8](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Intro ### Intro 0:00](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n### [Intro](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n0:00\n\n[![Image 9](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Comfort ### Comfort 0:27](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=27s)\n\n### [Comfort](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=27s)\n\n0:27\n\n[![Image 10](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Security ### Security 1:05](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=65s&pp=0gcJCRkDDuyUWbzu)\n\n### [Security](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=65s&pp=0gcJCRkDDuyUWbzu)\n\n1:05\n\n[![Image 11](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### IP Rating ### IP Rating 1:30](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=90s)\n\n### [IP Rating](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=90s)\n\n1:30\n\n[![Image 12](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Case & Battery ### Case & Battery 2:06](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=126s)\n\n### [Case & Battery](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=126s)\n\n2:06\n\n[![Image 13](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Controls ### Controls 3:00](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=180s&pp=0gcJCRkDDuyUWbzu)\n\n### [Controls](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=180s&pp=0gcJCRkDDuyUWbzu)\n\n3:00\n\n[![Image 14](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Connectivity ### Connectivity 4:52](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=292s&pp=0gcJCRkDDuyUWbzu)\n\n### [Connectivity](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=292s&pp=0gcJCRkDDuyUWbzu)\n\n4:52\n\n[![Image 15](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Call Quality ### Call Quality 5:42](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=342s)\n\n### [Call Quality](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=342s)\n\n5:42\n\nTranscript\n\nFollow along using the transcript.\n\nShow transcript\n\n[![Image 16](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Picky Audio 128K subscribers](https://www.youtube.com/@pickyaudio)\n\n[Videos](https://www.youtube.com/channel/UCUun7jLOtkOcLuSC9KADjuw/videos)[About](https://www.youtube.com/channel/UCUun7jLOtkOcLuSC9KADjuw/about)[![Image 17](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) Twitch](https://www.youtube.com/redirect?event=Watch_SD_EP&redir_token=QUFFLUhqa08yZDR3RlRTWlpDMEVDZUQ5bmxucElVRWNmUXxBQ3Jtc0trbE1nMnZCZGk2VFExQ2R6ZHBudzdaT3c3VkVKYnlsSjNRb1NTS3F4WWFFN3MweTRmdlFQd0t1clltUV9VTVlpQ1ZuYVVyamhtWS0xdjI3QVVLUURISnZCMExlaUFSTmVpaUZaUlNhOFBUbTBXZ2UzRQ&q=https%3A%2F%2Fwww.twitch.tv%2Fpickygamer)\n\nShow less \n\n[](https://www.youtube.com/hashtag/budgetearbuds)[#budgetearbuds](https://www.youtube.com/hashtag/budgetearbuds)[#truewireless](https://www.youtube.com/hashtag/truewireless)[#budgettech](https://www.youtube.com/hashtag/budgettech)\n# Best BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)\n\n85,955 views 85K views\n\nMar 10, 2026\n\n1.3K\n\nShare\n\nSave\n\nDownload\n\n Download \n\n## Comments\n\n## Comments 211\n\n[Top Show featured comments](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)[Newest Show recent comments, including potential spam](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n## In this video\n\nChapters\n\nTranscript\n\n## Chapters\n\n[![Image 18](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Intro ### Intro 0:00](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n### [Intro](https://www.youtube.com/watch?v=Vo8mmwH7Ir8)\n\n0:00\n\n[![Image 19](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Comfort ### Comfort 0:27](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=27s)\n\n### [Comfort](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=27s)\n\n0:27\n\n[![Image 20](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Security ### Security 1:05](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=65s)\n\n### [Security](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=65s)\n\n1:05\n\n[![Image 21](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### IP Rating ### IP Rating 1:30](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=90s)\n\n### [IP Rating](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=90s)\n\n1:30\n\n[![Image 22](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Case & Battery ### Case & Battery 2:06](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=126s)\n\n### [Case & Battery](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=126s)\n\n2:06\n\n[![Image 23](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Controls ### Controls 3:00](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=180s)\n\n### [Controls](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=180s)\n\n3:00\n\n[![Image 24](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Connectivity ### Connectivity 4:52](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=292s)\n\n### [Connectivity](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=292s)\n\n4:52\n\n[![Image 25](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Call Quality ### Call Quality 5:42](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=342s)\n\n### [Call Quality](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=342s)\n\n5:42\n\n[![Image 26](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### App/Extras ### App/Extras 8:06](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=486s)\n\n### [App/Extras](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=486s)\n\n8:06\n\n[![Image 27](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Noise Cancelling ### Noise Cancelling 9:45](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=585s)\n\n### [Noise Cancelling](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=585s)\n\n9:45\n\n[![Image 28](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Transparency ### Transparency 10:22](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=622s)\n\n### [Transparency](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=622s)\n\n10:22\n\n[![Image 29](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Sound Quality ### Sound Quality 11:12](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=672s)\n\n### [Sound Quality](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=672s)\n\n11:12\n\n[![Image 30](https://www.youtube.com/watch?v=Vo8mmwH7Ir8) ### Final Scoring/Comparisons ### Final Scoring/Comparisons 15:41](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=941s)\n\n### [Final Scoring/Comparisons](https://www.youtube.com/watch?v=Vo8mmwH7Ir8&t=941s)\n\n15:41\n\nSync to video time\n\n## Description\n\nBest BUDGET Earbuds Under $50 in 2026 🔥 (RANKED)\n\n1.3K Likes\n\n85,955 Views\n\nMar 10 2026\n\n———————Custom Scoring Spreadsheet —————— ▶️ [https://ko-fi.com/s/9dccc9b9c9](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbXJXS2JObDR0cWZZTEN4RDl4TUJySDZlNHNqUXxBQ3Jtc0ttT1NzUkhFTk9EaWdrczlvVWFqcU5SM3NqX2ppWU1uOFYwaG90MzlBZ0xxbnlqSkxLYjMtWWV0TXdyaDM4Q1pPcjE3WFM0eThNNXNkVXJVcmljWWdEOVlHeDFCQ2VHVVU0T19JNzVzUFhFV2Jmc1YyZw&q=https%3A%2F%2Fko-fi.com%2Fs%2F9dccc9b9c9&v=Vo8mmwH7Ir8) (Ko-fi) I added a new tab for the earbuds featured in this video ——————— Purchase Links ——————— ▶️ CMF Buds Pro 2 [https://geni.us/CNvX](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbXhkRnJTYmIyUjVsVEE1V3FTdHlIN01CLUo1QXxBQ3Jtc0ttMWNJZGxmZ1Y5Q1N5TGN5WTVYMzRTenZDUzFiRUY3RDdzTDBrYUxXQW5vWmdIYW5KMWZaY3RVUjVyMExxVVloMHlDZUdkLUJFb0tyVzgzSlZKaWJxR3lidU1zTlBJdE5rMGNySkNqbUxRS1hvVGZuaw&q=https%3A%2F%2Fgeni.us%2FCNvX&v=Vo8mmwH7Ir8) (Amazon) ▶️ Tozo NC20 [https://geni.us/ctPVr](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbEVmRTZZLUNHUXFoMEtpMmxxWVNZenBkMzJEd3xBQ3Jtc0tuREtkZUxqTU9ZRkF6ZUZQeXZvaEtRcjNiNUlIOUxFakRJeDhGQnh0OGZ3TzFGczlJclhVYTUzWnNaVGJpd3ZiOHNid1NPRzU0aHp1bmQ0QjhjNDg4d2U5U3pvYUJuVnhqNzc4bTdoLUFUbTU2SmVoZw&q=https%3A%2F%2Fgeni.us%2FctPVr&v=Vo8mmwH7Ir8) (Amazon) ▶️ CMF Buds 2 [https://geni.us/EBI5mAZ](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbE1HRFFDZ2RlUVgzM2FEVENONldxN1E5MG1FZ3xBQ3Jtc0tuZ2lYTDI5cWc5cUg5MFNMaGNQbExqNS1LRjhoRlg4Y0lxajN1WXhkTlp4dVR3RW1ob0VaNGtHUlZHYmM4M3VuWlFoTDl0NTVuYks4dnpoVGVSU3pHLUo3a2I1UnpFOXBZQnNKZkxYaDJjbjE2WWFwRQ&q=https%3A%2F%2Fgeni.us%2FEBI5mAZ&v=Vo8mmwH7Ir8) (Amazon) ▶️ soundcore P31i [https://geni.us/zGUvY](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqa2w5Y1R4RjlIZm0waEQ3Q2hVRENtS3cwRFpZZ3xBQ3Jtc0ttZWRaQ19sUEVJRGtkMVdzTWRWOGdrdjBBMjJlQjFvU1FDOWMtZDNjRmctY3Q2WVRpTW93NGJlWldOSGNhdTVneE8ybUxlSklzUEtyLUJObnFhQVJPQ2k5dUR4SmNkaDMwbURWbk14X0ZETE5McG5KYw&q=https%3A%2F%2Fgeni.us%2FzGUvY&v=Vo8mmwH7Ir8) (Amazon) ▶️ QCY N70 [https://geni.us/uAegxP7](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqa2RnM1dmd1Z5cUU1dktZR3U4dEVCakZzdGRzZ3xBQ3Jtc0tsMkxCZ3VvQWV6c3BRVHNteGVJeVJ1ak1GN1oyUEt0WDh2M05CSzdJa0UzSnpOcEpqcUFTVHVqWU1Bck1faUZLX19HRmRHSDZpRG54Y2kyVVJSaXF5TzRzN3lTV3RJVnNnUHNiVjhHRy1LenQzMGtnYw&q=https%3A%2F%2Fgeni.us%2FuAegxP7&v=Vo8mmwH7Ir8) (Amazon) ▶️ SoundPEATS C30 [https://geni.us/Dog04q9](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbDVfb2tzaVRYMzBDOWtDZ2FrdWswaTlaZEtDZ3xBQ3Jtc0ttVUpObDBETzItQXdVTFM2WFNyUVkzLTNDWS1iNHFCRUFheEYyc2liN2NWbGVVM0w4Nkw1eDJhLW9aRHF",
+    "source": "video",
+    "publishedAt": 1773118800,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004584096,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Classic ranked best-under-$50 YouTube SEO listicle with affiliate-style framing"
+   }
+  },
+  {
+   "src": {
+    "query": "best running shoes for flat feet",
+    "url": "https://www.youtube.com/watch?v=sry_J62sIxA",
+    "title": "Best Shoes for Overpronation (2025) | Flat Feet, Walking ...",
+    "content": "[Oct 30, 2025]\nIf you overpronate, have a flatter foot that needs more support, or just prefer a shoe with a bit of stability underfoot, this video covers ...\n\n[description]\nIf you overpronate, have a flatter foot that needs more support, or just prefer a shoe with a bit of stability underfoot, this video covers six of the best overpronation shoes for 2025. \n\nCheck the latest prices on Amazon below: \nNew Balance 860 v14\nMen: https://amzn.to/4oYmLE7\nWomen's: https://amzn.to/46aV2c2\n\nAsics Gel-Kayano 32:\nMens: https://amzn.to/4mKDRDt\nWomens: https://amzn.to/3JjP9jM\n\nHoka Arahi 8:\nMens: https://amzn.to/3IHNxQU\nWomens: https://amzn.to/3W9JFex\n\nNIKE Structure 26\nMens: https://amzn.to/4nFYqBq\nWomens: https://amzn.to/43510ta\n\nBrooks Glycerin GTS 22:\nMens: https://amzn.to/4iL2cXw\nWomens: https://amzn.to/4jT4GVn\n\nAltra Paradigm 8:\nMens: https://amzn.to/46Y1OSO\nWomens: https://amzn.to/42guTq0\n\nGet my monthly shortlist (best shoes + genuine deals): https://flawless-shoe-reviews.kit.com/newsletter\n\nI review the feel, cushioning, fit, and stability of each shoe from a clinical and footwear perspective, so you can choose the right level of support for your needs.\n\n✉️ Love shoe reviews like this? Get my weekly picks and updates here: https://flawless-shoe-reviews.kit.com/newsletter\n\nVisit our website for more reviews: https://flawlessshoereviews.com/reviews/\n\nAmazon Affiliate Disclaimer\nAs an Amazon Associate, I earn from qualifying purchases. This means that if you click on one of the product links, I may receive a small commission at no additional cost to you. This helps support the channel and allows me to continue creating content. Thank you for your support!\n\nMedical Disclaimer\nThe content in this video is for informational and educational purposes only and does not substitute professional medical advice, diagnosis, or treatment. Always seek the advice of a qualified healthcare provider with any questions you may have regarding a medical condition. Do not disregard professional medical advice or delay seeking it because of something you have seen in this video.\n\nIf you would like to book an appointment with James then you can do so through his website: flawlessphysio.co.uk\n\nFollow us on Instagram: https://www.instagram.com/flawless_shoe_reviews/",
+    "source": "video",
+    "publishedAt": 1761800400,
+    "credibility": {
+     "tags": [
+      "affiliate-conflict"
+     ],
+     "score": 5,
+     "reasons": [
+      "contains affiliate-tracked outbound links"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003817836,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Top-N shoe list packed with Amazon affiliate links and monetization disclaimers"
+   }
+  },
+  {
+   "src": {
+    "query": "best linen shirts for men",
+    "url": "https://www.etsy.com/listing/1043833373/linen-shirt-for-men-mens-white-linen",
+    "title": "LINEN SHIRT for Men, Men's White Linen Shirt, Light Shirt Men, Summer Beach Party Shirt, Man's Linen Shirt, Organic Flax Shirt, Gift for Him",
+    "content": "Title: etsy.com\n\nURL Source: https://www.etsy.com/listing/1043833373/linen-shirt-for-men-mens-white-linen\n\nWarning: This page maybe requiring CAPTCHA, please make sure you are authorized to access this page.\n\nMarkdown Content:\n\n",
+    "source": "video",
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003287196,
+    "bait": false,
+    "category": "none",
+    "reason": "Direct Etsy product listing page, not a review or bait content"
+   }
+  },
+  {
+   "src": {
+    "query": "best self-hosted photo backup software",
+    "url": "https://www.selfhostedninja.com/immich-self-hosting-made-simple/",
+    "title": "Immich: Self-Hosting Made Simple",
+    "content": "Immich is an open-source, self-hosted photo and video backup solution designed for tech-savvy users who prioritize privacy, customization, and full control over their data. With features like automatic uploads, deduplication, and seamless media organization, it's a powerful alternative to traditional cloud-based services.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [],
+     "score": 50,
+     "reasons": []
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003447576,
+    "bait": true,
+    "category": "puffery",
+    "reason": "Empty promotional blurb lacking depth, testing, or substance"
+   }
+  },
+  {
+   "src": {
+    "query": "best wireless earbuds under $100",
+    "url": "https://www.youtube.com/watch?v=6-EZVvIr1x4",
+    "title": "Budget Wireless Earbuds Review After One Week of Use",
+    "content": "[Jan 17, 2026]\nTechnologyReview#AdobePremiere#AdobePhotoshop#TechUnboxing#GadgetReview Welcome to MYSTERY CURTAIN – your gateway to the latest technology ...\n\n[description]\n#TechnologyReview#AdobePremiere#AdobePhotoshop#TechUnboxing#GadgetReview\nWelcome to MYSTERY CURTAIN – your gateway to the latest technology products through honest and sharp review videos. We use Adobe Premiere for professional video editing and Adobe Photoshop to create eye-catching thumbnails, helping you grasp information and experience technology in the most vivid way. Don’t forget to subscribe so you won’t miss out on useful reviews and the hottest tech updates!",
+    "source": "video",
+    "publishedAt": 1768629600,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004489056,
+    "bait": true,
+    "category": "puffery",
+    "reason": "Channel self-promo with empty honesty claims, no review substance"
+   }
+  },
+  {
+   "src": {
+    "query": "best self-hosted photo backup software",
+    "url": "https://www.youtube.com/watch?v=q-VKAJABi5I",
+    "title": "Immich, the self-hosted Google Photos alternative!",
+    "content": "Title: - YouTube\n\nURL Source: https://www.youtube.com/watch?v=q-VKAJABi5I\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n[Video 1](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\nTap to unmute\n\n2x\n\n[![Image 1](https://www.youtube.com/watch?v=q-VKAJABi5I)](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\nCopy link\n\nInfo\n\nShopping\n\n![Image 2](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n[![Image 3](https://www.youtube.com/watch?v=q-VKAJABi5I)](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\nIf playback doesn't begin shortly, try restarting your device.\n\n•\n\nYou're signed out\n\nVideos you watch may be added to the TV's watch history and influence TV recommendations. To avoid this, cancel and sign in to YouTube on your computer.\n\nCancel Confirm\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\nShare\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I \"Share link\")- [x] Include playlist \n\nAn error occurred while retrieving sharing information. Please try again later.\n\n![Image 4](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n0:00\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n\n0:00 / 0:00\n\nLive\n\n•\n\n•\n\n•\n\n Back [![Image 5](https://www.youtube.com/watch?v=q-VKAJABi5I)](https://www.youtube.com/)\n\n Search \n\n[![Image 6](https://www.youtube.com/watch?v=q-VKAJABi5I)](https://www.youtube.com/)\n\n[](https://www.youtube.com/watch?v=q-VKAJABi5I)\n",
+    "source": "video",
+    "publishedAt": 1766815200,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004651416,
+    "bait": false,
+    "category": "none",
+    "reason": "Empty YouTube scrape; no review or commercial content present"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.redditmedia.com/r/StandingDesk/comments/1bq4r52/advice_on_buying_a_standing_desk_for_wfh_and/",
+    "title": "Advice on buying a standing desk for WFH and gaming (challenge: Amazon ...",
+    "content": "Halp Advice on buying a standing desk for WFH and gaming (challenge: Amazon preferred, under $900) (self.StandingDesk) submitted 4 months ago * by dognolia Hello! I was approved to get a standing desk for my WFH job, but would love some assistance with making my decision.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [],
+     "score": 50,
+     "reasons": []
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.001907136,
+    "bait": false,
+    "category": "none",
+    "reason": "Genuine Reddit user seeking community advice on standing desk purchase"
+   }
+  },
+  {
+   "src": {
+    "query": "best mechanical keyboard for programming",
+    "url": "https://glacierpcgaming.com/blogs/news/the-difference-between-hot-swappable-and-soldered-pcbs-in-mechanical-keyboards",
+    "title": "The Difference Between Hot-Swappable and Soldered PCBs in Mechanical ...",
+    "content": "Builders creating unique or highly specific layouts. Conclusion Whether you choose a hot-swappable or soldered PCB, both options offer distinct advantages that cater to different types of keyboard enthusiasts. Hot-swappable PCBs provide convenience and flexibility, making them an excellent choice for beginners and tinkerers.",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [],
+     "score": 50,
+     "reasons": []
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.002606076,
+    "bait": false,
+    "category": "none",
+    "reason": "Straightforward informational explainer on keyboard PCBs, no hype or monetization signs"
+   }
+  },
+  {
+   "src": {
+    "query": "best robot vacuum for pet hair",
+    "url": "https://www.youtube.com/watch?v=W_edmDICZPg",
+    "title": "Prime Day 2026: eufy Omni C28 vs Roborock Qrevo S5V | The ...",
+    "content": "Title: - YouTube\n\nURL Source: https://www.youtube.com/watch?v=W_edmDICZPg\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\n[Video 1](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\nTap to unmute\n\n2x\n\n[![Image 1](https://www.youtube.com/watch?v=W_edmDICZPg)](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\nCopy link\n\nInfo\n\nShopping\n\n![Image 2](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n[![Image 3](https://www.youtube.com/watch?v=W_edmDICZPg)](https://www.youtube.com/watch?v=W_edmDICZPg)\n\nIf playback doesn't begin shortly, try restarting your device.\n\n•\n\nYou're signed out\n\nVideos you watch may be added to the TV's watch history and influence TV recommendations. To avoid this, cancel and sign in to YouTube on your computer.\n\nCancel Confirm\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\nShare\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg \"Share link\")- [x] Include playlist \n\nAn error occurred while retrieving sharing information. Please try again later.\n\n![Image 4](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n0:00\n\n[](https://www.youtube.com/watch?v=W_edmDICZPg)[](https://www.youtube.com/watch?v=W_edmDICZPg)\n\n0:00 / 0:00\n\nLive\n\n•\n\n•\n\n•\n\n Back [![Image 5](https://www.youtube.com/watch?v=W_edmDICZPg)](https://www.youtube.com/)\n\n Search \n\n[![Image 6](https://www.youtube.com/watch?v=W_edmDICZPg)](https://www.youtube.com/)\n",
+    "source": "video",
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004421736,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Prime Day vs-comparison video; typical affiliate deal content, no substance"
+   }
+  },
+  {
+   "src": {
+    "query": "best self-hosted photo backup software",
+    "url": "https://dicloak.com/blog-detail/immich-vs-photoprism-vs-synology-photos-2025-which-one-is-the-best",
+    "title": "Immich Vs PhotoPrism Vs Synology Photos (2025) Which One Is The Best?",
+    "content": "This article compares three self-hosted photo management solutions: MH, Photo Prism, and Synology Photos, focusing on their features, customization options, AI capabilities, mobile experience, performance, and setup ease. It helps users determine the best option based on their specific needs, whether for modern mobile use, advanced AI features, or straightforward integration with Synology NAS ...",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [],
+     "score": 50,
+     "reasons": []
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004375008,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Low-effort SEO vs comparison with 'which is best' framing, no testing depth"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=3maqQwSQrIk",
+    "title": "Should You Buy A Standing Desk?",
+    "content": "[Aug 6, 2025]\n... time and support! My Home Office And Desk Setup Gear ‍♂️: https://bit.ly/3GkFNmO Support Me On Patreon : https://www.patreon.com ...\n\n[description]\nAre sit stand desks worth buying? In this one, I talk about what you need to know if you're considering buying about sit stand desks, regardless of brand and type. I go over the pros and cons, as well as things to consider.\n\nAs always, thank you very much for watching. I appreciate your time and support! 🍻\n\nMy Home Office And Desk Setup Gear 💁🏻‍♂️: https://bit.ly/3GkFNmO\nSupport Me On Patreon 🍻: https://www.patreon.com/TwoByteThomas\n\nSocials (come show me some love!) 📱\nInstagram: https://www.instagram.com/twobytethomas/\nTwitter/X: https://twitter.com/twobytethomas\n\nSome of the links I provide here are affiliate links that support this channel - if you do purchase anything through them, thank you for supporting what I do.\n\nChapters\n0:00 Intro\n1:26 The Benefits Of Sit Stand Desks\n3:33 The Cons Of Sit Stand Desks \n5:04 Standing Ergonomics\n5:38 Things To Consider\n9:00 Overall Thoughts\n10:47 Outro\n-------------------------------------------------------------\n#SitStandDesk #StandingDesk  #HomeOffice #WorkFromHome",
+    "source": "video",
+    "publishedAt": 1754456400,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003522816,
+    "bait": false,
+    "category": "none",
+    "reason": "Genuine pros/cons discussion video with disclosed affiliates, not primarily monetized bait."
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=e07zGI4IC0w&vl=en",
+    "title": "3 Desk Accessories That ACTUALLY Matter! (for 9-5 workers)",
+    "content": "[5 days ago]\nWhen it comes to desk setup accessories, I've found there are only 3 things that really matter to me. I don't care about expensive desk ...\n\n[description]\nWhen it comes to desk setup accessories, I've found there are only 3 things that really matter to me. I don't care about expensive desk shelves, phone holders, or fancy trinkets. What DOES matter are the things I interact with every day for my work, so here they are!\n\nMy desk setup:\n↪ Dell U4025QW Ultrawide Monitor: https://geni.us/U4025QW\n↪ Ergotron LX Premium Monitor Arm: https://geni.us/ergotronLX\n↪ Audioengine A2+ Desktop Speakers: https://geni.us/audioea2\n↪ Speaker Stands: https://geni.us/kantos2stand\n↪ BenQ ScreenBar Pro: https://geni.us/benqscreenbarpro\n↪ Insta360 Link Webcam: https://geni.us/linkinsta360\n↪ MX Keys S Keyboard: https://geni.us/logimxkey\n↪ MX Master 3S Mouse: https://geni.us/mxmastr3s\n↪ Desk Mat: https://geni.us/leatherdskpad\n↪ Laptop Stand: https://geni.us/360laptopstand\n↪ Philips Hue LightStrip Plus: https://geni.us/philipshuelightstrip\n↪ Philips Hue Play Bar: https://geni.us/philipshueplaybar\n↪ Philips Hue Lamp Bulb: https://geni.us/huelightbulb\n\nChapters:\n00:00 My Software Consultant Desk Setup\n01:14 Why My Monitor Is The Most Important\n04:10 Bonus Monitor Upgrade\n05:09 Keyboard\n06:51 Mouse",
+    "source": "video",
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003885156,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Clickbait title plus dense geni.us affiliate links pushing desk gear"
+   }
+  },
+  {
+   "src": {
+    "query": "best standing desk for a home office",
+    "url": "https://www.youtube.com/watch?v=_1Y6CtzDfoQ",
+    "title": "Assembling the UPLIFT V2 Standing Desk",
+    "content": "[Jan 21, 2021]\nAssembling your new UPLIFT V2 Standing Desk is quick and simple, and Freeberg is going to show us how it's done. Standing desks help improve ...\n\n[description]\nAssembling your new UPLIFT V2 Standing Desk is quick and simple, and Freeberg is going to show us how it's done. Standing desks help improve your mood, energy, creativity, and overall productivity.  Follow these steps and helpful tips for putting together your new height adjustable workstation. Congratulations on your new desk, and welcome to the UPLIFT Desk family.\n\nBuild and design your desk at upliftdesk.com/adjustable-height-desks",
+    "source": "video",
+    "publishedAt": 1611208800,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003572316,
+    "bait": false,
+    "category": "none",
+    "reason": "Official assembly how-to video with mild brand promo"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.youtube.com/watch?v=hmlEtuQ4ovY",
+    "title": "Breville Barista Pro vs. Rancillio Silvia | Crew Comparison",
+    "content": "[Sep 9, 2019]\nComments · BARISTA EXPRESS IMPRESS REVIEW: Best Budget Beginner Espresso Machine (Breville/Sage) · Gaggia Classic Pro vs Rancilio Silvia · Entry ...\n\n[description]\nSubscribe To Our Channel ▸▸ http://bit.ly/1zliHD9\n\nShop the Breville Barista Pro ▸▸ https://bit.ly/2TWcnNA\n\nShop the Rancilio Silvia ▸▸ https://bit.ly/2EMiuho\n\nShop Freshly Roasted Coffee!\nhttps://www.seattlecoffeegear.com/coffee-tea\n\nConnect With Us Online!\nFacebook: https://www.facebook.com/SeattleCoffeeGear/\nTwitter: https://twitter.com/seacoffeegear\nGoogle+: https://plus.google.com/+Seattlecoffeegearinfo\nInstagram: https://instagram.com/seattlecoffeegear",
+    "source": "video",
+    "publishedAt": 1568005200,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.003454308,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Retailer comparison video with direct shop/affiliate links to products"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.youtube.com/watch?v=57kLrt6rYNQ",
+    "title": "Entry-Level Espresso Setups for 2025: Best Machines ...",
+    "content": "[Nov 29, 2025]\nThis livestream replay highlights additional beginner-friendly machines, ideal grinder combos, and tips to brew consistent, delicious espresso ...\n\n[description]\nContinue your beginner espresso journey in Entry-Level Espresso Setups for 2025 — Part 2! This livestream replay highlights additional beginner-friendly machines, ideal grinder combos, and tips to brew consistent, delicious espresso at home.\nWith live product demonstrations and Q&A sessions with experts, our Livestreams are the best way to learn about the machines you love. See setups in action, discover new grinder pairings, and find the right combo for your home barista workflow.\n\nThere will be a live Q&A during the livestream, so bring your questions!\n\nFeatured machines & grinder pairings include:\n\nProfitec GO: https://www.wholelattelove.com/products/profitec-go-espresso-machine?variant=43046168297526\n\nGaggia Classic E24: https://www.wholelattelove.com/products/gaggia-classic-e24?variant=43085100843062\n\nX-Bloom Studio: https://www.wholelattelove.com/products/xbloom-studio?variant=43558578356278\n\nEureka Mignon Silenzio 55: https://www.wholelattelove.com/products/eureka-mignon-silenzio-55-espresso-grinder?variant=42496492699702\n\nGet Product Advice with CoffeeCast\nhttps://www.wholelattelove.com/pages/sales-support#product-advice\nBook a free 20-minute consultation with our product experts to compare select machines and grinders! We’re here to help you decide on the best setup for your lifestyle. Zoom demos available. Not for technical support.\n\nShop Whole Latte Love\nhttps://www.wholelattelove.com/\nLivestream Schedule\nhttps://www.wholelattelove.com/pages/livestreams\n\n📺 Watch Next\nBest Entry Level Espresso Machines 2025 – Our Top Picks for Beginners: https://youtu.be/miNqgmVH9I0\n\nWHOLE LATTE LOVE\nGet expert advice on products to best fit your needs.\nTalk to our experts via chat, email, or phone: https://www.wholelattelove.com/contact-us\nWhole Latte Love on Social Media\n► Instagram: https://www.instagram.com/wholelattelove/\n► Facebook: https://www.facebook.com/WholeLatteLoveOnline/\n#wholelattelove #coffee #espresso #entrylevelespresso #homebarista #beginnerespresso #espressogrinder",
+    "source": "video",
+    "publishedAt": 1764396000,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004310856,
+    "bait": true,
+    "category": "sponsored",
+    "reason": "Retailer livestream pushing own product links and sales consults"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.homegrounds.co/thermoblock-vs-thermocoil-boiler/",
+    "title": "What is Thermoblock? Is it better than Thermocoil and Boiler?",
+    "content": "Some automatic espresso machines use a thermoblock for steam and a boiler for the brew water. This allows the thermoblock to do what it does best - heat water quickly - while avoiding the pitfalls of its inconsistency. What Are The Pros And Cons Of Thermoblock?",
+    "source": "duckduckgo",
+    "credibility": {
+     "tags": [],
+     "score": 50,
+     "reasons": []
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004231656,
+    "bait": false,
+    "category": "none",
+    "reason": "Informational explainer on espresso heating tech, not primarily monetized bait"
+   }
+  },
+  {
+   "src": {
+    "query": "best running shoes for flat feet",
+    "url": "https://www.youtube.com/watch?v=8hfeKob29s8",
+    "title": "Best Running Shoes For Overpronation: Top 10 Stability Shoes",
+    "content": "Title: Best Running Shoes For Overpronation: Top 10 Stability Shoes\n\nURL Source: https://www.youtube.com/watch?v=8hfeKob29s8\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\nBack [![Image 1](https://www.youtube.com/watch?v=8hfeKob29s8)](https://www.youtube.com/ \"YouTube Home\")\n\nSkip navigation\n\n Search \n\n Search with your voice \n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[Sign in](https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Den%26next%3Dhttps%253A%252F%252Fwww.youtube.com%252Fwatch%253Fv%253D8hfeKob29s8&hl=en&ec=65620)\n\n[![Image 2](https://www.youtube.com/watch?v=8hfeKob29s8)](https://www.youtube.com/ \"YouTube Home\")\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[Video 1](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[Best Running Shoes For Overpronation: Top 10 Stability Shoes](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nTap to unmute\n\n2x\n\n[![Image 3](https://www.youtube.com/watch?v=8hfeKob29s8)](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n## Best Running Shoes For Overpronation: Top 10 Stability Shoes\n\nFootwear Flix 46 views 6 days ago\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nCopy link\n\nInfo\n\nShopping\n\n![Image 4](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 5](https://www.youtube.com/watch?v=8hfeKob29s8)](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nIf playback doesn't begin shortly, try restarting your device.\n\n•\n\nYou're signed out\n\nVideos you watch may be added to the TV's watch history and influence TV recommendations. To avoid this, cancel and sign in to YouTube on your computer.\n\nCancel Confirm\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nShare\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8 \"Share link\")- [x] Include playlist \n\nAn error occurred while retrieving sharing information. Please try again later.\n\n![Image 6](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n0:00\n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)[](https://www.youtube.com/watch?v=ylSNSGf0UfE)\n\n0:00 / 0:00\n\nLive\n\n•Watch full video\n\n•\n\nIn this video\n\n•\n\n[9:51 Best Walking Shoes for City Streets: What a Podiatrist Actually Recommends Paul The Podiatrist 428K • 2mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=w2tGzYGhgZY)[17:57 Top 10 MOST Comfortable Max Cushion Sneakers of 2026 So Far!Hes Kicks 28K • 2w ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=xYV2C_5XsDw)[10:58 Your Soft Shoes Are Secretly Making Your Foot Pain Worse (Podiatrist Explains)Paul The Podiatrist 243K • 1mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=l6Go1oMHJzk)[11:38 The Best Everyday Shoes For Walking & Standing - Summer 2026 Foot Doctor Zach 109K • 1mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=gUiXdSx3oMk)[5:14 TOP 5 Best Running Shoes for Supination 2026 Wise Shopper 495 • 4mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=rErDnJWbZMQ)[14:47 Top 10 Best ASICS Walking Shoes for Seniors 2026 NextGap 41K • 2mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=Y4lcgkFFt1c)[14:23 I Tried the Top 3 Brooks Walking Shoes - Only 1 Passed TrustyShoeGuides 60K • 5mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=PvJ0xbXNzKo)[15:24 Secret To Endless Swim Endurance Ocean Swim 107K • 1mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=vrPsdhZqOtk)[20:37 If You Wear THESE Shoes, You NEED to Stop!The Diary Of A CEO Clips 2.2M • 10mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=44PzEX47dBU)[2:02:58 My Mother-in-Law Voted to Ban Me From Family Events — One Week Later…| Soft Revenge Soft Revenge 105K • 2d ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=ge5BF5ddAjs)[20:30 Top 10 New Balance Walking Shoes for Seniors (2026) | Podiatrist Recommended KickNex 417 • 1d ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=6PWvUWPq6aM)[19:57 The Truth About Low & Zero Drop Shoes Foot Doctor Zach 139K • 2mo ago Live Playlist ()Mix (50+)](https://www.youtube.com/watch?v=ylSNSGf0UfE)\n\nSign in to confirm you’re not a bot This helps protect our community. [Learn more](https://support.google.com/youtube/answer/3037019#zippy=%2Ccheck-that-youre-signed-into-youtube)\n\n[Sign in](https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Den%26next%3D%252Fwatch%253Fv%253D8hfeKob29s8&hl=en)\n\n# Best Running Shoes For Overpronation: Top 10 Stability Shoes\n\n[![Image 7: Footwear Flix](https://yt3.ggpht.com/5TRO59FYTOClQ2RmzIJyzyil-Um_TT3Vucy9GjKRaBGj3nZOr7I5ZMWVuFk-IAVPyXsWL73fsg8=s48-c-k-c0x00ffffff-no-rj)](https://www.youtube.com/@FF-Officials)\n\n[Footwear Flix](https://www.youtube.com/@FF-Officials)\n\n Footwear Flix \n\n1.47K subscribers\n\nSubscribe\n\nSubscribed\n\n1\n\nShare\n\nSave\n\nDownload\n\n Download \n\n46 views 6 days ago 4 products\n\n 46 views • Jun 16, 2026 • 4 products \n\nLinks Get From Here: 1 . Brooks Adrenaline GTS 23 …...more \n\n...more \n\nFootwear Flix earns commission on tagged products.[Learn more](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 8](https://www.youtube.com/watch?v=8hfeKob29s8) Saucony Wmns Guide 16 'White Pink Gravel' | Women's Size 6 GOAT goat.com/sneakers/wmns-guide-16-white-pink-gravel-s10810-85?tab=new&expandedSize=6&srsltid=AfmBOopcMBXVSGAA3dAky5aYvmMZUM1wx_ZK2DbgDt7pt2jfypfDw1Y-hLY Shop GOAT](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 9](https://www.youtube.com/watch?v=8hfeKob29s8) ASICS Men's GT-2000 14 Road-Running Shoes Gray 9.5 REI rei.com/product/249371/asics-gt-2000-14-road-running-shoes-mens?sku=2493710054&CAWELAID=120217890020875773 Shop REI](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 10](https://www.youtube.com/watch?v=8hfeKob29s8) Brooks Mens Adrenaline GTS 23 GTX Waterproof Supportive Running Shoe - Oyster Mushroom/Orange/Blue - 10 Medium, Men's, Black Walmart - 6AVE Electronics walmart.com/ip/Brooks-Men-s-Adrenaline-GTS-23-GTX-Waterproof-Supportive-Running-Shoe-Oyster-Mushroom-Orange-Blue-10-Medium/17944353104?wmlspartner=wlpa&selectedSellerId=4720&selectedOfferId=92876E692F133A8995173FDF0DBE2CCC&conditionGroupCode=1 Shop Walmart - 6AVE Electronics](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 11](https://www.youtube.com/watch?v=8hfeKob29s8) Men's Brooks Beast GTS 23 Running Shoes 12.5 Extra Wide Black/Gunmetal Limited stock Scheels scheels.com/p/19539432004/?utm_source=google&utm_medium=cpc&utm_campaign=unpaidlistings&srsltid=AfmBOopGd2g20ToeGScI86j7FrnIU0DZZ2M6T6zIlP6475J_vD-lmcxNynY Shop Scheels](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nHow this was made\n\nMade with AI\n\nSounds or visuals were altered or fully generated. [Learn more](https://support.google.com/youtube/answer/15447836?hl=en)\n\nTranscript\n\nFollow along using the transcript.\n\nShow transcript\n\n[![Image 12](https://www.youtube.com/watch?v=8hfeKob29s8) ### Footwear Flix 1.47K subscribers](https://www.youtube.com/@FF-Officials)\n\n[Videos](https://www.youtube.com/channel/UC45b70nSmiXOS1FyL6OZy6Q/videos)[About](https://www.youtube.com/channel/UC45b70nSmiXOS1FyL6OZy6Q/about)\n\n[![Image 13: true](https://www.youtube.com/watch?v=8hfeKob29s8) 18:14 18:14](https://www.youtube.com/watch?v=AdxZ7Z9hq_Y)[Best 10 Jordan Shoes You Need to Buy Right Now by Footwear Flix](https://www.youtube.com/watch?v=AdxZ7Z9hq_Y)\n\nShow less \n\n[](https://www.youtube.com/watch?v=8hfeKob29s8)4 products\n# Best Running Shoes For Overpronation: Top 10 Stability Shoes\n\n46 views 46 views\n\nJun 16, 2026\n\n1\n\nShare\n\nSave\n\nDownload\n\n Download \n\n## Comments\n\nNaN / NaN\n\n## Comments\n\n[Top Show featured comments](https://www.youtube.com/watch?v=8hfeKob29s8)[Newest Show recent comments, including potential spam](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n## In this video\n\nTimeline\n\nTranscript\n\n## Products\n\nFootwear Flix earns commission on tagged products.[Learn more](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 14](https://www.youtube.com/watch?v=8hfeKob29s8) #### Saucony Wmns Guide 16 'White Pink Gravel' | Women's Size 6 GOAT $159.00 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 15](https://www.youtube.com/watch?v=8hfeKob29s8) #### ASICS Men's GT-2000 14 Road-Running Shoes Gray 9.5 REI $140.00 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 16](https://www.youtube.com/watch?v=8hfeKob29s8) #### Brooks Mens Adrenaline GTS 23 GTX Waterproof Supportive Running Shoe - Oyster Mushroom/Orange/Blue - 10 Medium, Men's, Black Walmart - 6AVE Electronics $128.99 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 17](https://www.youtube.com/watch?v=8hfeKob29s8) #### Men's Brooks Beast GTS 23 Running Shoes 12.5 Extra Wide Black/Gunmetal Scheels Limited stock View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n## Products\n\nFootwear Flix earns commission on tagged products.[Learn more](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 18](https://www.youtube.com/watch?v=8hfeKob29s8) #### Saucony Wmns Guide 16 'White Pink Gravel' | Women's Size 6 GOAT $159.00 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 19](https://www.youtube.com/watch?v=8hfeKob29s8) #### ASICS Men's GT-2000 14 Road-Running Shoes Gray 9.5 REI $140.00 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 20](https://www.youtube.com/watch?v=8hfeKob29s8) #### Brooks Mens Adrenaline GTS 23 GTX Waterproof Supportive Running Shoe - Oyster Mushroom/Orange/Blue - 10 Medium, Men's, Black Walmart - 6AVE Electronics $128.99 View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 21](https://www.youtube.com/watch?v=8hfeKob29s8) #### Men's Brooks Beast GTS 23 Running Shoes 12.5 Extra Wide Black/Gunmetal Scheels Limited stock View](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n## Description\n\nBest Running Shoes For Overpronation: Top 10 Stability Shoes\n\n1 Likes\n\n46 Views\n\nJun 16 2026\n\nFootwear Flix earns commission on tagged products.[Learn more](https://www.youtube.com/watch?v=8hfeKob29s8)\n\n[![Image 22](https://www.youtube.com/watch?v=8hfeKob29s8) Saucony Wmns Guide 16 'White Pink Gravel' | Women's Size 6 GOAT goat.com/sneakers/wmns-guide-16-white-pink-gravel-s10810-85?tab=new&expandedSize=6&srsltid=AfmBOopcMBXVSGAA3dAky5aYvmMZUM1wx_ZK2DbgDt7pt2jfypfDw1Y-hLY Shop GOAT](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 23](https://www.youtube.com/watch?v=8hfeKob29s8) ASICS Men's GT-2000 14 Road-Running Shoes Gray 9.5 REI rei.com/product/249371/asics-gt-2000-14-road-running-shoes-mens?sku=2493710054&CAWELAID=120217890020875773 Shop REI](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 24](https://www.youtube.com/watch?v=8hfeKob29s8) Brooks Mens Adrenaline GTS 23 GTX Waterproof Supportive Running Shoe - Oyster Mushroom/Orange/Blue - 10 Medium, Men's, Black Walmart - 6AVE Electronics walmart.com/ip/Brooks-Men-s-Adrenaline-GTS-23-GTX-Waterproof-Supportive-Running-Shoe-Oyster-Mushroom-Orange-Blue-10-Medium/17944353104?wmlspartner=wlpa&selectedSellerId=4720&selectedOfferId=92876E692F133A8995173FDF0DBE2CCC&conditionGroupCode=1 Shop Walmart - 6AVE Electronics](https://www.youtube.com/watch?v=8hfeKob29s8)[![Image 25](https://www.youtube.com/watch?v=8hfeKob29s8) Men's Brooks Beast GTS 23 Running Shoes 12.5 Extra Wide Black/Gunmetal Limited stock Scheels scheels.com/p/19539432004/?utm_source=google&utm_medium=cpc&utm_campaign=unpaidlistings&srsltid=AfmBOopGd2g20ToeGScI86j7FrnIU0DZZ2M6T6zIlP6475J_vD-lmcxNynY Shop Scheels](https://www.youtube.com/watch?v=8hfeKob29s8)\n\nLinks Get From Here: 1 . Brooks Adrenaline GTS 23 [https://tinyurl.com/ytrcucvm](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbDE0eUViWS1RNWxKczc4X3BHZGRWOXZYN01MQXxBQ3Jtc0tsVWNWZ2EyTUpyemhrdFNESE5ubTBOZ0hjSXlreDM5MjMxZG1fYnI0M0xtUHNFSzF4Z25GRFdfYVo1clNjV29DSWFSMHFBTF9UbnlHMnJVUlhQOXRRWVRxRnZkd1ROTWY3Qkp1ZWFvb2Y3RjhRZ016bw&q=https%3A%2F%2Ftinyurl.com%2Fytrcucvm&v=8hfeKob29s8) 2 ASICS Gel-Kayano 30 [https://tinyurl.com/4c8ba474](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbklmVTl4bHVtdGFpNll3Skt1VGg1bkNuSDlPZ3xBQ3Jtc0ttV1IzVmJqUHNCR2g1cUVnbWJRYU5Od01IdHJQREQ2SnE3OGNtNGx0QU5VcEdSdmxlQnB0MExpdWc5eHBfZnJ4b1JmTnNHYS1vdFhaeUJJZk1XeWVIbC1FNWRrSUJjZmplS0kySTBWdUYxRm40RmRXdw&q=https%3A%2F%2Ftinyurl.com%2F4c8ba474&v=8hfeKob29s8) 3 . Saucony Guide 16 [https://tinyurl.com/2tdfkmmp](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbTdjOW5GZm1BcFU5d2swMEFHUlRZbGtzbFllZ3xBQ3Jtc0tsMGx0VFhqU29MSWlNdmgza21yRk5xZFBmU0JoMkpEX0F4VGZVQnhuTW5aX0h4MmZXRjFlOG9vT2tWT081NVlXRXI5NUJ2SUY4czB5TkF0Z2JQSjQyWlRaNjJxQ2Y0dnpCR05wUFJCLWF4S1pHSXFiNA&q=https%3A%2F%2Ftinyurl.com%2F2tdfkmmp&v=8hfeKob29s8) 4 . New Balance Fresh Foam X 860 v13 [https://tinyurl.com/3djmdtxa](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbTZXMFpsU2pKNUJ0WjZkY29nTVhfaHNBb1pCQXxBQ3Jtc0tsTDdlekhTR3NIQVhOdWEzX2JLYnUwWHRUN0JrV2dQS05EWUx4eV9XUnlRZm5RZ0ptbThSNG92cUZUcGJKT3FmXzllZXVEU0xHZEY5Y2ZTQ1psVTZzTWtjaVdkcWc2Tmk2OURWcGJwTkhkY0lFUVFNWQ&q=https%3A%2F%2Ftinyurl.com%2F3djmdtxa&v=8hfeKob29s8) 5 . Mizuno Wave Inspire 19 [https://tinyurl.com/y8mdez8a](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbXVIUERXLXFjYm9rRF9KYXBUN29lNmFHZUdaZ3xBQ3Jtc0trTjBLeEp0TC02WlBNUVJTRXhfeE9lUF9yc2NlLXJNRm9ONm9TUzZnY2NBaC1JUlF5U285RnpQVFIzZTRXNGZDR1dMaU84SE00a3MzMWpLZW5kOUp1VUpBaHctZFRSZXRVd0NoX1VGRVZxdnUycFpsYw&q=https%3A%2F%2Ftinyurl.com%2Fy8mdez8a&v=8hfeKob29s8) 6 . Hoka Arahi 7 [https://tinyurl.com/84t62j9d](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbDc3Q1FNNEcyNUxLZkx6NFNKaVhlYnBSNjlHQXxBQ3Jtc0ttTVlSVEtacmxzTHhGT1k3MktwS2dLbVRVWU1PeWlPcmdSU3R5QlA4QTg2eFVDX2tRbzZsWktGaVlNMWZwcXdldXNaVDl6cVUzWmUyT2RPN2tyYnhvQkM3WjBXRGZWOUw2ODBpaUl0cnliUm1CeTJfMA&q=https%3A%2F%2Ftinyurl.com%2F84t62j9d&v=8hfeKob29s8) 7 . Nike Air Zoom Structure 25 [https://tinyurl.com/y9v8az5j](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbHlocXBEbVFBRkpFTkx3RnhjNzFiMF9jZ1VFUXxBQ3Jtc0trWEZCZ0ZHTnZ5NWhXRFBSNDhrTlU3eUxNbE9hVDA4dE0tTVItYU8yUmVqa1lBR3UwLVFuWXR3ckVQVG9ZTGh4T3VjQlFCZjZUbjZNVVVkd2Y1OXZDV0JZMW1sSXgzM0V3MEE5TFhvUE4tN25vc1Y4dw&q=https%3A%2F%2Ftinyurl.com%2Fy9v8az5j&v=8hfeKob29s8) 8 . Brooks Beast GTS 23 [https://tinyurl.com/4hkewycv](https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqbGlWODZWVWozNDJPcmtCeTcyVjk0QjAwNUtoZ3xBQ3Jtc0tuZ1VDMDhRV2FMaG42Nlc5VUhsYmNfMk5KVjNMQzdURlQ5a2plbk5fNkRlZVI0c2RlRTQwc2VUMU1XaUs2TTR3WDE0THY4QlRSXzFxandTZWFDSzlqQUtEVFBwelYwVnIwVTZtLTVBbE5OTzdiTUFtVQ&q=https%3A%2F%2Ftinyurl.com%2F4hkewycv&v=8hfeKob29s8) 9 . Saucony Tempus 2 [https://tinyurl.com/2ezabvbs](https://www.youtube.com/redirect?event=video_description",
+    "source": "video",
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004012668,
+    "bait": true,
+    "category": "listicle",
+    "reason": "Classic low-effort Top 10 SEO listicle video title and framing"
+   }
+  },
+  {
+   "src": {
+    "query": "best budget espresso machine under $500",
+    "url": "https://www.youtube.com/watch?v=wk9x3OtBce0",
+    "title": "Ultimate Budget Espresso Machine Tier List!",
+    "content": "[May 14, 2025]\nWhat To Buy?! Ultimate Guide to Budget Espresso (under $500). Lance Hedrick · 311K views ; Good Machine, Questionable Value: Gaggia Classic Up ...\n\n[description]\nThanks to Warby Parker for sponsoring this video! Visit https://warbyparker.yt.link/2tQzzmf for Warby Parker’s glasses and sunglasses and get 15% off when you order 2 or more prescription pairs both online and in stores.\n\nI hope this was helpful! It is no easy task going this in depth on so many machines, so please hit that like and subscribe if you appreciated it! And stay tuned for further tier lists on espresso machines. Got 4 more to go!\n\nFind all data below!\nhttps://shorturl.at/0aDyw\n\nLINKS\n__________________\nJoin my Patreon community at:\nhttps://www.patreon.com/lancehedrick\n\nFind me on IG at:\nhttps://www.instagram.com/lancehedrick\n\nFind me on Facebook at: \nhttps://www.facebook.com/lancehedrickcoffee\n\nMy storefront: https://www.amazon.com/shop/lancehedrick\n\nMy SECOND Channel:\nLance Hedrick Unfiltered\nhttps://www.youtube.com/channel/UCvNpZQzurSNZQ8e2QNGNXsA\n\n\nTIME CUES:\n0:00- Introduction to Series\n1:46- Approach\n3:55- Rubric\n5:34- Delonghi Stilosa (B)\n7:16- Delonghi ECP3420 (A)\n8:44- Warby Parker\n10:28- Delonghi Dedica (D)\n14:40- Breville Bambino (B)\n16:09- HiBrew H10a Plus (B)\n18:42- Solis Perfetta Plus (C)\n20:44- Gaggia Classic Pro 2019 (C)\n23:12- Gemilai Owl (B)\n25:34- Breville Bambino Plus (B)\n27:15- Gemilai/MiCoffee Apex/Turin Legato (B)\n29:19- Gaggia Classic Pro E24 (B)\n30:10- Breville/Sage Barista Express (C)\n33:14- Gaggimate (A+)\n34:16- Breville/Sage Barista Pro (C)\n36:10- Lelit Anna (B)\n38:10- Gaggiuino (A)\n39:26- Breville/Sage Barista Express Impress (C)\n41:12- Breville/Safe Barista Touch (C)\n42:47- Rancilio Silvia (C)\n44:48- Lelit Victoria (B)\n46:15- Profitec Go (B)\n47:18- Concluding Remarks and Smeg (F)",
+    "source": "video",
+    "publishedAt": 1747198800,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.006669036,
+    "bait": true,
+    "category": "sponsored",
+    "reason": "Sponsored YouTube tier list with affiliate storefront and monetization links"
+   }
+  },
+  {
+   "src": {
+    "query": "best running shoes for flat feet",
+    "url": "https://www.youtube.com/watch?v=kllxHQzZdSw",
+    "title": "Choosing the Right Fit: Understanding Running Shoe Stability",
+    "content": "[Oct 6, 2023]\nJoin Steve Moore from Run Moore as he delves into the crucial topic of shoe stability and its impact on your running experience.\n\n[description]\nJoin Steve Moore from Run Moore as he delves into the crucial topic of shoe stability and its impact on your running experience. If you've ever wondered what \"stability\" really means in the world of running shoes, this video is a must-watch. Steve breaks down the difference between neutral and stable shoes, helping you understand how they affect your natural gait cycle.\n\nDiscover the key factors to consider when choosing between neutral and stable shoes, and why it matters for runners of all levels. Steve shares insights gained from years of experience, explaining how a shoe's design can provide the necessary support to enhance your efficiency and prevent potential injuries.\n\nUsing examples like the Brooks Glycerin and Glycerin GTS, Steve illustrates the visual differences between neutral and stable versions. Learn how stability features, such as reinforced arch support and lateral support, can make a significant impact on your running performance.\n\nWhether you're a seasoned runner or new to the sport, understanding your foot's natural tendencies and selecting the right shoe can make a world of difference. Steve offers valuable advice on how to identify your specific needs and highlights the importance of seeking professional guidance when choosing the perfect running shoe.\n\nIf you're passionate about improving your running experience, don't miss out on Steve's expert insights. Watch the video, leave your questions in the comments below, and subscribe to our channel for more valuable tips on running, shoe selection, and overall fitness.\n\n🏃‍♂️👟 #RunningShoes #ShoeStability #RunningTips #RunMoore #foothealth \n\n⏲️TIMESTAMPS⏲️\n0:00 Introduction\n0:08 Understanding Stability\n0:32 Types of Shoes\n1:14 The Need for Stability\n1:46 Visual Comparison\n2:37 Impact of Stability\n3:45 Shoe Selection Guidance\n5:00 Advancements and Analogies\n6:05 Long-Term Benefits\n6:15 Viewer Engagement and Conclusion\n\n🔔 Stay tuned every week for more empowering tips and tricks that will lead you to a better, healthier shoe experience. For more running shoe reviews, tips, and insights... \n\n👍 Like & Subscribe to our channel 👉 https://tinyurl.com/26cmzphj and join the  @RunMoore  community today! \n\n BE SURE TO CHECK OUT OUR ONLINE STORE!\n🛍️ https://shop.letsrunmoore.com/\n🔥 Use promo code \"RUNMOORE\" for a 10% discount and free shipping!\n(New Models Only) *Some Exclusions May Apply\n\n🔗 Connect with Run Moore:\nWebsite: https://letsrunmoore.com/\nOnline Store: https://shop.letsrunmoore.com/\nInstagram: https://www.instagram.com/letsrunmoore/\nFacebook: https://www.facebook.com/letsrunmoore\nPhysical Store: 28 W Main St., Westminster, MD 21157 📍\nPhone: (443) 201-8203\nEmail: info@letsrunmoore.com\n\n–––––––––––––––––––––\nWATCH OUR OTHER VIDEOS\n🎥 Brooks Ghost Max: https://youtu.be/FNtuDDEbZlM\n🎥 Altra FWD Experience: https://youtu.be/fCGMfTFv74g\n🎥 Diadora Equipe Sestriere XT: https://youtu.be/uzR30sURH0U\n\n🏬 Run Moore is a running shoe store based in Westminster, MD. We were named one of the Best Running Stores 👟 in the United States in 2019 and 2020! \n\n🎥 Video produced by Adam Stultz of Digital Consulting LLC (https://adamstultz.com/)",
+    "source": "video",
+    "publishedAt": 1696568400,
+    "credibility": {
+     "tags": [],
+     "score": 55,
+     "reasons": [
+      "video provider (weak hands-on prior)"
+     ]
+    }
+   },
+   "oracle": {
+    "ok": true,
+    "cost": 0.004708836,
+    "bait": true,
+    "category": "affiliate",
+    "reason": "Retailer video pushes own store and promo code with shoe advice"
+   }
+  }
+ ]
+}

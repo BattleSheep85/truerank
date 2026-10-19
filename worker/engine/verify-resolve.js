@@ -76,7 +76,7 @@ const MULTI_IN_ONE_TEXT_RE = /\b\d+\s*[- ]?\s*in\s*[- ]?\s*1\b/gi;
 const RETAILER_LABELS = new Set([
   'amazon', 'bestbuy', 'walmart', 'target', 'newegg', 'bhphotovideo', 'costco',
   'crutchfield', 'microcenter', 'adorama', 'ebay', 'currys', 'argos', 'johnlewis',
-  'mediamarkt', 'jbhifi', 'harveynorman', 'aliexpress', 'temu', 'staples',
+  'mediamarkt', 'jbhifi', 'harveynorman', 'aliexpress', 'temu', 'staples', 'etsy',
 ]);
 
 // Second-level labels of country domains with a two-part suffix (amazon.co.uk).

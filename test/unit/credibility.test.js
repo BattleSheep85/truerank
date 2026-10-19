@@ -65,6 +65,13 @@ export function runCredibilityTests() {
     ['linksynergy', isAffiliateUrl('https://click.linksynergy.com/deeplink?id=X&mid=1234'), true],
     ['ebay-campid', isAffiliateUrl('https://ebay.com/itm/12345?campid=5338123456'), true],
     ['irclickid', isAffiliateUrl('https://example.com/product?irclickid=abc123def'), true],
+    // CP-370 inc.3: video-description affiliate shortlinks (Genius Link, LMG, Tradedoubler).
+    ['geni-us-short', isAffiliateUrl('https://geni.us/StandDeskPro'), true],
+    ['lmg-gg-short', isAffiliateUrl('https://lmg.gg/8KV3S'), true],
+    ['tidd-ly-short', isAffiliateUrl('https://tidd.ly/3XyZabc'), true],
+    ['plain-genius-word', isAffiliateUrl('https://example.com/genius-bar-review'), false],
+    ['geni-us-lookalike-host', isAffiliateUrl('https://homegeni.us/review'), false],
+    ['lmg-gg-in-path', isAffiliateUrl('https://example.com/assets/lmg.gg-logo.png'), false],
     ['clean-url', isAffiliateUrl('https://rtings.com/tv/reviews/lg/c4-oled'), false],
     ['empty-url', isAffiliateUrl(''), false],
 
@@ -82,6 +89,9 @@ export function runCredibilityTests() {
       hasAffiliateLinks('Read more at https://rtings.com/tv/reviews/sony-a95l — no commerce.'),
       false],
     ['content-empty', hasAffiliateLinks(''), false],
+    ['content-has-geni-us',
+      hasAffiliateLinks('Gear I use:\nDesk: https://geni.us/abc123\nChair: https://geni.us/xyz'),
+      true],
 
     // ── isHandsOn ─────────────────────────────────────────────────────────
     ['hands-on-tested', isHandsOn('We tested this monitor for 6 weeks in our lab.'), true],
@@ -99,6 +109,18 @@ export function runCredibilityTests() {
     ['listicle-n-best', isListicle('15 Best Coffee Makers You Can Buy', ''), true],
     ['not-listicle-review', isListicle('LG C4 OLED Review: The King Returns', ''), false],
     ['not-listicle-analysis', isListicle('Why the M4 MacBook Air is Apple\'s Best', ''), false],
+    // CP-370 inc.3: video-hype listicle titles.
+    ['listicle-ranked-caps', isListicle('Best BUDGET Earbuds Under $50 in 2026 (RANKED)', ''), true],
+    ['listicle-ranked-tail', isListicle('Every Budget Espresso Machine Ranked', ''), true],
+    ['listicle-n-that-matter', isListicle('3 Desk Accessories That ACTUALLY Matter! (for 9-5 workers)', ''), true],
+    ['listicle-n-that-matter-plain', isListicle('5 Specs That Matter When Buying a TV', ''), true],
+    ['not-listicle-ranked-mid', isListicle('Top-ranked OLED panel teardown: what LG changed', ''), false],
+    ['not-listicle-ranked-choice', isListicle('Ranked choice voting explained', ''), false],
+    ['listicle-ranked-youtube-suffix', isListicle('Every Budget Espresso Machine Ranked - YouTube', ''), true],
+    ['listicle-ranked-channel-suffix', isListicle('Every Budget Espresso Machine Ranked | Coffee Channel', ''), true],
+    ['not-listicle-top-ranked-tail', isListicle('Sony WH-1000XM6 review: still top-ranked', ''), false],
+    ['not-listicle-top-ranked-caps', isListicle('LG C5 TOP-RANKED IN RTINGS TESTS', ''), false],
+    ['not-listicle-matter-no-number', isListicle('Does Driver Size Really Matter?', ''), false],
 
     // ── Domain classification ─────────────────────────────────────────────
     ['expert-rtings', isExpertDomain('https://www.rtings.com/tv/reviews/lg/c4'), true],
@@ -117,6 +139,12 @@ export function runCredibilityTests() {
 
     ['manufacturer-amazon', isManufacturerDomain('https://amazon.com/dp/B08XYZ'), true],
     ['manufacturer-apple', isManufacturerDomain('https://apple.com/macbook-pro/'), true],
+    // CP-370 inc.3: marketplace listings are seller copy, not reviews.
+    ['manufacturer-etsy', isManufacturerDomain('https://www.etsy.com/listing/1043833373/linen-shirt'), true],
+    ['manufacturer-ebay', isManufacturerDomain('https://www.ebay.com/itm/123456789'), true],
+    ['manufacturer-ebay-uk', isManufacturerDomain('https://www.ebay.co.uk/itm/123456789'), true],
+    ['manufacturer-ebay-de', isManufacturerDomain('https://www.ebay.de/itm/123456789'), true],
+    ['not-manufacturer-ebay-lookalike', isManufacturerDomain('https://debay.com/review'), false],
     ['not-manufacturer', isManufacturerDomain('https://rtings.com'), false],
 
     // ── hasAiInjection ────────────────────────────────────────────────────
