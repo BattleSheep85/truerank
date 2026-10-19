@@ -3,7 +3,7 @@
 // (service, local, experience); the HTML below copies the live page markup
 // as of 2026-10-18.
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, QUERY_KINDS } from '../../scripts/lib/eval-score.mjs';
+import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug } from '../../scripts/lib/eval-score.mjs';
 
 const CHECKS = { min_products: 3, min_sources: 5, max_age_days: 120 };
 const NOW = Date.parse('2026-10-18T00:00:00Z');
@@ -108,6 +108,28 @@ export function runEvalScoreTests() {
     for (const k of ['service', 'local', 'experience']) eq(`golden: has a ${k} query`, kinds.includes(k), true);
     eq('golden: every local query names its place', cfg.queries.filter((q) => q.kind === 'local').every((q) => Array.isArray(q.location_any) && q.location_any.length > 0), true);
     eq('golden: product queries keep an accepted list', cfg.queries.filter((q) => !q.kind || q.kind === 'product').every((q) => q.accepted_winners?.length > 0), true);
+  }
+
+  // ── CP-803: which existing page the eval reads ───────────────────────────
+  {
+    // Live /api/search/suggest answer for "best robot vacuum for pet hair" (2026-10-19):
+    // most-viewed first, so a test run outranked the real page.
+    const vacuum = [
+      { slug: 'best-robot-vacuum-for-pet-hair-diagnostic-20260621-24173s2r', query: 'Best Robot Vacuum for Pet Hair Diagnostic 20260621' },
+      { slug: 'best-robot-vacuum-for-pet-hair-2026-526w6f20', query: 'Best Robot Vacuum for Pet Hair 2026' },
+    ];
+    eq('lookup: prefers the page in the same cache cluster', pickExistingSlug('best robot vacuum for pet hair', vacuum), 'best-robot-vacuum-for-pet-hair-2026-526w6f20');
+    const keyboard = [
+      { slug: 'best-budget-mechanical-keyboard-for-typing-06414x60', query: 'Best Budget Mechanical Keyboard for Typing' },
+      { slug: 'best-budget-mechanical-keyboard-under-100-8f7ce915', query: 'Best Budget Mechanical Keyboard Under $100' },
+    ];
+    eq('lookup: a price filter is the same cluster', pickExistingSlug('best budget mechanical keyboard', keyboard), 'best-budget-mechanical-keyboard-under-100-8f7ce915');
+    eq('lookup: falls back to a page holding every word', pickExistingSlug('best budget mechanical keyboard', keyboard.slice(0, 1)), 'best-budget-mechanical-keyboard-for-typing-06414x60');
+    eq('lookup: a test run is never read', pickExistingSlug('best robot vacuum for pet hair', vacuum.slice(0, 1)), null);
+    const strips = [{ slug: 'fentanyl-test-strips-abc', query: 'Fentanyl Test Strips' }];
+    eq('lookup: a test word the golden query holds is not a test run', pickExistingSlug('fentanyl test strips', strips), 'fentanyl-test-strips-abc');
+    eq('lookup: nothing that matches', pickExistingSlug('best password manager', vacuum), null);
+    eq('lookup: tolerates a bad answer', pickExistingSlug('best password manager', null), null);
   }
 
   return report;

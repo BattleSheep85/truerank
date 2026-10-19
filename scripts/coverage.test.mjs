@@ -33,9 +33,11 @@ import { runGroundingCheckTests } from '../benchmarks/tests/grounding-check.test
 import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
+import { runPageKindTests } from '../test/unit/page-kind.test.js';
 import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
 
 const suites = [
+  ['page-kind', runPageKindTests],
   ['credibility', runCredibilityTests],
   ['validate-quality-gate', runValidateTests],
   ['product-search', runProductSearchTests],

@@ -14,6 +14,8 @@
 // accepted_winners stays optional outside "product": services and places
 // rarely have one stable winner, so the pick is judged only when a list is set.
 
+import { canonicalizeQuery } from '../../worker/lib/utils.js';
+
 export const QUERY_KINDS = ['product', 'service', 'local', 'experience'];
 
 const DISCLOSURE_RE = /may earn a commission/i;
@@ -91,4 +93,30 @@ const HARD_CHECKS = ['pick_correct', 'disclosure_present', 'amazon_free', 'servi
 
 export function hardFailures(score) {
   return HARD_CHECKS.filter((k) => score[k] === false);
+}
+
+// CP-803: test runs ("... diagnostic 20260621", "... unique test 4829") are never the page a
+// visitor gets, so the eval never scores one. A marker the golden query holds itself
+// ("fentanyl test strips") is not a test run.
+const TEST_MARKER_RE = /\b(?:test|diagnostic|debug)\b|\d{5,}/gi;
+
+function isTestRun(candidateQuery, goldenQuery) {
+  const golden = goldenQuery.toLowerCase();
+  return (candidateQuery.match(TEST_MARKER_RE) || []).some((m) => !golden.includes(m.toLowerCase()));
+}
+
+/**
+ * Which existing page the eval scores for a golden query, from the /api/search/suggest answer
+ * (most-viewed first). The page in the query's own cache cluster (same canonical query, the
+ * page a visitor's search would reuse) wins; else the first page holding every word of the query.
+ */
+export function pickExistingSlug(query, candidates) {
+  if (!Array.isArray(candidates)) return null;
+  const pages = candidates.filter((c) => c && typeof c.slug === 'string' && !isTestRun(c.query || '', query));
+  const canonical = canonicalizeQuery(query);
+  const sameCluster = pages.find((c) => canonicalizeQuery(c.query || '') === canonical);
+  if (sameCluster) return sameCluster.slug;
+  const words = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+  const holdsAll = pages.find((c) => words.every((t) => (c.query || '').toLowerCase().includes(t)));
+  return holdsAll ? holdsAll.slug : null;
 }
