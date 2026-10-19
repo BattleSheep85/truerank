@@ -109,8 +109,10 @@ export async function writeCachedClaims(kv, product, claims, productUrl = null) 
 
 /**
  * Keeps the saved set of `product` (and `productUrl`) for only
- * CLAIM_CACHE_WEAK_TTL_SECONDS from now. Returns true when a saved set was
- * found and re-saved. A KV error is logged and gives false. Never throws.
+ * CLAIM_CACHE_WEAK_TTL_SECONDS from now, and marks it `short`. A set already
+ * marked keeps its first expiry, so checks that reuse it within the day do
+ * not push it out again. Returns true when a set was shortened now. A KV
+ * error is logged and gives false. Never throws.
  */
 export async function shortenCachedClaims(kv, product, productUrl = null) {
   const key = claimCacheKey(product, productUrl);
@@ -118,7 +120,9 @@ export async function shortenCachedClaims(kv, product, productUrl = null) {
   try {
     const raw = await kv.get(key);
     if (!raw) return false;
-    await kv.put(key, raw, { expirationTtl: CLAIM_CACHE_WEAK_TTL_SECONDS });
+    const saved = JSON.parse(raw);
+    if (saved?.short === true) return false;
+    await kv.put(key, JSON.stringify({ ...saved, short: true }), { expirationTtl: CLAIM_CACHE_WEAK_TTL_SECONDS });
     return true;
   } catch (err) {
     console.error(`[claim-cache] shorten failed for ${key}: ${err instanceof Error ? err.message : String(err)}`);

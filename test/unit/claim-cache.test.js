@@ -142,7 +142,13 @@ export async function runClaimCacheTests() {
     await writeCachedClaims(kv, 'Antec C8', CLAIMS);
     eq('weak: shortened', await shortenCachedClaims(kv, 'antec c8'), true);
     eq('weak: re-saved with the short TTL', kv.puts[1]?.opts?.expirationTtl, CLAIM_CACHE_WEAK_TTL_SECONDS);
-    eq('weak: same claims kept', kv.puts[1]?.value, kv.puts[0]?.value);
+    eq('weak: same claims kept', JSON.parse(kv.puts[1]?.value).claims, JSON.parse(kv.puts[0]?.value).claims);
+    eq('weak: an already short set keeps its first expiry', await shortenCachedClaims(kv, 'Antec C8'), false);
+    eq('weak: no second put', kv.puts.length, 2);
+    eq('weak: a short set is still read', (await readCachedClaims(kv, 'Antec C8')).length, 4);
+    await writeCachedClaims(kv, 'Antec C8', CLAIMS);
+    eq('weak: a fresh extraction saves 30 days again', kv.puts[2]?.opts?.expirationTtl, CLAIM_CACHE_TTL_SECONDS);
+    eq('weak: and can be shortened again', await shortenCachedClaims(kv, 'Antec C8'), true);
     eq('weak: nothing saved, nothing to shorten', await shortenCachedClaims(memoryKv(), 'Antec C8'), false);
     eq('weak: no KV', await shortenCachedClaims(null, 'Antec C8'), false);
     eq('weak: no key', await shortenCachedClaims(memoryKv(), '  '), false);
@@ -159,6 +165,8 @@ export async function runClaimCacheTests() {
     eq('outcome: a scored run keeps 30 days', kv2.puts.length, 1);
     await quiet(() => keepClaimsByOutcome(kv2, 'Antec C8', null, { score: null }));
     eq('outcome: a run with no score shortens the set', kv2.puts[1]?.opts?.expirationTtl, CLAIM_CACHE_WEAK_TTL_SECONDS);
+    await quiet(() => keepClaimsByOutcome(kv2, 'Antec C8', null, { score: null }));
+    eq('outcome: a second no-score run within the day does not extend it', kv2.puts.length, 2);
   }
 
   return report;

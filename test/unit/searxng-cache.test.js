@@ -181,11 +181,19 @@ async function testPartialAnswerShortTtl(m, t) {
     await m.searxngSearch(QUERY, BASE_URL, { kv: kv2 });
   });
   t.eq('partial: an empty unresponsive list keeps the full TTL', kv2.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
+  // Two engines fail on almost every live request, so failed engines with a
+  // full answer keep the full TTL.
   const kv3 = fakeKv();
-  await withFetch(() => jsonResponse({ results: [{ url: 'https://www.amazon.com/dp/B0ABCDEFGH', title: 'x' }], unresponsive_engines: [['gmx', 'timeout']] }), async () => {
-    await m.searxngSiteSearch(QUERY, BASE_URL, { kv: kv3 });
+  const many = Array.from({ length: m.SEARXNG_THIN_RAW_RESULTS }, (_, i) => vacuum(i + 10));
+  await withFetch(() => jsonResponse({ results: many, unresponsive_engines: [['gmx', 'timeout'], ['neosearch', 'error']] }), async () => {
+    await m.searxngSearch(QUERY, BASE_URL, { kv: kv3 });
   });
-  t.eq('partial: site answers use the short TTL too', kv3.puts[0]?.opts?.expirationTtl, m.SEARXNG_PARTIAL_CACHE_TTL_S);
+  t.eq('partial: failed engines with a full answer keep the full TTL', kv3.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
+  const kv4 = fakeKv();
+  await withFetch(() => jsonResponse({ results: [{ url: 'https://www.amazon.com/dp/B0ABCDEFGH', title: 'x' }], unresponsive_engines: [['gmx', 'timeout']] }), async () => {
+    await m.searxngSiteSearch(QUERY, BASE_URL, { kv: kv4 });
+  });
+  t.eq('partial: site answers (small by nature) keep the full TTL', kv4.puts[0]?.opts?.expirationTtl, m.SEARXNG_CACHE_TTL_S);
 }
 
 const GROUPS = [testHitAndMiss, testKeyParams, testNoCacheOnBadAnswers, testImageAndSiteCached, testKvFailuresFallThrough, testNoKv, testCacheBypass, testPartialAnswerShortTtl];

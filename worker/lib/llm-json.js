@@ -14,7 +14,7 @@
 //      LOAD-BEARING for the classifier's fail-open path. Do not drop it.
 //   6. Otherwise return null. Never throws.
 // Every null is logged once here (CP-819), so a caller that treats null as "no
-// data" still leaves a trace. `source` names the caller in that line. The line
+// data" still leaves a trace (a caller may still salvage parts of the reply). `source` names the caller in that line. The line
 // holds the reply's length, never its text.
 export function parseFencedJson(raw, source = 'model') {
   if (raw && typeof raw === 'object') return raw;
@@ -43,6 +43,6 @@ export function parseFencedJson(raw, source = 'model') {
 }
 
 function dropped(source, why) {
-  console.warn(`[llm-json] ${String(source)} ${why}, dropped`);
+  console.warn(`[llm-json] ${String(source)} ${why}`);
   return null;
 }

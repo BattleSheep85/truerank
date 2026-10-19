@@ -75,14 +75,24 @@ async function planAspects(key, plannerModel, messages, nAspects, plannerOpts) {
   return { aspects: aspects.length >= 2 ? aspects : [], cost };
 }
 
-// facets: the classifier facets, so a location or service query gets the
-// same focus blocks the agent loop gets (engine.js buildAgentPrompt), not a
-// product plan (CP-819). No facets (legacy rows): no focus block.
+// Facets that make a query something other than a plain product. The planner
+// prompt is product-shaped already, so only these add focus text.
+const NON_PRODUCT_FACETS = Object.freeze(['needs_location', 'is_experience', 'is_content', 'is_service', 'is_comparative']);
+
+// The facetFocusBlocks text (as engine.js gives the agent loop) when the
+// facets name a location, service, experience, content or comparison query,
+// else ''. A plain product (every verify gather passes VERIFY_FACETS) and a
+// legacy row with no facets keep the plain prompt (CP-819).
+export function plannerFocusBlock(facets) {
+  if (!facets || typeof facets !== 'object') return '';
+  return NON_PRODUCT_FACETS.some((f) => facets[f] === true) ? facetFocusBlocks(facets) : '';
+}
+
 async function decompose(query, key, plannerModel, nAspects, perAspect, plannerOpts = {}, clarifications = {}, facets = null) {
   const clarBlock = clarifications && Object.keys(clarifications).length > 0
     ? `\nUSER CONSTRAINTS (mandatory — bias every aspect and every search query to surface options satisfying these):\n${Object.entries(clarifications).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`
     : '';
-  const focusBlock = facets && typeof facets === 'object' ? facetFocusBlocks(facets) : '';
+  const focusBlock = plannerFocusBlock(facets);
   const messages = [
     { role: 'system', content: DECOMPOSE_SYSTEM },
     { role: 'user', content: `Query: "${query}"${clarBlock}${focusBlock}\nProduce exactly ${nAspects} aspects, each with ${perAspect} search queries.` },
@@ -129,11 +139,14 @@ async function extractNotes(query, batch, key, plannerModel, plannerOpts = {}) {
     const resp = await callLLM(key, plannerModel, messages, { maxTokens: 2000, ...plannerOpts });
     const cost = Number.isFinite(resp.usage?.cost) ? resp.usage.cost : 0;
     const raw = resp.choices?.[0]?.message?.content ?? '';
-    // Same null-then-throw-on-property-read pattern as decompose() above: a
-    // failed parse still lands in this catch and returns the same fallback.
+    // A reply that does not parse is logged by the parser; the call was still
+    // billed, so its cost is kept (CP-819).
     const parsed = parseFencedJson(raw, 'notes');
-    return { notes: Array.isArray(parsed.notes) ? parsed.notes.filter((n) => n && n.content) : [], cost };
-  } catch { return { notes: [], cost: 0 }; }
+    return { notes: Array.isArray(parsed?.notes) ? parsed.notes.filter((n) => n && n.content) : [], cost };
+  } catch (err) {
+    console.log(`[parallel] notes call failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { notes: [], cost: 0 };
+  }
 }
 
 // The default read picks: the most credible pages first.
