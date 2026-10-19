@@ -295,5 +295,36 @@ export function runSafetyTests() {
     eq(`CP-807 allow: "${q}"`, screenQuery(q).blocked, false);
   }
 
+  // ── 14. CP-808: "make an explosive", plain and spaced (QA note on PR #19) ──
+  const cp808Blocked = [
+    'make an explosive',
+    'how to make an explosive',
+    'make explosives at home',
+    'making an explosive',
+    'build an explosive device',
+    'm a k e an explosive',
+    'm a k e a n explosive',
+    'm a k e a n e x p l o s i v e',
+    'make an e x p l o s i v e',
+    'm4ke an expl0sive',
+  ];
+  for (const q of cp808Blocked) {
+    eq(`CP-808 block: "${q}"`, screenQuery(q).blocked, true);
+  }
+  const cp808Allowed = [
+    'exploding kittens card game',
+    'best explosive proof storage cabinet',
+    'make an espresso at home',
+    'best bath bomb maker',
+    'best blender to make smoothies',
+    'best plyo box to build explosive power',
+    'shoes for building explosive speed',
+    'resistance bands to build explosive strength',
+    'best bluetooth speaker making explosive bass',
+  ];
+  for (const q of cp808Allowed) {
+    eq(`CP-808 allow: "${q}"`, screenQuery(q).blocked, false);
+  }
+
   return report;
 }

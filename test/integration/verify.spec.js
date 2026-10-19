@@ -149,3 +149,28 @@ describe('runVerificationPipeline — needs_url path', () => {
     expect(claims.length).toBe(0);
   });
 });
+
+// CP-808: a hedge call still running when the verdict is in (lateCostUsd) is
+// paid for, so it is added to the row and the month once it finishes.
+describe('runVerificationPipeline — late judge cost', () => {
+  it('adds lateCostUsd to the row and the month, and keeps it out of the saved result', async () => {
+    const id = await seedPendingRow();
+    const before = Number(await env.KV.get(`cost:${monthKey()}`)) || 0;
+    const verify = async () => ({ ...(await OK_VERIFY()), lateCostUsd: Promise.resolve(0.004) });
+    const res = await runVerificationPipeline(env, id, { product: 'Test Widget' }, { verify });
+    expect(res.status).toBe('complete');
+    const row = await env.DB.prepare('SELECT cost_usd, result FROM research WHERE id = ?').bind(id).first();
+    expect(row.cost_usd).toBeCloseTo(0.034);
+    expect(JSON.parse(row.result)).not.toHaveProperty('lateCostUsd');
+    const after = Number(await env.KV.get(`cost:${monthKey()}`)) || 0;
+    expect(after).toBeCloseTo(before + 0.034);
+  });
+
+  it('a late cost of 0 changes nothing', async () => {
+    const id = await seedPendingRow();
+    const verify = async () => ({ ...(await OK_VERIFY()), lateCostUsd: Promise.resolve(0) });
+    await runVerificationPipeline(env, id, { product: 'Test Widget' }, { verify });
+    const row = await env.DB.prepare('SELECT cost_usd FROM research WHERE id = ?').bind(id).first();
+    expect(row.cost_usd).toBeCloseTo(0.03);
+  });
+});

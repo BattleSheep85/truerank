@@ -219,7 +219,27 @@ export function publicResearchFilter(alias) {
 // alike: no test or verify runs, no retired rows (CP-804).
 export function publicNameFilter(alias) {
   return `${alias}.query NOT LIKE 'test %' AND ${alias}.query NOT LIKE 'verify %'
-    AND ${alias}.retired_at IS NULL`;
+    AND ${alias}.retired_at IS NULL
+    AND NOT (${trailingTestMarkerSql(alias)})`;
+}
+
+// Script-run words that, with a run id after them, mark a test run (CP-808).
+const TEST_MARKER_WORDS = ['test', 'diagnostic', 'debug', 'smoke'];
+// A run id is a date or random number of 5+ digits. Four digits are too often a
+// model or a year ("stress test 4090", "covid test 2026"), except after
+// "unique test", which no real search says.
+const TEST_RUN_ID_MIN_DIGITS = 5;
+
+// True (in SQL) when the query ends in "<marker word> <run id>", e.g.
+// "... diagnostic 20260621" or "... unique test 4829". rtrim strips the
+// trailing digits; the length difference is the run id's digit count.
+function trailingTestMarkerSql(alias) {
+  const q = `trim(${alias}.query)`;
+  const head = `rtrim(${q}, '0123456789')`;
+  const digits = `(length(${q}) - length(${head}))`;
+  const marker = TEST_MARKER_WORDS.map((w) => `${head} LIKE '% ${w} '`).join(' OR ');
+  return `(${digits} >= ${TEST_RUN_ID_MIN_DIGITS} AND (${marker}))
+      OR (${digits} >= 1 AND ${head} LIKE '% unique test ')`;
 }
 
 export function canonicalizeQuery(query, clarifications) {

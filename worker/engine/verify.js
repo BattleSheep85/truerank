@@ -993,16 +993,17 @@ const needsSecondOpinion = (outcome) => Boolean(outcome.error) || outcome.result
  * `hedgeMs` (optional): when the primary has no verdict by then, the fallback
  * call starts at once, but only to save time: the verdict follows the same
  * rule as without the hedge, whichever judge answers first (CP-789). A
- * decided primary verdict returns without waiting for the early fallback
- * (its cost counts only when it already finished).
+ * decided primary verdict returns without waiting for the early fallback;
+ * when that call has not finished, its cost comes later as `lateCostUsd`, a
+ * promise of the amount (CP-808).
  * `votes` (optional, default 1): the primary judge answers that many times
  * and the majority stance per source counts (classifyStance). The fallback
  * judge answers once.
  * `rerank` (optional, see rerankOptions): with a product, the evidence comes
  * from reranked passages (pickClaimEvidence). `hardMs` (optional) caps each
  * stance call.
- * Returns { verdict, evidence, costUsd, judgeModel } (judgeModel = the model
- * whose verdict was used).
+ * Returns { verdict, evidence, costUsd, judgeModel, lateCostUsd? }
+ * (judgeModel = the model whose verdict was used).
  */
 export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbackModel, callLLM, product, rerank, hardMs, hedgeMs = 0, votes = 1 }) {
   const picked = await pickClaimEvidence({ claim, scoredEvidence, product, rerank });
@@ -1024,6 +1025,10 @@ export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbac
 
   const primary = await primaryRun;
   if (!needsSecondOpinion(primary)) {
+    // An early fallback still running is paid for when it finishes (CP-808).
+    if (early && !early.outcome) {
+      return { ...primary.result, judgeModel: model, lateCostUsd: early.run.then((o) => o.result?.costUsd ?? 0) };
+    }
     const costUsd = primary.result.costUsd + (early?.outcome?.result?.costUsd ?? 0);
     return { ...primary.result, costUsd, judgeModel: model };
   }
@@ -1114,6 +1119,15 @@ export function collectClaimVerdicts(claims, judged) {
   });
   const costUsd = judged.reduce((sum, r) => sum + (Number.isFinite(r?.costUsd) ? r.costUsd : 0), 0);
   return { claimVerdicts, costUsd };
+}
+
+/**
+ * The cost of hedge calls that were still running when their claim's verdict
+ * was ready (judgeClaim lateCostUsd, CP-808). Resolves once they all finish.
+ */
+export async function lateJudgeCost(judged) {
+  const late = await Promise.all((judged || []).map((r) => r?.lateCostUsd ?? 0));
+  return late.reduce((sum, c) => sum + (Number.isFinite(c) ? c : 0), 0);
 }
 
 const secondsSince = (start, end) => ((end - start) / 1000).toFixed(1);
@@ -1489,7 +1503,8 @@ export async function collectClaimsAndEvidence({ product: givenProduct, productU
  * product page) could be resolved and no `productUrl` was given — the route
  * layer surfaces this as a prompt for the user to paste a URL. Otherwise
  * returns `{ status: 'ok', product, productUrl, subjectClaimSources, overall,
- * claims, evidenceCount, costUsd }`.
+ * claims, evidenceCount, costUsd, lateCostUsd }` (lateCostUsd: a promise of the
+ * hedge calls' cost still running, lateJudgeCost).
  */
 export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM }) {
   // CP-777: "X" and "X case" check the same product the same way.
@@ -1527,5 +1542,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
     claims: claimVerdicts,
     evidenceCount: scoredEvidence.length,
     costUsd: collected.costUsd + stanceCost,
+    // Not part of the saved result: the orchestrator adds it once it settles.
+    lateCostUsd: lateJudgeCost(judged),
   };
 }

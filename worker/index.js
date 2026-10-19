@@ -15,7 +15,7 @@ import { handleAffiliateClick, handleAffiliateSearch } from './handlers/affiliat
 import { handleProductImage } from './handlers/image.js';
 import { classifyQuery, userFacingRejection, defaultQuestionsForQuery } from './lib/classifier.js';
 import { screenQuery, rejectionMessage } from './lib/safety.js';
-import { checkRateLimit } from './lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from './lib/rate-limit.js';
 import { checkBurstGate } from './lib/burst-gate.js';
 import { canonicalizeQuery } from './lib/utils.js';
 import { renderBrowse } from './pages/browse.js';
@@ -144,10 +144,11 @@ export default {
                 // the search box UX is never blocked — the throttle protects spend while the
                 // fail-open shape protects UX.
                 const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-                const rateKey = `classify:${clientIp}`;
+                // Salted IP hash: the key is stored in D1 (CP-808).
+                const rateKey = await ipRateKey('classify', clientIp, env);
                 const burst = await checkBurstGate(env.RL_BURST, rateKey);
                 const velocity = burst.allowed
-                    ? await checkRateLimit(env.KV, rateKey, 60, 3600)
+                    ? await checkRateLimit(env.KV, rateKey, 60, 3600, env.DB)
                     : burst;
                 if (!velocity.allowed) {
                     return jres({ accept: true, clarifying_questions: defaultQuestionsForQuery(cq) });
@@ -179,7 +180,7 @@ export default {
 
             const reportMatch = path.match(/^\/api\/report\/([a-z0-9-]+)$/);
             if (reportMatch && method === 'GET') {
-                return handleGetReport(reportMatch[1], env);
+                return handleGetReport(reportMatch[1], env, { includeSnippets: url.searchParams.get('snippets') === '1' });
             }
 
             if (path === '/api/feedback' && method === 'POST') {

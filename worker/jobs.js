@@ -11,6 +11,7 @@ import { runFlywheelTick } from './lib/keywords.js';
 import { ingestGsc } from './lib/gsc.js';
 import { externalWorkerEnabled } from './lib/flags.js';
 import { purgeExpiredSessions } from './lib/auth.js';
+import { pruneRateLimitHits } from './lib/rate-limit.js';
 
 // How long an unconfirmed signup may sit in the table before the cron deletes
 // it. The confirmation link itself dies after 7 days, so this is generous.
@@ -44,6 +45,15 @@ export async function runScheduledTick(event, env, ctx) {
         }
     } catch (err) {
         console.error(JSON.stringify({ where: 'scheduled-purge-sessions', error: err instanceof Error ? err.message : String(err) }));
+    }
+
+    // Drop rate-limit hits past their window (CP-808). Own try/catch: before
+    // migration 021 the table is missing and this only logs.
+    try {
+        const prunedHits = await pruneRateLimitHits(env.DB, now);
+        if (prunedHits > 0) console.log(JSON.stringify({ where: 'scheduled-prune-rate-limit', pruned: prunedHits }));
+    } catch (err) {
+        console.error(JSON.stringify({ where: 'scheduled-prune-rate-limit', error: err instanceof Error ? err.message : String(err) }));
     }
 
     // Data minimization (GDPR): delete addresses that never confirmed. An
