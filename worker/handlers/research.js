@@ -226,7 +226,8 @@ export async function handleResearchStatus(reportId, env) {
     if (!row) {
         row = await getResearchBySlug(env.DB, reportId);
     }
-    if (!row) {
+    // A retired report answers like a missing one (CP-804).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
@@ -285,7 +286,7 @@ export async function handleResearchStream(reportId, env, request) {
                 dbRow = await getResearchBySlug(env.DB, reportId);
             }
 
-            if (!dbRow) {
+            if (!dbRow || dbRow.retired_at != null) {
                 send(9997, { type: 'error', error: 'Report not found' });
                 controller.close();
                 return;
@@ -361,7 +362,7 @@ export async function handleResearchStream(reportId, env, request) {
 export async function handleResearchEvents(slug, url, env) {
     const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
     const row = await getResearchBySlug(env.DB, slug);
-    if (!row) {
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Not found' }, 404);
     }
 

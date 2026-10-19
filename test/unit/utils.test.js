@@ -2,7 +2,7 @@
 import {
   slugify, generateSlug, isValidHttpsUrl, sanitizeUrl, escapeLikeWildcards,
   escapeHtml, escapeXml, displayQuery, isNotModified, timeAgo, parseJsonSafe,
-  publicResearchFilter, canonicalizeQuery, singularizeToken, squashQuery,
+  publicResearchFilter, publicNameFilter, canonicalizeQuery, singularizeToken, squashQuery,
   safeUserFacingError, monthKey, toPersistedSources, SOURCE_SNIPPET_CHARS,
 } from '../../worker/lib/utils.js';
 
@@ -81,6 +81,8 @@ export function runUtilsTests() {
   // publicResearchFilter (string builder; just verify alias substitution)
   ok('publicFilter uses alias', publicResearchFilter('r').includes("r.status = 'complete'"));
   ok('publicFilter thin-page gate', publicResearchFilter('research').includes('research_id = research.id'));
+  ok('publicNameFilter skips test runs and retired rows', publicNameFilter('v').includes("v.query NOT LIKE 'test %'") && publicNameFilter('v').includes('v.retired_at IS NULL'));
+  ok('publicFilter shares the name rule', publicResearchFilter('r').includes(publicNameFilter('r')));
 
   // singularizeToken: table-driven tests for exceptions and plural rules
   const singularizeCases = [

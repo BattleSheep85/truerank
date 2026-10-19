@@ -190,7 +190,7 @@ export async function handleChat(request, env) {
     if (slug) {
         if (!/^[a-z0-9-]+$/.test(slug)) return jsonResponse({ error: 'Invalid slug' }, 400);
         const entry = await getResearchBySlug(env.DB, slug);
-        if (!entry || entry.status !== 'complete') {
+        if (!entry || entry.status !== 'complete' || entry.retired_at != null) {
             return jsonResponse({ error: 'Report not found' }, 404);
         }
         const productRows = await getProductsByResearchId(env.DB, entry.id);

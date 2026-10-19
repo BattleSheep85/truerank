@@ -17,13 +17,17 @@ import { isTestableClaim } from '../engine/verify.js';
 // Longest prefill the entry form keeps. A pasted product link can be long.
 const MAX_PREFILL_LENGTH = 2048;
 
+// With JavaScript off, a check in progress reloads itself until it finishes (CP-804).
+const NOSCRIPT_REFRESH_SECONDS = 5;
+const NOSCRIPT_REFRESH = `\n<noscript><meta http-equiv="refresh" content="${NOSCRIPT_REFRESH_SECONDS}"></noscript>`;
+
 /**
  * GET /verify — the product-entry form. `prefillProduct` comes from the
  * home page's ?product= handoff (Mass search demoted the direct API call;
  * home now just navigates here with the typed text) — pre-filled but never
  * auto-submitted, so the user still confirms before spending a verify run.
  */
-export function renderVerifyEntryPage(prefillProduct = '') {
+export function renderVerifyEntryPage(prefillProduct = '', { error = '', signupRequired = false } = {}) {
     const prefill = String(prefillProduct || '').slice(0, MAX_PREFILL_LENGTH);
     const body = `<div class="grid-bg border-b border-line">
 <div class="mx-auto max-w-3xl px-6 py-12 md:py-16">
@@ -37,7 +41,7 @@ export function renderVerifyEntryPage(prefillProduct = '') {
 <h1 class="mt-3 font-serif text-h1 font-semibold text-ink">Verify a product&rsquo;s claims</h1>
 <p class="mt-3 max-w-xl text-body text-ink-2">Paste a product link or type its name. We check what it claims about itself against independent sources &mdash; specs, reviews, warranty terms &mdash; and score how well the claims hold up.</p>
 
-<form id="verify-form" class="verify-form mt-8 border border-line bg-surface-1">
+<form id="verify-form" action="/verify" method="post" class="verify-form mt-8 border border-line bg-surface-1">
 <div class="flex flex-col gap-0 sm:flex-row">
 <label for="verify-product" class="sr-only">Product link or name</label>
 <input type="text" id="verify-product" name="product" required minlength="3" maxlength="${MAX_PREFILL_LENGTH}" placeholder="Paste a product link or type its name" value="${escapeHtml(prefill)}" class="w-full border-b border-line bg-transparent px-4 py-4 font-mono text-sm text-ink outline-none placeholder:text-ink-3 focus:bg-surface-2 sm:border-b-0 sm:border-r">
@@ -45,7 +49,7 @@ export function renderVerifyEntryPage(prefillProduct = '') {
 </div>
 </form>
 
-<div id="verify-status" class="mt-6" role="status" aria-live="polite"></div>
+<div id="verify-status" class="mt-6" role="status" aria-live="polite">${formErrorMarkup(error, signupRequired)}</div>
 </div>
 </div>
 
@@ -174,6 +178,15 @@ export function renderVerifyEntryPage(prefillProduct = '') {
     );
 }
 
+// The error a no-JavaScript form post comes back with (CP-804). Same look as showMessage.
+function formErrorMarkup(error, signupRequired) {
+    if (!error) return '';
+    const signup = signupRequired
+        ? '<a href="/account" class="mt-3 inline-flex items-center justify-center gap-2 bg-accent-strong px-4 py-2.5 font-mono text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-accent-hover">Create a free account</a>'
+        : '';
+    return `<p class="font-mono text-xs text-trust-low">${escapeHtml(error)}</p>${signup}`;
+}
+
 /**
  * GET /verify/:slug — status/poll page while processing, minimal report once
  * complete. Returns null when no row matches the slug (caller 404s).
@@ -192,6 +205,9 @@ export async function renderVerifyResultPage(slug, env) {
 function renderProcessingPage(row) {
     const prettyProduct = displayQuery(row.query);
     const isNeedsInput = row.status === 'needs_input';
+    const isFailed = row.status === 'failed';
+    // Only a run still in the queue refreshes; a failed or stuck page would loop.
+    const noscriptRefresh = row.status === 'pending' || row.status === 'processing' ? NOSCRIPT_REFRESH : '';
 
     const body = `<div class="grid-bg border-b border-line">
 <div class="mx-auto max-w-2xl px-6 py-12 md:py-16">
@@ -209,7 +225,7 @@ function renderProcessingPage(row) {
 <div id="processing" class="mt-6 border border-line bg-surface-1 p-5">
 <div class="flex items-center gap-3">
 <div class="spinner" style="width:1.25rem;height:1.25rem;border-width:2px;margin:0;flex-shrink:0"></div>
-<p id="verify-status-text" class="font-mono text-xs text-ink-2">${isNeedsInput ? 'Waiting for a product URL…' : 'Checking claims against independent sources…'}</p>
+<p id="verify-status-text" class="font-mono text-xs text-ink-2">${isNeedsInput ? 'Waiting for a product URL…' : isFailed ? 'Verification failed — please try again.' : 'Checking claims against independent sources…'}</p>
 </div>
 </div>
 
@@ -319,7 +335,7 @@ ${isNeedsInput ? renderUrlPromptMarkup(row.preview) : ''}
             `Verifying ${prettyProduct}`,
             `Checking "${prettyProduct}"'s claims against independent sources.`,
             body,
-            '<meta name="robots" content="noindex, nofollow">',
+            `<meta name="robots" content="noindex, nofollow">${noscriptRefresh}`,
             { ogUrl: `https://chrisputer.tech/verify/${row.slug}` },
         ),
         lastModified: row.created_at,
