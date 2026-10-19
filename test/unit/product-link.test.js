@@ -6,6 +6,8 @@ import {
   isNameKey,
   distillProductName,
   trimProductType,
+  modelNameFromPage,
+  hasModelNumber,
   MODEL_VARIANT_WORDS,
 } from '../../worker/lib/product-link.js';
 import { productKeys } from '../../worker/engine/verify-resolve.js';
@@ -293,6 +295,41 @@ export function runProductLinkUnitTests() {
   eq('CP-783 distillProductName: a hyphenated model number still ends the name', distillProductName('Sony WH-1000XM6 Wireless Noise Canceling Headphones Black'), 'Sony WH-1000XM6');
   eq('CP-783 distillProductName: a lens range stays the model', distillProductName('Canon EF 18-55mm Lens Kit Black Camera'), 'Canon EF 18-55mm');
   eq('CP-783 trimProductType: a hyphenated size trims like "65Inch"', trimProductType('Samsung S90D 65-Inch'), trimProductType('Samsung S90D 65Inch'));
+
+  // ── CP-807: "X" and "X case" share one key; a slug name with no model takes it from the page title ──
+  for (const [longer, shorter] of [
+    ['Fractal Design North case', 'Fractal Design North'],
+    ['Antec C8 PC case', 'Antec C8'],
+    ['Ninja Creami ice cream maker', 'Ninja Creami'],
+    ['Samsung Galaxy S25 Ultra phone', 'Samsung Galaxy S25 Ultra'],
+    ['Michelin CrossClimate 2 tires', 'Michelin CrossClimate 2'],
+  ]) {
+    eq(`CP-807 productNameKey: "${longer}" shares the key of "${shorter}"`, productNameKey(longer), productNameKey(shorter));
+    eq(`CP-807 parseProductInput: "${longer}" shares the key of "${shorter}"`, parseProductInput(longer).key, parseProductInput(shorter).key);
+  }
+  ok('CP-807 productNameKey: tool types of one line keep their own keys', productNameKey('Milwaukee M18 Fuel hammer drill') !== productNameKey('Milwaukee M18 Fuel impact driver'));
+  ok('CP-807 productNameKey: robot and stick vacuums keep their own keys', productNameKey('Dyson V15 robot vacuum') !== productNameKey('Dyson V15 stick vacuum'));
+  eq('CP-807 hasModelNumber: one-letter suffix models count', [hasModelNumber('Logitech MX Master 3S'), hasModelNumber('Apple iPhone 5c'), hasModelNumber('Antec Chamber'), hasModelNumber('Antec 360mm')], [true, true, false, false]);
+  ok('CP-807 productNameKey: a trailing year stays in the key', productNameKey('MacBook Air 2024 laptop case') !== productNameKey('MacBook Air 2022'));
+  ok('CP-807 productNameKey: a trailing spec stays in the key', productNameKey('Galaxy S25 256GB phone') !== productNameKey('Galaxy S25 128GB'));
+  ok('CP-807 productNameKey: an accessory case keeps its own key', productNameKey('Apple iPhone 16 case') !== productNameKey('Apple iPhone 16'));
+  ok('CP-807 productNameKey: a variant keeps its own key', productNameKey('Antec C8 Wood case') !== productNameKey('Antec C8 case'));
+  eq('CP-807 productNameKey: two words stay (OtterBox case)', productNameKey('OtterBox case'), 'verify:name:case otterbox');
+  eq('CP-807 parseProductInput: a typed name keeps its words as the name', parseProductInput('Antec C8 case').name, 'Antec C8 case');
+  eq('CP-807 link key: an "X Case" slug and an "X" slug for one ASIN share the key',
+    parseProductInput('https://www.amazon.com/Antec-C8-Case/dp/B0CP3MZXVH').key, parseProductInput('https://www.amazon.com/Antec-C8/dp/B0CP3MZXVH').key);
+
+  const amazonTitle = 'Title: Amazon.com: Antec C8 Full-Tower E-ATX PC Case, Dual-Chamber, No Fans, Black | Tempered Glass Front & Side Panels, 360mm Radiator : Electronics\n\nURL Source: https://www.amazon.com/dp/B0CP3MZXVH\n\nMarkdown Content:\nrest';
+  const pasted = (content, title = 'https://www.amazon.com/dp/B0CP3MZXVH') => ({ url: 'https://www.amazon.com/dp/B0CP3MZXVH', title, content });
+  eq('CP-807 modelNameFromPage: a one-letter suffix model is taken', modelNameFromPage('Logitech Mouse', pasted('Title: Amazon.com: Logitech MX Master 3S - Wireless Performance Mouse : Electronics')), 'Logitech MX Master 3S');
+  eq('CP-807 modelNameFromPage: the Amazon title gives the model', modelNameFromPage('Antec Chamber', pasted(amazonTitle)), 'Antec C8');
+  eq('CP-807 modelNameFromPage: a page title field works too', modelNameFromPage('Antec Chamber', pasted('', 'Antec C8 Dual Chamber Full Tower Case | Antec')), 'Antec C8');
+  eq('CP-807 modelNameFromPage: a name with a model stays', modelNameFromPage('Antec C8', pasted(amazonTitle)), 'Antec C8');
+  eq('CP-807 modelNameFromPage: another brand in the title is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Lian Li O11 Dynamic EVO Mid Tower Case : Electronics')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a title with no model is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Antec Full Tower Gaming Case Black : Electronics')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a bot-check title is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com\n\nURL Source: x')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: no page keeps the name', modelNameFromPage('Antec Chamber', null), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a spec-only number is not a model', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Antec 360mm Full Tower Case : Electronics')), 'Antec Chamber');
 
   return report;
 }

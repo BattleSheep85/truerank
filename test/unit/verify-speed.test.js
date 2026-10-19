@@ -395,7 +395,7 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
   // ── verify.js: budget, judge caps, fallback on a failed primary ──────────
   await guarded('verifyBudget and ENGINE_CONFIG knobs', async () => {
     eq('verifyBudget: unset, zero, and negative knobs are 0 (no deadline)', verifyModule.verifyBudget({ verifyTestReadMs: 0, verifyGatherReadMs: -5 }), {
-      resolveReadMs: 0, testReadMs: 0, gatherReadMs: 0, plannerMs: 0, stanceCallMs: 0, claimPatienceMs: 0, hedgeMs: 0, extractHedgeMs: 0, overlapGather: false,
+      resolveReadMs: 0, testReadMs: 0, gatherReadMs: 0, plannerMs: 0, stanceCallMs: 0, claimPatienceMs: 0, hedgeMs: 0, extractHedgeMs: 0, overlapGather: false, pastedNameReadMs: 0,
     });
     eq('verifyBudget: positive knobs pass through', verifyModule.verifyBudget({ verifyResolveReadMs: 15000, verifyClaimPatienceMs: 3000, verifyOverlapGather: true }).resolveReadMs, 15000);
     const budget = verifyModule.verifyBudget(ENGINE_CONFIG);
