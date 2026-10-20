@@ -50,6 +50,9 @@ const postJson = (body) => new Request('https://x/p', {
 });
 
 describe('handleSubscribe', () => {
+  // The D1 rate window (CP-808) counts every call, and this file sends more
+  // than SUBSCRIBE_PER_HOUR (5) from one address. Each test starts fresh.
+  beforeEach(() => env.DB.prepare('DELETE FROM rate_limit_hits').run());
   it('405 on non-POST', async () => {
     const get = new Request('https://x/p', { method: 'GET', headers: { 'CF-Connecting-IP': '9.9.9.9' } });
     expect((await handleSubscribe(get, env)).status).toBe(405);

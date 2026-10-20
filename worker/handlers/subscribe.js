@@ -8,7 +8,10 @@
  *
  * The response is always the same generic {ok:true} on well-formed input, in
  * every state (new, repeat, confirmed, cooling down). That keeps the endpoint
- * free of an email-enumeration surface.
+ * free of an email-enumeration surface. While mail is off (not switched on, or
+ * no SMTP secrets) it adds mail:'off', the same for every address, so the
+ * form does not promise a mail that will never come (CP-812). A skipped send
+ * stamps nothing, so the visitor's next submit after mail is on sends it.
  *
  * Abuse layers, outermost first: burst gate per IP, hourly window per IP,
  * per-address 24 h cooldown, per-address lifetime cap, double opt-in, and the
@@ -18,7 +21,7 @@
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { decideSubscribeAction } from '../lib/subscribe-flow.js';
-import { sendMail } from '../lib/mailer.js';
+import { sendMail, mailConfigured } from '../lib/mailer.js';
 import { confirmationEmail, SITE_URL } from '../lib/email-templates.js';
 
 // Pragmatic, deliberately-not-RFC-5322 email check. We only need to reject
@@ -197,7 +200,7 @@ export async function handleSubscribe(request, env) {
     const rateKey = await ipRateKey('subscribe', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, SUBSCRIBE_PER_HOUR, SUBSCRIBE_WINDOW_S)
+        ? await checkRateLimit(env.KV, rateKey, SUBSCRIBE_PER_HOUR, SUBSCRIBE_WINDOW_S, env.DB)
         : burst;
     if (!velocity.allowed) {
         const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
@@ -233,5 +236,5 @@ export async function handleSubscribe(request, env) {
         if (!outcome?.ok) logUndeliveredConfirmation(outcome || {}, applied.rowId);
     }
 
-    return jsonResponse({ ok: true });
+    return jsonResponse(mailConfigured(env) ? { ok: true } : { ok: true, mail: 'off' });
 }

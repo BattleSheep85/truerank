@@ -5,7 +5,7 @@ import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeAll, describe, it, expect, vi } from 'vitest';
 import { applySchema } from './_schema.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
-import { checkRateLimit } from '../../worker/lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from '../../worker/lib/rate-limit.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
 const BASE = 'https://chrisputer.tech';
@@ -135,11 +135,12 @@ describe('index.js routing', () => {
   });
 
   it('POST /api/classify → 200 with fail-open / classified response', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => orResponse({
+    const llm = vi.fn(async () => orResponse({
       accept: true, reject_reason: null, topical_category: 'mechanical keyboards',
       facets: { is_buyable: true },
       clarifying_questions: [{ key: 'budget', question: 'Budget?', suggested_answers: ['<$75', '$75-150'] }],
-    })));
+    }));
+    vi.stubGlobal('fetch', llm);
     const res = await SELF.fetch(`${BASE}/api/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.85' },
@@ -148,13 +149,18 @@ describe('index.js routing', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.accept).toBe(true);
+    expect(data.clarifying_questions[0]?.question).toBe('Budget?');
     expect(Array.isArray(data.clarifying_questions)).toBe(true);
+    // The stub answered: no real network call (CP-714).
+    expect(llm).toHaveBeenCalled();
   });
 
   it('POST /api/classify when throttled (>60/hr) → fail-open 200 (not 429)', async () => {
     const ip = '203.0.113.86';
+    const network = vi.fn(async () => { throw new Error('no network in tests'); });
+    vi.stubGlobal('fetch', network);
     for (let i = 0; i < 60; i++) {
-      await checkRateLimit(env.KV, `classify:${ip}`, 60, 3600);
+      await checkRateLimit(env.KV, await ipRateKey('classify', ip, env), 60, 3600, env.DB);
     }
     const res = await SELF.fetch(`${BASE}/api/classify`, {
       method: 'POST',
@@ -165,5 +171,6 @@ describe('index.js routing', () => {
     const data = await res.json();
     expect(data.accept).toBe(true);
     expect(Array.isArray(data.clarifying_questions)).toBe(true);
+    expect(network).not.toHaveBeenCalled();
   });
 });
