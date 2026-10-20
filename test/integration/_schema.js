@@ -18,11 +18,12 @@ import consentEvidence from '../../schema/016_subscribers_consent_evidence.sql?r
 import retireSeoRows from '../../schema/017_retire_seo_rows.sql?raw';
 import monthlySpend from '../../schema/018_monthly_spend.sql?raw';
 import rateLimitHits from '../../schema/021_rate_limit_hits.sql?raw';
+import unretirePersonRows from '../../schema/023_unretire_person_rows.sql?raw';
 
 export async function applySchema(db) {
   // 012 must precede 011: it drops the products->research FK so 011 can
   // rebuild `research` (mirrors the required prod ordering).
-  for (const sql of [init, guides, v2, subscribers, subscribersConsent, subscribersConfirm, keywords, users, claims, productsNoFk, verification, squashedQuery, processingStarted, consentEvidence, retireSeoRows, monthlySpend, rateLimitHits]) {
+  for (const sql of [init, guides, v2, subscribers, subscribersConsent, subscribersConfirm, keywords, users, claims, productsNoFk, verification, squashedQuery, processingStarted, consentEvidence, retireSeoRows, monthlySpend, rateLimitHits, unretirePersonRows]) {
     const stmts = sql.replace(/--[^\n]*/g, '').split(';').map((s) => s.trim()).filter(Boolean);
     for (const s of stmts) await db.prepare(s).run();
   }
