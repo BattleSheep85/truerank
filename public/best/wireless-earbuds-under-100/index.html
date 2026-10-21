@@ -431,6 +431,15 @@
             <p class="mx-auto mt-2 max-w-[52ch] text-body text-ink-2">Run a fresh report. Frank reads the latest reviews, sources every claim, and is done in about 1 to 2 minutes.</p>
             <a href="/?q=best%20wireless%20earbuds%20under%20%24100" class="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent-strong px-5 py-2.5 text-body-sm font-semibold text-white transition-colors hover:bg-accent-hover">Research this live &rarr;</a>
         </section>
+
+        <div class="notify-footer mt-8 border-t border-line pt-6">
+            <form id="notify-form" class="m-0 flex flex-wrap items-center gap-2">
+                <label for="notify-email" class="min-w-[14rem] flex-1 text-body-sm text-ink-2">Get notified when we update this guide</label>
+                <input id="notify-email" type="email" name="email" required placeholder="you@example.com" autocomplete="email" maxlength="254" class="min-w-[12rem] flex-1 border border-line bg-bg px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-3">
+                <button type="submit" class="inline-flex items-center justify-center gap-2 bg-accent-strong px-4 py-2.5 font-mono text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-accent-hover whitespace-nowrap">Notify me</button>
+            </form>
+            <p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>
+        </div>
     </main>
 
     <footer class="border-t border-line mt-12">

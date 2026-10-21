@@ -151,7 +151,7 @@ document.addEventListener('DOMContentLoaded',function(){
 // Email capture: wires whichever #notify-form is on the page (the compact box
 // on processing pages, or the footer form on completed pages) to POST
 // /api/subscribe. researchId is the report id so we can notify on re-research.
-export function subscribeScript(researchId) {
+export function subscribeScript(researchId = null) {
   return `<script nonce="__CSP_NONCE__">
 (function(){
   function wire(){

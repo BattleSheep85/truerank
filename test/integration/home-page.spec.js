@@ -5,6 +5,8 @@ import { env, SELF } from 'cloudflare:test';
 import { beforeAll, describe, it, expect } from 'vitest';
 import { applySchema } from './_schema.js';
 import { generateId } from '../../worker/lib/db.js';
+import { STATIC_GUIDES } from '../../worker/lib/guides.js';
+import { handleSubscribe } from '../../worker/handlers/subscribe.js';
 
 const BASE = 'https://chrisputer.tech';
 const VERDICT_SLUGS = ['verify-home-alpha', 'verify-home-bravo', 'verify-home-charlie'];
@@ -89,5 +91,61 @@ describe('GET / verify-first homepage (piece 13)', () => {
     for (const attrs of inlineScripts) {
       expect(attrs).toContain(`nonce="${nonce}"`);
     }
+  });
+});
+
+describe('Email capture on home and /best hubs (CP-414)', () => {
+  it('GET / renders the #notify-form email capture block', async () => {
+    const { res, html } = await getHome();
+    expect(res.status).toBe(200);
+    const notifyForm = formBlock(html, 'notify-form');
+    expect(notifyForm).not.toBeNull();
+    expect(notifyForm).toContain('id="notify-email"');
+    expect(notifyForm).toContain('type="email"');
+    expect(notifyForm).toContain('name="email"');
+    expect(notifyForm).toContain('maxlength="254"');
+    expect(html).toContain('id="notify-msg"');
+  });
+
+  it('GET /best/ renders the #notify-form email capture block', async () => {
+    const res = await SELF.fetch(new Request(`${BASE}/best/`, { cf: { country: 'US' } }));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    const notifyForm = formBlock(html, 'notify-form');
+    expect(notifyForm).not.toBeNull();
+    expect(notifyForm).toContain('id="notify-email"');
+    expect(notifyForm).toContain('type="email"');
+    expect(html).toContain('id="notify-msg"');
+  });
+
+  it('every static /best/:slug/ guide renders the #notify-form email capture block', async () => {
+    for (const guide of STATIC_GUIDES) {
+      const res = await SELF.fetch(new Request(`${BASE}/best/${guide.slug}/`, { cf: { country: 'US' } }));
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      const notifyForm = formBlock(html, 'notify-form');
+      expect(notifyForm).not.toBeNull();
+      expect(notifyForm).toContain('id="notify-email"');
+      expect(notifyForm).toContain('type="email"');
+      expect(html).toContain('id="notify-msg"');
+    }
+  });
+
+  it('/js/app.js wires #notify-form to POST /api/subscribe and records a general subscription', async () => {
+    const jsRes = await SELF.fetch(new Request(`${BASE}/js/app.js`));
+    expect(jsRes.status).toBe(200);
+    const js = await jsRes.text();
+    expect(js).toContain("getElementById('notify-form')");
+    expect(js).toContain("fetch('/api/subscribe'");
+
+    const subRes = await handleSubscribe(new Request(`${BASE}/api/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.41.4.1' },
+      body: JSON.stringify({ email: 'homehub@example.test' }),
+    }), env);
+    expect(subRes.status).toBe(200);
+    expect(await subRes.json()).toEqual({ ok: true });
+    const row = await env.DB.prepare("SELECT email, research_id FROM subscribers WHERE email = 'homehub@example.test'").first();
+    expect(row).toEqual({ email: 'homehub@example.test', research_id: null });
   });
 });

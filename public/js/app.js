@@ -605,4 +605,41 @@
         setFormsBusy(false);
         scrollToEl(document.getElementById('hero'));
     };
+
+    // --- Email capture (#notify-form on home + /best/ hubs & guides) ---
+    function wireNotifyForm() {
+        var form = document.getElementById('notify-form');
+        if (!form || form.__wired) return;
+        form.__wired = true;
+        var input = document.getElementById('notify-email');
+        var msg = document.getElementById('notify-msg');
+        var researchId = form.getAttribute('data-research-id') || null;
+        form.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            var email = ((input && input.value) || '').trim();
+            if (!email) return;
+            if (msg) msg.textContent = 'Saving...';
+            var payload = { email: email };
+            if (researchId) payload.researchId = researchId;
+            fetch('/api/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(function (r) {
+                var ct = r.headers.get('content-type') || '';
+                if (ct.indexOf('application/json') === -1) throw new Error('non-json');
+                return r.json();
+            }).then(function (d) {
+                if (d && d.ok) {
+                    if (msg) msg.textContent = 'Check your inbox and click the link to confirm.';
+                    form.style.display = 'none';
+                } else {
+                    if (msg) msg.textContent = 'That email looks off. Try again?';
+                }
+            }).catch(function () {
+                if (msg) msg.textContent = 'Something went wrong. Try again later.';
+            });
+        });
+    }
+    wireNotifyForm();
 })();

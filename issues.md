@@ -1618,7 +1618,7 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       vs exact /dp/ "Buy on Amazon" — lift exact-ASIN coverage (asin-resolver.js).
 - [ ] MED (SEO): SSR the /reviews + /research browse grids (today JS-hydrated, empty
       for crawlers; sitemap 0.8). Pairs with the /reviews Buy-CTA fix.
-- [ ] QUICK WIN: email capture on home + /best hubs (backend built; research-page-only).
+- [x] QUICK WIN: email capture on home + /best hubs (backend built; research-page-only).
 
 ### USER ACTION required (gates big strategic value)
 
@@ -2367,7 +2367,7 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
       (orchestrator.js:209, indexnow.js accepts arrays).
 - [x] MED: "Price as of <date>, check current price" caption near CTAs — honesty +
       click-trust, reuses lastModifiedTs (research-page.js:357). Fits the ethos.
-- [ ] MED: Email capture on home/hubs (backend fully built; research-page-only today).
+- [x] MED: Email capture on home/hubs (backend fully built; research-page-only today).
 - [x] MED: Amazon `ascsubtag` (slug+rank) on /api/go redirects → free EPC/earnings
       attribution per page via Associates report (affiliate.js:56-86).
 - [x] HIGH: Raise engine READ_MIN_SCORE so hands-on expert reviews scoring 45
