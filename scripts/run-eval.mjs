@@ -15,7 +15,7 @@
 // "missing" and only run when --spend is passed. Zero dependencies.
 
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, pickExistingSlug, groundedness } from './lib/eval-score.mjs';
+import { scorePage, hardFailures, pickExistingSlug, suggestQuery, groundedness } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -33,7 +33,7 @@ async function getJson(path, init) {
 // endpoint does LIKE matching over public (non-thin) pages. pickExistingSlug
 // prefers the page in the query's own cache cluster and skips test runs.
 async function findExisting(query) {
-  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(query)}`);
+  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(suggestQuery(query))}`);
   return pickExistingSlug(query, body);
 }
 

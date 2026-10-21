@@ -10,7 +10,7 @@
 // Zero dependencies.
 
 import { readFileSync } from 'node:fs';
-import { productNames } from './lib/eval-score.mjs';
+import { productNames, pickExistingSlug, suggestQuery } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -39,14 +39,8 @@ async function getJson(path, init) {
 }
 
 async function findExisting(query) {
-  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(query)}`);
-  if (!Array.isArray(body)) return null;
-  const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  for (const cand of body) {
-    const c = (cand.query || '').toLowerCase();
-    if (qTokens.every((t) => c.includes(t))) return cand.slug;
-  }
-  return null;
+  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(suggestQuery(query))}`);
+  return pickExistingSlug(query, body);
 }
 
 async function runAndWait(query) {

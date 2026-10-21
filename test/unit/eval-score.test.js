@@ -3,7 +3,7 @@
 // (service, local, experience); the HTML below copies the live page markup
 // as of 2026-10-18.
 import { readFileSync } from 'node:fs';
-import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug, groundedness, productNames } from '../../scripts/lib/eval-score.mjs';
+import { scorePage, hardFailures, QUERY_KINDS, pickExistingSlug, suggestQuery, groundedness, productNames } from '../../scripts/lib/eval-score.mjs';
 
 const CHECKS = { min_products: 3, min_sources: 5, max_age_days: 120 };
 const NOW = Date.parse('2026-10-18T00:00:00Z');
@@ -130,6 +130,11 @@ export function runEvalScoreTests() {
     eq('lookup: a test word the golden query holds is not a test run', pickExistingSlug('fentanyl test strips', strips), 'fentanyl-test-strips-abc');
     eq('lookup: nothing that matches', pickExistingSlug('best password manager', vacuum), null);
     eq('lookup: tolerates a bad answer', pickExistingSlug('best password manager', null), null);
+    const verifyRun = [{ slug: 'best-ergonomic-office-chairs-2026-verify-7712-425a8821', query: 'Best Ergonomic Office Chairs 2026 Verify 7712' }];
+    eq('lookup: a trailing verify NNNN marker is a test run', pickExistingSlug('best ergonomic office chair', verifyRun), null);
+    eq('suggestQuery: cuts at $ so /api/search/suggest (which strips $) still matches', suggestQuery('best wireless earbuds under $100'), 'best wireless earbuds under');
+    eq('suggestQuery: leaves a plain query alone', suggestQuery('best mesh wifi systems'), 'best mesh wifi systems');
+    eq('suggestQuery: keeps a query that starts with $', suggestQuery('$50 gift ideas'), '$50 gift ideas');
   }
 
   // ── CP-807: groundedness against the saved per-source snippets ───────────

@@ -1529,9 +1529,10 @@ Shipped eval harness for repeatable pick-quality regression against sourced expe
       `worker/lib/category-gate.js` + validate.js applies the gate on LLM synth path (extract
       already had it). Existing pages need re-run to pick up the fix.
       Closed 2026-10-17 (CP-380, 3c858a5, f891d26, c755080): the live air-fryer and smart-bulb pages now show only fryers and bulbs. Three leaks the first gate missed are closed in worker/lib/category-gate.js: query use-clause words ("for a family of four") no longer admit a product, and a bare modifier ("smart", "wireless") is not enough when the category has a noun.
-- [ ] FOLLOW-UP — **7 missing pages** (mesh wifi, budget earbuds, budget espresso, home NAS,
+- [x] FOLLOW-UP — **7 missing pages** (mesh wifi, budget earbuds, budget espresso, home NAS,
       budget gaming headset, upright vacuum pets, laptop 2026) — run `node scripts/run-real-world-eval.mjs --spend`
       when budget allows (~$0.70).
+      Closed 2026-10-20 (CP-381): all 18/18 benchmark pages are now live and scored (pick 11/17, recall@5 17/17, disclosure 18/18, depth 18/18, 0 anti-pattern hits). Three of the 7 (`budget earbuds`, `budget espresso`, `budget gaming headset`) were already in D1 (`best-wireless-earbuds-under-100-5a450514`, `best-espresso-machine-under-500-0u5d4e3k`, `best-gaming-headset-under-100-7036586o`) and were missed because `/api/search/suggest` strips `$`, turning `"under $100"` into `"under 100"` before `r.query LIKE`; `suggestQuery()` in `scripts/lib/eval-score.mjs` trims at `$` and `scripts/run-real-world-eval.mjs` now uses `pickExistingSlug()`. Ran the remaining 4 missing pages (`best-mesh-wifi-systems-2s1q4z18`, `best-home-nas-devices-125n0l17`, `best-vacuum-for-pet-hair-4w1o6j3y`, `best-laptop-2026-394i466q`) plus the 2 pages retired or filtered since 2026-07-03 (`best-portable-charger-for-iphone-6s206l5n`, `best-pho-in-wichita-5a1h5s2t`).
 
 ## 2026-07-01 — /dp/ link recall: retailer fallback added (Best Buy, Newegg)
 

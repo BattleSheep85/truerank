@@ -119,11 +119,23 @@ export function hardFailures(score) {
 // CP-803: test runs ("... diagnostic 20260621", "... unique test 4829") are never the page a
 // visitor gets, so the eval never scores one. A marker the golden query holds itself
 // ("fentanyl test strips") is not a test run.
-const TEST_MARKER_RE = /\b(?:test|diagnostic|debug)\b|\d{5,}/gi;
+const TEST_MARKER_RE = /\b(?:test|diagnostic|debug|verify\s+\d+)\b|\d{5,}/gi;
 
 function isTestRun(candidateQuery, goldenQuery) {
   const golden = goldenQuery.toLowerCase();
   return (candidateQuery.match(TEST_MARKER_RE) || []).some((m) => !golden.includes(m.toLowerCase()));
+}
+
+/**
+ * Search term sent to /api/search/suggest. The endpoint strips '$' before its
+ * LIKE match, so 'under $100' becomes 'under 100' and misses stored queries
+ * with '$100'. Cutting at '$' sends the words before the price, and
+ * pickExistingSlug checks the returned rows against the full query.
+ */
+export function suggestQuery(query) {
+  const text = String(query || '').trim();
+  const beforeDollar = text.split('$')[0].trim();
+  return beforeDollar.length >= 2 ? beforeDollar : text;
 }
 
 /**
