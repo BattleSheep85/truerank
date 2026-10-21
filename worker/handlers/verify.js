@@ -14,7 +14,7 @@
 import { generateId, getResearchById } from '../lib/db.js';
 import { generateSlug } from '../lib/utils.js';
 import { screenQuery, rejectionMessage } from '../lib/safety.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from '../lib/budget.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getSessionUser } from '../lib/auth.js';
@@ -53,7 +53,11 @@ export async function handleStartVerify(request, env) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
+    return startFromBody(request, env, body);
+}
 
+// The shared intake behind the JSON API and the no-JavaScript form.
+async function startFromBody(request, env, body) {
     const raw = typeof body.product === 'string' ? body.product.trim() : '';
     const rawError = validateRawInput(raw);
     if (rawError) return rawError;
@@ -69,6 +73,50 @@ export async function handleStartVerify(request, env) {
     const intake = resolveNewProduct(raw, bodyUrl.url);
     if (intake.error) return intake.error;
     return startNewSubmission(request, env, intake);
+}
+
+const FORM_FALLBACK_ERROR = 'Frank could not start that check. Please try again.';
+const CROSS_SITE_ERROR = 'Start a check from the Frank verify page.';
+
+/**
+ * Handle POST /verify, the entry form with JavaScript off (CP-804). Same rules
+ * as POST /api/verify. A cross-site post is refused, so another site cannot
+ * spend a visitor's free checks.
+ * Returns { slug } on success, else { status, error, product, signupRequired, retryAfter }.
+ */
+export async function handleVerifyForm(request, env) {
+    if (isCrossSite(request)) {
+        return { status: 403, error: CROSS_SITE_ERROR, product: '', signupRequired: false };
+    }
+    let product;
+    try {
+        const form = await request.formData();
+        product = String(form.get('product') ?? '').trim();
+    } catch (err) {
+        console.error('[verify] form body could not be read:', err instanceof Error ? err.message : String(err));
+        return { status: 400, error: FORM_FALLBACK_ERROR, product: '', signupRequired: false };
+    }
+    const res = await startFromBody(request, env, { product });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.slug) return { slug: data.slug };
+    return {
+        status: res.ok ? 500 : res.status,
+        error: data.error || FORM_FALLBACK_ERROR,
+        product,
+        signupRequired: data.code === 'signup_required',
+        retryAfter: res.headers.get('Retry-After'),
+    };
+}
+
+// A browser sends Origin on a form post, and Sec-Fetch-Site on modern engines.
+// A post with neither carries no proof it came from our own form, so it is
+// refused too (CP-808): every browser in use sends at least one of them.
+function isCrossSite(request) {
+    const fetchSite = request.headers.get('Sec-Fetch-Site');
+    if (fetchSite === 'cross-site') return true;
+    const origin = request.headers.get('Origin');
+    if (!origin && !fetchSite) return true;
+    return Boolean(origin) && origin !== new URL(request.url).origin;
 }
 
 // Step 1: length rules on the raw input, before any parsing.
@@ -87,7 +135,7 @@ function validateRawInput(raw) {
 function readBodyProductUrl(value) {
     if (value == null || value === '') return { url: null };
     if (typeof value !== 'string' || !isFetchableUrl(value)) {
-        return { error: jsonResponse({ error: 'productUrl must be a valid http(s) URL' }, 400) };
+        return { error: jsonResponse({ error: 'productUrl must be a public https:// link' }, 400) };
     }
     return { url: String(value).trim() };
 }
@@ -149,7 +197,7 @@ async function velocityGate(env, clientIp) {
     const rateKey = await ipRateKey('verify', clientIp, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const velocity = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+        ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
         : burst;
     if (velocity.allowed) return null;
     const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
@@ -286,7 +334,8 @@ async function handleResubmit(env, reportId, productUrl) {
     }
 
     const row = await getResearchById(env.DB, reportId);
-    if (!row) {
+    // A retired row answers like a missing one: no paid run, and it stays retired (CP-804).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
@@ -295,7 +344,8 @@ async function handleResubmit(env, reportId, productUrl) {
     // The new URL is caller-supplied, so the row loses its reuse key in the same write.
     const update = await env.DB.prepare(
         `UPDATE research SET subject_url = ?1, status = 'pending', canonical_query = NULL
-           WHERE id = ?2 AND status IN ('needs_input', 'failed') AND kind = 'verification'`
+           WHERE id = ?2 AND status IN ('needs_input', 'failed') AND kind = 'verification'
+             AND retired_at IS NULL`
     ).bind(productUrl, reportId).run();
 
     if ((update.meta?.changes ?? 0) === 0) {
@@ -322,7 +372,8 @@ async function handleResubmit(env, reportId, productUrl) {
  */
 export async function handleVerifyStatus(reportId, env) {
     const row = await getResearchById(env.DB, reportId);
-    if (!row) {
+    // A retired row answers exactly like a missing one (CP-784).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 

@@ -27,6 +27,7 @@ concurrency or cross-colo spread. That is exactly what an attacker sends.
 | POST /api/chat (`worker/handlers/chat.js:148`) | `chat:${ip}` | 20/hr | Money. One LLM call, about $0.005 | Low-med |
 | Auth signup/login (`worker/handlers/auth.js:29`) | `auth:${ip}` | 10/hr | Security. Credential stuffing, plus PBKDF2 100k iterations of CPU per attempt | CPU |
 | GET /go redirect (`worker/handlers/affiliate.js:25`) | `go:${ip}` | 30/hr | Click-fraud damper. Flagged requests still redirect, tag stripped | ~$0 |
+| GET /go redirect, site-wide (`worker/lib/affiliate-gate.js`, CP-353, 2026-10-19) | `go:global` (one key, D1 window, KV fallback) | `AFFILIATE_GLOBAL_HOURLY_LIMIT`/hr, 30 | Slow, wide click fraud under the 6/min native gate. Flagged requests still redirect, tag stripped | ~$0 |
 | GET /find (`worker/pages/find.js:26`) | `find:${ip}` | 30/hr | Analytics log throttle only. Redirect proceeds either way | ~$0 |
 
 Note: `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_SECONDS` in `wrangler.toml`

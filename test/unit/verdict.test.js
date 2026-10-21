@@ -9,6 +9,7 @@ import {
   verdictForClaim,
   overallVerdict,
   independentCorroborators,
+  buyerStoreKeyOf,
   CONTRADICT_MIN,
   WEAK_SUPPORT,
 } from '../../worker/lib/verdict.js';
@@ -390,8 +391,9 @@ export function runVerdictTests() {
     const support = [
       { url: 'https://one.example.com', tags: ['hands-on'] },
       { url: 'https://www.one.example.com/other-page', tags: ['hands-on'] }, // same host as above (www stripped)
-      { url: 'https://two.example.com', tags: ['hands-on'] },
-      { url: 'https://sponsored.example.com', tags: ['hands-on', 'sponsored-content'] },
+      { url: 'https://two.example.org', tags: ['hands-on'] }, // CP-777: same site as example.com
+      { url: 'https://another.test', tags: ['hands-on'] },
+      { url: 'https://sponsored.example.net', tags: ['hands-on', 'sponsored-content'] },
       { url: 'not-a-valid-url', tags: ['hands-on'] },
     ];
     const weighAllStrong = () => 1.0; // every item clears the 0.25 threshold
@@ -399,6 +401,16 @@ export function runVerdictTests() {
       'independentCorroborators: dedupes hosts, excludes disqualified tags, skips invalid URLs',
       independentCorroborators(support, weighAllStrong),
       2,
+    );
+    // CP-777: blogs on shared hosts are separate authors, not one site.
+    eq(
+      'CP-777 independentCorroborators: two blogspot.com blogs are two sites',
+      independentCorroborators([
+        { url: 'https://alice.blogspot.com/review', tags: ['hands-on'] },
+        { url: 'https://bob.blogspot.com/review', tags: ['hands-on'] },
+        { url: 'https://carol.substack.com/p/review', tags: ['hands-on'] },
+      ], weighAllStrong),
+      3,
     );
 
     const weighAllWeak = () => 0.1; // below CORROBORATOR_MIN_WEIGHT
@@ -567,6 +579,147 @@ export function runVerdictTests() {
       expertContra('https://www.tomsguide.com/x'),
     ], opts);
     eq('CP-723 control: two higher-weight expert contradictions still contradict', expertVsLab.status, 'contradicted');
+  }
+
+
+  // CP-777 regressions: one site counts once (repeat-run score spread).
+  {
+    const EPS = 1e-9;
+    const opts = { policy: 'verification' };
+    const page = (url, stance, tags = ['hands-on']) => ({ url, stance, credibility: 75, independence: 60, tags });
+    const chuckClaim = { id: 'c1', type: 'spec', text: 'Metal 1/2-inch ratcheting chuck grips bits securely.' };
+
+    // 1. Four pages of one blog with one sentence cannot outvote another site.
+    const oneBlog = verdictForClaim(chuckClaim, [
+      page('https://reviewdatacheck.com/dewalt-review.html', 'support'),
+      page('https://laziman.com/blog/best-cordless-drill-2026', 'contradict'),
+      page('https://laziman.com/blog/best-cordless-screwdriver-2026', 'contradict'),
+      page('https://laziman.com/blog/dewalt-dcd791-review', 'contradict'),
+      page('https://laziman.com/blog/milwaukee-vs-dewalt-2026', 'contradict'),
+    ], opts);
+    ok('CP-777 one site: four laziman.com pages contradict with one page of weight', Math.abs(oneBlog.contradict - 0.6) < EPS);
+    ok('CP-777 one site: four pages of one blog cannot contradict a claim another site supports', oneBlog.status !== 'contradicted');
+    eq('CP-777 one site: every page stays listed as evidence', oneBlog.contradicting.length, 4);
+
+    // 2. Regional mirrors of one outlet (pcmag.com, au., me., uk.) are one site.
+    const fansClaim = { id: 'c2', type: 'spec', text: 'Includes two 140 mm Aspect PWM fans pre-installed' };
+    const mirrors = verdictForClaim(fansClaim, [
+      page('https://www.pcmag.com/reviews/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://au.pcmag.com/pc-cases/98039/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://me.pcmag.com/en/pc-cases/14135/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+      page('https://uk.pcmag.com/pc-cases/1/fractal-design-north', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    ok('CP-777 mirrors: four pcmag mirrors add one page of support', Math.abs(mirrors.support - 0.6) < EPS);
+    eq('CP-777 mirrors: four pcmag mirrors are one independent corroborator', mirrors.independentCount, 1);
+    eq('CP-777 mirrors: one outlet alone cannot verify', mirrors.status, 'partially-verified');
+
+    // 3. A two-part regional suffix keeps outlets apart (pcmag.co.uk vs pcmag.com is one; techradar is another).
+    const twoSites = verdictForClaim(fansClaim, [
+      page('https://www.pcmag.co.uk/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.pcmag.com/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.techradar.com/x', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    ok('CP-777 sites: pcmag.co.uk + pcmag.com + techradar.com add two pages of support', Math.abs(twoSites.support - 1.2) < EPS);
+    eq('CP-777 sites: two outlets are two corroborators', twoSites.independentCount, 2);
+    eq('CP-777 sites: two outlets can verify', twoSites.status, 'verified');
+
+    // 4. The strongest page of a site is the one that counts.
+    const strongest = verdictForClaim(fansClaim, [
+      { url: 'https://kitguru.net/a', stance: 'support', credibility: 40, independence: 50, tags: [] },
+      { url: 'https://kitguru.net/b', stance: 'support', credibility: 90, independence: 90, tags: ['hands-on', 'expert-domain'] },
+    ], opts);
+    ok('CP-777 strongest page: the site adds its best page weight (0.9)', Math.abs(strongest.support - 0.9) < EPS);
+
+    // 5. Order does not change the result.
+    const reversed = verdictForClaim(chuckClaim, [
+      page('https://laziman.com/blog/milwaukee-vs-dewalt-2026', 'contradict'),
+      page('https://laziman.com/blog/dewalt-dcd791-review', 'contradict'),
+      page('https://reviewdatacheck.com/dewalt-review.html', 'support'),
+      page('https://laziman.com/blog/best-cordless-screwdriver-2026', 'contradict'),
+      page('https://laziman.com/blog/best-cordless-drill-2026', 'contradict'),
+    ], opts);
+    eq('CP-777 order: same verdict in any order', reversed, oneBlog);
+
+    // 6. Control: without the verification policy every page still adds up.
+    const legacy = verdictForClaim(chuckClaim, [
+      page('https://laziman.com/a', 'contradict'),
+      page('https://laziman.com/b', 'contradict'),
+    ]);
+    ok('CP-777 control: the default policy still sums every page', Math.abs(legacy.contradict - 0.9) < EPS);
+
+    // 7. Sites under a two-part country suffix stay apart (com.cn, co.kr, org.uk).
+    eq('CP-777 site key: zol.com.cn', buyerStoreKeyOf('https://detail.zol.com.cn/x'), 'zol');
+    eq('CP-777 site key: pconline.com.cn', buyerStoreKeyOf('https://www.pconline.com.cn/x'), 'pconline');
+    eq('CP-777 site key: review.co.kr', buyerStoreKeyOf('https://review.co.kr/x'), 'review');
+    eq('CP-777 site key: which.org.uk', buyerStoreKeyOf('https://www.which.org.uk/x'), 'which');
+    const cn = verdictForClaim(fansClaim, [
+      page('https://detail.zol.com.cn/x', 'support', ['hands-on', 'expert-domain']),
+      page('https://www.pconline.com.cn/x', 'support', ['hands-on', 'expert-domain']),
+    ], opts);
+    eq('CP-777 sites: two .com.cn outlets are two corroborators', cn.independentCount, 2);
+
+    // 8. Threads on a multi-author community site still add up, page by page.
+    const thread = (n) => ({ url: `https://www.reddit.com/r/x/comments/${n}/t`, stance: 'contradict', credibility: 75, independence: 60, tags: ['hands-on'] });
+    const threads = verdictForClaim(chuckClaim, [thread(1), thread(2), thread(3)], opts);
+    ok('CP-777 community: three Reddit threads add three pages of weight', Math.abs(threads.contradict - 1.8) < EPS);
+  }
+
+  // CP-718 round 2: one ordinary page cannot contradict a claim on its own.
+  {
+    const opts = { policy: 'verification' };
+    const page = (url, stance, credibility = 60, tags = ['hands-on']) => ({ url, stance, credibility, independence: 60, tags });
+    const gpuClaim = { id: 'c2', type: 'spec', text: 'Fits graphics cards up to 440mm in length' };
+
+    // 1. A lone listicle about another case (live Antec C8 run) stays undecided.
+    const lone = verdictForClaim(gpuClaim, [page('https://whoismcafee.com/best-pc-cases', 'contradict', 30, ['hands-on', 'listicle'])], opts);
+    eq('CP-718 one page: a lone mid-credibility page does not contradict', lone.status, 'unsubstantiated');
+    eq('CP-718 one page: the page stays listed as evidence', lone.contradicting.length, 1);
+
+    // 2. Two pages of one site are still one site.
+    const oneSite = verdictForClaim(gpuClaim, [
+      page('https://www.gsmarena.com/a', 'contradict'),
+      page('https://m.gsmarena.com/a', 'contradict'),
+    ], opts);
+    ok('CP-718 one site: a site and its mobile mirror do not contradict', oneSite.status !== 'contradicted');
+
+    // 3. Two independent sites contradict.
+    const two = verdictForClaim(gpuClaim, [
+      page('https://www.gsmarena.com/a', 'contradict'),
+      page('https://ag4tech.com/b', 'contradict'),
+    ], opts);
+    eq('CP-718 two sites: two independent sites contradict', two.status, 'contradicted');
+
+    // 4. One strong expert test contradicts on its own.
+    const expert = verdictForClaim(gpuClaim, [page('https://www.rtings.com/x', 'contradict', 90, ['hands-on', 'expert-domain'])], opts);
+    eq('CP-718 strong expert: one credibility-90 lab test contradicts', expert.status, 'contradicted');
+    ok('CP-718 strong expert: threshold is exported', verdictLib.STRONG_CONTRADICTOR_CREDIBILITY === 85);
+
+    // 5. A lone contradiction still blocks "verified".
+    const supported = verdictForClaim(gpuClaim, [
+      page('https://www.kitguru.net/a', 'support', 90, ['hands-on', 'expert-domain']),
+      page('https://www.gamersnexus.net/b', 'support', 90, ['hands-on', 'expert-domain']),
+      page('https://blog.example.com/c', 'contradict'),
+    ], opts);
+    eq('CP-718 lone contradiction: support wins, but only partially-verified', supported.status, 'partially-verified');
+
+    // 6. Three Reddit threads are three authors; two buyer stores are one voice.
+    const reddit = (n) => ({ url: `https://www.reddit.com/r/x/comments/${n}/t`, stance: 'contradict', credibility: 55, independence: 75, tags: ['community'] });
+    const threads = verdictForClaim({ id: 'c3', type: 'marketing', text: 'Quiet under load' }, [reddit(1), reddit(2), reddit(3)], opts);
+    eq('CP-718 community: three Reddit threads can contradict', threads.status, 'contradicted');
+    const buyer = (url) => ({ url, stance: 'contradict', credibility: 80, independence: 75, tags: ['buyer-review'], source: 'buyer-review' });
+    const stores = verdictForClaim({ id: 'c4', type: 'marketing', text: 'Easy to build in' }, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews'), buyer('https://www.bestbuy.com/site/x#buyer-reviews'),
+    ], opts);
+    ok('CP-718 buyers: two buyer stores alone do not contradict', stores.status !== 'contradicted');
+    const storesPlusBlog = verdictForClaim({ id: 'c4', type: 'marketing', text: 'Easy to build in' }, [
+      buyer('https://www.amazon.com/dp/X#buyer-reviews'), buyer('https://www.bestbuy.com/site/x#buyer-reviews'),
+      page('https://blog.example.com/c', 'contradict'),
+    ], opts);
+    eq('CP-718 buyers: buyers plus one independent page contradict', storesPlusBlog.status, 'contradicted');
+
+    // 7. The default policy keeps the old single-source rule.
+    const legacy = verdictForClaim('waterproof to 100m', [{ url: 'https://expert.com', stance: 'contradict', credibility: 80, independence: 70 }]);
+    eq('CP-718 default policy: one source still contradicts', legacy.status, 'contradicted');
   }
 
   return report;

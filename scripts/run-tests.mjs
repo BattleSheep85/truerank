@@ -22,10 +22,12 @@ import { runAffiliateLinksTests } from '../test/unit/affiliate-links.test.js';
 import { runLibPureTests } from '../test/unit/lib-pure.test.js';
 import { runAsinResolverTests } from '../test/unit/asin-resolver.test.js';
 import { runVerdictTests } from '../test/unit/verdict.test.js';
+import { runClaimCacheTests } from '../test/unit/claim-cache.test.js';
 import { runVerifyTests } from '../test/unit/verify.test.js';
 import { runVerificationRenderTests } from '../test/unit/verification-render.test.js';
 import { runJinaTests } from '../test/unit/jina.test.js';
 import { runSearxngTests } from '../test/unit/searxng.test.js';
+import { runSearxngCacheTests } from '../test/unit/searxng-cache.test.js';
 import { runIpHashTests } from '../test/unit/ip-hash.test.js';
 import { runQuotaTests } from '../test/unit/quota.test.js';
 import { runConstraintsTests } from '../test/unit/constraints.test.js';
@@ -33,6 +35,8 @@ import { runBurstGateTests } from '../test/unit/burst-gate.test.js';
 import { runAffiliateGateTests } from '../test/unit/affiliate-gate.test.js';
 import { runLlmJsonTests } from '../test/unit/llm-json.test.js';
 import { runPoolTests } from '../test/unit/pool.test.js';
+import { runStanceVotesTests } from '../test/unit/stance-votes.test.js';
+import { runConnectionGateTests } from '../test/unit/connection-gate.test.js';
 import { runOpeningBookTests } from '../test/unit/opening-book.test.js';
 import { runRecallGatherTests } from '../test/unit/recall-gather.test.js';
 import { runEmailMimeTests } from '../test/unit/email-mime.test.js';
@@ -45,18 +49,32 @@ import { runWorkerAuthTests } from '../test/unit/worker-auth.test.js';
 import { runGroundingCheckTests } from '../benchmarks/tests/grounding-check.test.mjs';
 import { runNoAnthropicOnOpenRouterTests } from '../benchmarks/tests/no-anthropic-on-openrouter.test.mjs';
 import { runClaudeCodeJudgeTests } from '../benchmarks/tests/claude-code-judge.test.mjs';
+import { runSynthRecallLinksTests } from '../benchmarks/tests/synth-recall-links.test.mjs';
 import { runUrlGuardTests } from '../test/unit/url-guard.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
+import { runPageKindTests } from '../test/unit/page-kind.test.js';
 import { runSpendGateTests } from '../test/unit/spend-gate.test.js';
 import { runViewCounterTests } from '../test/unit/view-counter.test.js';
 import { runConsentTests } from '../test/unit/consent.test.js';
 import { runProductLinkUnitTests } from '../test/unit/product-link.test.js';
+import { runBackfillImagesTests } from '../test/unit/backfill-images.test.js';
 import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
+import { runResearchResultShapeTests } from '../test/unit/research-result-shape.test.js';
+import { runLieSurfaceTests } from '../test/unit/lie-surfaces.test.js';
+import { runEvalScoreTests } from '../test/unit/eval-score.test.js';
+import { runExtractCandidatesTests } from '../test/unit/extract-candidates.test.js';
+import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
+import { runCriticalRenderTests } from '../test/unit/critical-render.test.js';
+import { runThinCorpusTests } from '../test/unit/thin-corpus.test.js';
+import { runHomeSearchRouteTests } from '../test/unit/home-search-route.test.js';
+import { runSilentDropsTests } from '../test/unit/silent-drops.test.js';
 
 const suites = [
   ['consent', runConsentTests],
   ['credibility', runCredibilityTests],
   ['validate-quality-gate', runValidateTests],
+  ['research-result-shape', runResearchResultShapeTests],
+  ['lie-surfaces', runLieSurfaceTests],
   ['product-search', runProductSearchTests],
   ['reviews-render', runReviewsRenderTests], // async suite (awaited below)
   ['browse-render', runBrowseRenderTests], // async suite (awaited below)
@@ -67,16 +85,19 @@ const suites = [
   ['affiliate-links', runAffiliateLinksTests],
   ['lib-pure', runLibPureTests],
   ['product-link', runProductLinkUnitTests],
+  ['backfill-images', runBackfillImagesTests],
   ['credibility-extra', runCredibilityExtraTests],
   ['prompts', runPromptsTests],
   ['llm', runLlmTests],
   ['asin-resolver', runAsinResolverTests],
   ['verdict', runVerdictTests],
+  ['claim-cache', runClaimCacheTests],
   ['verify', runVerifyTests],
   ['verify-resolve', runVerifyResolveTests],
   ['verification-render', runVerificationRenderTests],
   ['jina', runJinaTests], // async suite (awaited below)
   ['searxng', runSearxngTests], // async suite (awaited below)
+  ['searxng-cache', runSearxngCacheTests], // async suite (awaited below)
   ['ip-hash', runIpHashTests], // async suite (awaited below)
   ['quota', runQuotaTests], // async suite (awaited below)
   ['constraints', runConstraintsTests],
@@ -84,6 +105,8 @@ const suites = [
   ['affiliate-gate', runAffiliateGateTests], // async suite (awaited below)
   ['llm-json', runLlmJsonTests],
   ['pool', runPoolTests], // async suite (awaited below)
+  ['stance-votes', runStanceVotesTests],
+  ['connection-gate', runConnectionGateTests], // async suite (awaited below)
   ['opening-book', runOpeningBookTests], // async suite (awaited below)
   ['recall-gather', runRecallGatherTests], // async suite (awaited below)
   ['email-mime', runEmailMimeTests],
@@ -98,10 +121,19 @@ const suites = [
   ['grounding-check', runGroundingCheckTests],
   ['no-anthropic-on-openrouter', runNoAnthropicOnOpenRouterTests],
   ['claude-code-judge', runClaudeCodeJudgeTests],
+  ['synth-recall-links', runSynthRecallLinksTests],
+  ['eval-score', runEvalScoreTests],
   ['url-guard', runUrlGuardTests],
   ['safety', runSafetyTests],
+  ['page-kind', runPageKindTests],
   ['spend-gate', runSpendGateTests],
   ['view-counter', runViewCounterTests],
+  ['extract-candidates', runExtractCandidatesTests],
+  ['critical-excerpts', runCriticalExcerptsTests],
+  ['critical-render', runCriticalRenderTests],
+  ['thin-corpus', runThinCorpusTests], // async suite (awaited below)
+  ['home-search-route', runHomeSearchRouteTests], // async suite (awaited below)
+  ['silent-drops', runSilentDropsTests], // async suite (awaited below)
 ];
 
 let failed = 0;

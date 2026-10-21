@@ -26,6 +26,7 @@
 -- subscriber, and a query with the same text as a keyword that later
 -- clustered onto it, still matches and gets retired. The undo below brings it
 -- back.
+-- Migration 023 (CP-341) brings back such rows by creation time.
 --
 -- Rule 4 and rule 5 also keep live a row that the flywheel made when a
 -- signed-in person later clustered onto it or a person subscribed to it.

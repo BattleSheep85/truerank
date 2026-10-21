@@ -11,7 +11,8 @@
  * secret set, the endpoints refuse everything (closed by default).
  */
 
-import { claimNextPendingJob, persistEngineResult, incrementMonthlyCost } from '../pipeline/orchestrator.js';
+import { claimNextPendingJob, persistEngineResult } from '../pipeline/orchestrator.js';
+import { incrementMonthlyCost } from '../lib/budget.js';
 import { validateResearchResult } from '../engine/validate.js';
 import { isWorkerAuthed } from '../lib/worker-auth.js';
 

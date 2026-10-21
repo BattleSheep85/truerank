@@ -12,7 +12,7 @@ import {
 } from '../lib/db.js';
 import { generateSlug, canonicalizeQuery, squashQuery, parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
 import { screenQuery, rejectionMessage } from '../lib/safety.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from '../lib/budget.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { checkGlobalResearchSpend } from '../lib/spend-gate.js';
@@ -134,7 +134,7 @@ export async function handleStartResearch(request, env) {
         const rateKey = await ipRateKey('research', clientIp, env);
         const burst = await checkBurstGate(env.RL_BURST, rateKey);
         const velocity = burst.allowed
-            ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+            ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
             : burst;
         if (!velocity.allowed) {
             const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
@@ -194,13 +194,16 @@ export async function handleStartResearch(request, env) {
         await recordUserSearch(env.DB, sessionUser.id, id, normalizedQuery);
     }
 
-    // Enqueue research job (message shape unchanged — queue consumer keys on it).
+    // Enqueue research job (the queue consumer keys on reportId and query).
     // If the queue send throws (transient Queues outage, binding misconfiguration),
     // flip the already-inserted row to failed so it doesn't orphan as 'pending'.
     try {
+        // forceFresh (worker secret only) also skips the cached SearXNG
+        // answers, so a stability benchmark measures a fresh gather (CP-819).
         await env.RESEARCH_QUEUE.send({
             reportId: id,
             query: normalizedQuery,
+            ...(forceFresh ? { bypassSearchCache: true } : {}),
         });
     } catch (err) {
         console.error('[research] queue send failed:', err instanceof Error ? err.message : String(err));
@@ -226,7 +229,8 @@ export async function handleResearchStatus(reportId, env) {
     if (!row) {
         row = await getResearchBySlug(env.DB, reportId);
     }
-    if (!row) {
+    // A retired report answers like a missing one (CP-804).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
@@ -285,7 +289,7 @@ export async function handleResearchStream(reportId, env, request) {
                 dbRow = await getResearchBySlug(env.DB, reportId);
             }
 
-            if (!dbRow) {
+            if (!dbRow || dbRow.retired_at != null) {
                 send(9997, { type: 'error', error: 'Report not found' });
                 controller.close();
                 return;
@@ -361,7 +365,7 @@ export async function handleResearchStream(reportId, env, request) {
 export async function handleResearchEvents(slug, url, env) {
     const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
     const row = await getResearchBySlug(env.DB, slug);
-    if (!row) {
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Not found' }, 404);
     }
 

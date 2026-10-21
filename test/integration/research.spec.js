@@ -38,7 +38,7 @@ describe('handleStartResearch — wallet-DoS velocity throttle', () => {
     const ip = '203.0.113.7';
     // Pre-fill the SAME limiter key the handler uses so the next new run trips it.
     const key = await ipRateKey('research', ip, testEnv);
-    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, key, 20, 3600);
+    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, key, 20, 3600, env.DB);
 
     const res = await handleStartResearch(
       post('best over-ear headphones for a quiet office', ip, { fresh: true }),
@@ -200,7 +200,7 @@ describe('handleStartResearch: internal auth throttle and quota bypass', () => {
     const ip = '203.0.113.150';
     // Pre-fill rate limit to exhausted
     const rateKey = await ipRateKey('research', ip, testEnv);
-    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, rateKey, 20, 3600);
+    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB);
 
     const res = await handleStartResearch(
       post('best noise cancelling headphones for flights', ip, { fresh: true }, { 'X-Worker-Secret': SECRET }),
@@ -229,7 +229,7 @@ describe('handleStartResearch: internal auth throttle and quota bypass', () => {
   it('still throttles callers with a wrong secret when rate limit is exceeded', async () => {
     const ip1 = '203.0.113.152';
     const rateKey1 = await ipRateKey('research', ip1, testEnv);
-    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, rateKey1, 20, 3600);
+    for (let i = 0; i < 20; i++) await checkRateLimit(env.KV, rateKey1, 20, 3600, env.DB);
 
     const resThrottled = await handleStartResearch(
       post('best lightweight 4k monitor', ip1, { fresh: true }, { 'X-Worker-Secret': 'wrong-secret' }),

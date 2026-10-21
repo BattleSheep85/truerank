@@ -130,10 +130,7 @@ export async function handleNewResearch(request, url, env) {
         return Response.redirect(new URL('/', url.origin).toString(), 302);
     }
 
-    // Tier: default 'full'. Only 'full' submissions get the clarifying-questions
-    // grill below; instant (if ever wired) skips it for speed.
-
-    // Clarifying-questions interstitial. For a Full-tier submission that is NOT a
+    // Clarifying-questions interstitial. For a submission that is NOT a
     // re-run (fresh), does NOT already carry clarification answers, and was NOT
     // an explicit skip, ask the classifier (KV-cached, so cheap) whether the
     // query needs disambiguation. If it returns >=1 question, render the clarify
