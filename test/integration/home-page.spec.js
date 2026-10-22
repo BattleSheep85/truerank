@@ -137,6 +137,7 @@ describe('Email capture on home and /best hubs (CP-414)', () => {
     const js = await jsRes.text();
     expect(js).toContain("getElementById('notify-form')");
     expect(js).toContain("fetch('/api/subscribe'");
+    expect(js).toContain("d.mail === 'off'");
 
     const subRes = await handleSubscribe(new Request(`${BASE}/api/subscribe`, {
       method: 'POST',
@@ -144,7 +145,7 @@ describe('Email capture on home and /best hubs (CP-414)', () => {
       body: JSON.stringify({ email: 'homehub@example.test' }),
     }), env);
     expect(subRes.status).toBe(200);
-    expect(await subRes.json()).toEqual({ ok: true });
+    expect(await subRes.json()).toEqual({ ok: true, mail: 'off' });
     const row = await env.DB.prepare("SELECT email, research_id FROM subscribers WHERE email = 'homehub@example.test'").first();
     expect(row).toEqual({ email: 'homehub@example.test', research_id: null });
   });
