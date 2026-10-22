@@ -5,9 +5,11 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const APP_JS = readFileSync(new URL('../../public/js/app.js', import.meta.url), 'utf8');
+const INDEX_HTML = readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
 
 function runHomeSearch(researchResponse) {
-  const calls = { fetch: [], eventSources: 0, history: [], progress: [] };
+  const calls = { fetch: [], eventSources: 0, history: [], progress: [], retryClick: null };
+  const retryBtn = { addEventListener: (type, fn) => { if (type === 'click') calls.retryClick = fn; } };
   let submit = null;
   const input = { value: 'best linen shirts', disabled: false };
   const form = {
@@ -17,7 +19,7 @@ function runHomeSearch(researchResponse) {
   const progressLog = { appendChild: (el) => calls.progress.push(el.textContent), innerHTML: '', scrollTop: 0, scrollHeight: 0 };
   const document = {
     querySelectorAll: (sel) => (sel === 'form.search-form' ? [form] : []),
-    getElementById: (id) => (id === 'progress-log' ? progressLog : null),
+    getElementById: (id) => (id === 'progress-log' ? progressLog : id === 'error-retry-btn' ? retryBtn : null),
     createElement: () => ({ className: '', textContent: '' }),
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -70,6 +72,11 @@ export async function runHomeSearchRouteTests() {
 
   const failed = await runHomeSearch({ error: 'Monthly budget reached' });
   eq('an error does not navigate', failed.window.location.href, '');
+
+  // CP-412: the CSP blocks inline handlers (script-src-attr), so app.js wires "Try again".
+  eq('CP-412 index.html has no inline on* handler', /<[^>]+\son[a-z]+=/i.test(INDEX_HTML), false);
+  eq('CP-412 index.html has the retry button id', INDEX_HTML.includes('id="error-retry-btn"'), true);
+  eq('CP-412 app.js wires the retry button to resetUI', queued.calls.retryClick === queued.window.resetUI && typeof queued.calls.retryClick, 'function');
 
   return report;
 }

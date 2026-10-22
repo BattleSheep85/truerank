@@ -2459,9 +2459,16 @@ IndexNow, /find). State is mature; the two real defects (both monetization):
       honored); /feed.xml deliberately not in robots (Sitemap directive is the standard). [godmode R3]
 - [x] LOW (cleanup): removed dead GOOGLE_CSE_ID from wrangler.toml (no code reads
       env.GOOGLE_CSE_ID; the /find CSE widget was retired for a plain redirect). [godmode R3]
-- [ ] WATCH: if AdSense console shows an 'unsafe-eval' or fenced-frame CSP error
+- [x] WATCH: if AdSense console shows an 'unsafe-eval' or fenced-frame CSP error
       under real traffic, add `'unsafe-eval'` to script-src and/or a
       `fenced-frame-src` directive. Deferred (security cost; add only on real error).
+      RESOLVED 2026-10-22 (CP-412): a live console check on 2026-10-21 (home,
+      /reviews, one /research page) showed no 'unsafe-eval' and no fenced-frame
+      error, so neither was added. The check found two other CSP errors, both fixed:
+      (1) frame-src blocked the Ad Traffic Quality iframe: added
+      ep1/ep2.adtrafficquality.google to frame-src (`worker/lib/http-response.js`);
+      (2) script-src-attr blocked `onclick="resetUI()"` on the home "Try again"
+      button: it is now `#error-retry-btn`, wired in `public/js/app.js`.
 - [ ] DECISION (Google AI visibility): the LIVE /robots.txt is NOT just our static
       file — Cloudflare prepends a MANAGED block (zone-level "Content Signals" /
       AI Crawl Control) that sets `Content-Signal: search=yes,ai-train=no` and

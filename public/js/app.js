@@ -615,6 +615,9 @@
         setFormsBusy(false);
         scrollToEl(document.getElementById('hero'));
     };
+    // The CSP blocks inline onclick (script-src-attr), so wire the button here.
+    var retryBtn = document.getElementById('error-retry-btn');
+    if (retryBtn) retryBtn.addEventListener('click', window.resetUI);
 
     // --- Email capture (#notify-form on home + /best/ hubs & guides) ---
     function wireNotifyForm() {

@@ -89,6 +89,14 @@ describe('index.js routing', () => {
     expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
   });
 
+  it('frame-src allows the AdSense traffic-quality iframes (CP-412)', async () => {
+    const res = await SELF.fetch(`${BASE}/research/best-budget-nas`);
+    const csp = res.headers.get('Content-Security-Policy') || '';
+    const frameSrc = (csp.match(/frame-src ([^;]*)/) || [])[1] || '';
+    expect(frameSrc).toContain('https://ep1.adtrafficquality.google');
+    expect(frameSrc).toContain('https://ep2.adtrafficquality.google');
+  });
+
   it('GET /research (browse) → 200 HTML', async () => {
     const res = await SELF.fetch(`${BASE}/research`);
     expect(res.status).toBe(200);

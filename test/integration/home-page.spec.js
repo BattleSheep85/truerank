@@ -149,4 +149,10 @@ describe('Email capture on home and /best hubs (CP-414)', () => {
     const row = await env.DB.prepare("SELECT email, research_id FROM subscribers WHERE email = 'homehub@example.test'").first();
     expect(row).toEqual({ email: 'homehub@example.test', research_id: null });
   });
+
+  it('has no inline event handler attributes (CP-412)', async () => {
+    const { html } = await getHome();
+    expect(html).not.toMatch(/<[^>]+\son[a-z]+=/i);
+    expect(html).toContain('id="error-retry-btn"');
+  });
 });
