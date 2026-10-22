@@ -36,7 +36,7 @@ async function authRateLimited(request, env) {
     const rateKey = await ipRateKey('auth', ip, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const check = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, 10, 3600)
+        ? await checkRateLimit(env.KV, rateKey, 10, 3600, env.DB)
         : burst;
     return !check.allowed;
 }

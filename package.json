@@ -9,7 +9,7 @@
     "coverage": "bash scripts/coverage.sh"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.2",
+    "@cloudflare/vitest-plugin": "^1.4.5",
     "@vitest/coverage-istanbul": "~5.0.4",
     "vitest": "~5.0.4"
   }

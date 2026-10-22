@@ -5,8 +5,12 @@ import {
   productNameKey,
   isNameKey,
   distillProductName,
+  trimProductType,
+  modelNameFromPage,
+  hasModelNumber,
   MODEL_VARIANT_WORDS,
 } from '../../worker/lib/product-link.js';
+import { productKeys } from '../../worker/engine/verify-resolve.js';
 
 export function runProductLinkUnitTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -223,6 +227,143 @@ export function runProductLinkUnitTests() {
     productNameKey('Sony WH-1000XM6') !== productNameKey('Sony WF-1000XM6'),
   );
   eq('isNameKey identifies verify:name: keys', isNameKey(productNameKey('Antec C8')), true);
+
+
+  // ── CP-777: trailing product-type words (repeat-run spread) ────────────────
+  // "X" and "X case" read different pages and checked different claims.
+  const typed = [
+    ['Fractal Design North case', 'Fractal Design North'],
+    ['Antec C8 PC case', 'Antec C8'],
+    ['Google Pixel 9 Pro phone', 'Google Pixel 9 Pro'],
+    ['Samsung Galaxy S25 Ultra phone', 'Samsung Galaxy S25 Ultra'],
+    ['Michelin CrossClimate 2 tire', 'Michelin CrossClimate 2'],
+    ['Michelin Defender 2 tires', 'Michelin Defender 2'],
+    ['Ninja Creami ice cream maker', 'Ninja Creami'],
+    ['Dyson V15 Detect vacuum', 'Dyson V15 Detect'],
+    ['DeWalt DCD791 20V drill', 'DeWalt DCD791'],
+    ['DeWalt DCD791 drill', 'DeWalt DCD791'],
+    ['Milwaukee M18 Fuel 2953 impact driver', 'Milwaukee M18 Fuel 2953'],
+    ['Apple iPhone 16 128GB', 'Apple iPhone 16'],
+    ['Fractal Design North Case', 'Fractal Design North'],
+  ];
+  for (const [input, expected] of typed) {
+    eq(`CP-777 trimProductType: "${input}"`, trimProductType(input), expected);
+  }
+  eq('CP-777 trimProductType: a name without a type word stays', trimProductType('Fractal Design North'), 'Fractal Design North');
+  eq('CP-777 trimProductType: keeps two words (OtterBox case)', trimProductType('OtterBox case'), 'OtterBox case');
+  eq('CP-777 trimProductType: keeps two words (Pixel phone)', trimProductType('Pixel phone'), 'Pixel phone');
+  eq('CP-777 trimProductType: a type word inside the name stays', trimProductType('Bose QuietComfort Earbuds'), 'Bose QuietComfort Earbuds');
+  eq('CP-777 trimProductType: a variant word is never trimmed', trimProductType('Antec C8 Wood'), 'Antec C8 Wood');
+  eq('CP-777 trimProductType: spec words alone are not trimmed to one word', trimProductType('Anker 20V'), 'Anker 20V');
+  // A one-letter "unit" at the end is usually the model: 3S, 5s, 5c, 4a 5G.
+  for (const name of ['Logitech MX Master 3S', 'Apple iPhone 5s', 'Apple iPhone 5c', 'Google Pixel 4a 5G', 'DJI Mini 4K']) {
+    eq(`CP-777 trimProductType: a one-letter model suffix stays ("${name}")`, trimProductType(name), name);
+  }
+  eq('CP-777 trimProductType: a one-letter model suffix stays before a type word', trimProductType('Logitech MX Master 3S mouse'), 'Logitech MX Master 3S mouse');
+  // An accessory case keeps "case": it is not the device.
+  for (const name of ['Apple iPhone 16 case', 'Nintendo Switch 2 case', 'Samsung Galaxy S25 phone case', 'Apple AirPods Pro 2 case', 'Apple iPad Air case']) {
+    eq(`CP-777 trimProductType: an accessory case stays ("${name}")`, trimProductType(name), name);
+  }
+  // "Phone" in a product line name stays; only a phone with a model number loses it.
+  eq('CP-777 trimProductType: "Asus ROG Phone" stays', trimProductType('Asus ROG Phone'), 'Asus ROG Phone');
+  eq('CP-777 trimProductType: "Nothing CMF Phone" stays', trimProductType('Nothing CMF Phone'), 'Nothing CMF Phone');
+  eq('CP-777 trimProductType: a watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
+  eq('CP-777 trimProductType: empty input gives ""', trimProductType('  '), '');
+  eq('CP-777 trimProductType: non-string gives ""', trimProductType(null), '');
+  eq('CP-777 distillProductName: short typed name drops the type word', distillProductName('Fractal Design North case'), 'Fractal Design North');
+  eq('CP-777 distillProductName: same search name for both pair members', distillProductName('Ninja Creami ice cream maker'), distillProductName('Ninja Creami'));
+  eq('CP-777 productKeys: same key with or without the type words', productKeys(trimProductType('Ninja Creami ice cream maker')), productKeys('Ninja Creami'));
+
+  // ── CP-781: "dual" and "compact" name a product variant ───────────────────
+  eq('CP-781 distillProductName: "Compact" stays in the Torrent Compact name', distillProductName('Fractal Design Torrent Compact Black Tempered Glass'), 'Fractal Design Torrent Compact');
+  eq('CP-781 distillProductName: plain Torrent has no "Compact"', distillProductName('Fractal Design Torrent Black Tempered Glass ATX'), 'Fractal Design Torrent');
+  ok('CP-781 parseProductInput: Torrent and Torrent Compact get different keys',
+    parseProductInput('https://www.amazon.com/Fractal-Design-Torrent-Compact-Black-Tempered-Glass/dp/B0A1B2C3D4').key
+      !== parseProductInput('https://www.amazon.com/Fractal-Design-Torrent-Black-Tempered-Glass-ATX/dp/B0A1B2C3D4').key);
+  eq('CP-781 distillProductName: "Dual" after the model number stays', distillProductName('Anker 737 Dual Black Portable Fast Charging'), 'Anker 737 Dual');
+  eq('CP-781 distillProductName: "Dual Charger" is a description', distillProductName('Anker 737 Dual Charger Portable Fast Charging'), 'Anker 737');
+  eq('CP-781 distillProductName: "Dual Tower" is a description', distillProductName('Noctua NH-D15 Dual Tower CPU Cooler Brown'), 'Noctua NH-D15');
+  eq('CP-781 distillProductName: "Compact Micro ATX" is a description', distillProductName('Cooler Master Q300L Compact Micro ATX Mini Tower Case'), 'Cooler Master Q300L');
+  eq('CP-781 distillProductName: "Compact Blender" is a description', distillProductName('Ninja Foodi Compact Blender Kitchen System Black'), 'Ninja Foodi');
+  eq('CP-781 distillProductName: "Compact Tempered Glass" keeps Compact', distillProductName('Fractal Design Torrent Compact Tempered Glass ATX'), 'Fractal Design Torrent Compact');
+  eq('CP-781 distillProductName: "Dual Chamber" is still a description', distillProductName('Antec C8 Dual Chamber Compatible Full Tower'), 'Antec C8');
+  eq('CP-781 distillProductName: "Compact Drill" is still a description', distillProductName('DEWALT 20V MAX Compact Drill Driver Kit DCD771C2'), 'DEWALT 20V MAX DCD771C2');
+
+  // ── CP-783: a hyphenated size is a spec, not a model number ───────────────
+  eq('CP-783 distillProductName: "65-Inch" does not end the name', distillProductName('SAMSUNG 65-Inch Class OLED S90D Series 4K Smart TV'), 'SAMSUNG 65-Inch Class OLED S90D');
+  eq('CP-783 distillProductName: "2-Pack" does not end the name', distillProductName('Apple AirTag 2-Pack Item Finder Tracker Bluetooth'), 'Apple AirTag');
+  eq('CP-783 distillProductName: a hyphenated model number still ends the name', distillProductName('Sony WH-1000XM6 Wireless Noise Canceling Headphones Black'), 'Sony WH-1000XM6');
+  eq('CP-783 distillProductName: a lens range stays the model', distillProductName('Canon EF 18-55mm Lens Kit Black Camera'), 'Canon EF 18-55mm');
+  eq('CP-783 trimProductType: a hyphenated size trims like "65Inch"', trimProductType('Samsung S90D 65-Inch'), trimProductType('Samsung S90D 65Inch'));
+
+  // ── CP-807: "X" and "X case" share one key; a slug name with no model takes it from the page title ──
+  for (const [longer, shorter] of [
+    ['Fractal Design North case', 'Fractal Design North'],
+    ['Antec C8 PC case', 'Antec C8'],
+    ['Ninja Creami ice cream maker', 'Ninja Creami'],
+    ['Samsung Galaxy S25 Ultra phone', 'Samsung Galaxy S25 Ultra'],
+    ['Michelin CrossClimate 2 tires', 'Michelin CrossClimate 2'],
+  ]) {
+    eq(`CP-807 productNameKey: "${longer}" shares the key of "${shorter}"`, productNameKey(longer), productNameKey(shorter));
+    eq(`CP-807 parseProductInput: "${longer}" shares the key of "${shorter}"`, parseProductInput(longer).key, parseProductInput(shorter).key);
+  }
+  ok('CP-807 productNameKey: tool types of one line keep their own keys', productNameKey('Milwaukee M18 Fuel hammer drill') !== productNameKey('Milwaukee M18 Fuel impact driver'));
+  ok('CP-807 productNameKey: robot and stick vacuums keep their own keys', productNameKey('Dyson V15 robot vacuum') !== productNameKey('Dyson V15 stick vacuum'));
+  eq('CP-807 hasModelNumber: one-letter suffix models count', [hasModelNumber('Logitech MX Master 3S'), hasModelNumber('Apple iPhone 5c'), hasModelNumber('Antec Chamber'), hasModelNumber('Antec 360mm')], [true, true, false, false]);
+  ok('CP-807 productNameKey: a trailing year stays in the key', productNameKey('MacBook Air 2024 laptop case') !== productNameKey('MacBook Air 2022'));
+  ok('CP-807 productNameKey: a trailing spec stays in the key', productNameKey('Galaxy S25 256GB phone') !== productNameKey('Galaxy S25 128GB'));
+  ok('CP-807 productNameKey: an accessory case keeps its own key', productNameKey('Apple iPhone 16 case') !== productNameKey('Apple iPhone 16'));
+  ok('CP-807 productNameKey: a variant keeps its own key', productNameKey('Antec C8 Wood case') !== productNameKey('Antec C8 case'));
+  eq('CP-807 productNameKey: two words stay (OtterBox case)', productNameKey('OtterBox case'), 'verify:name:case otterbox');
+  eq('CP-807 parseProductInput: a typed name keeps its words as the name', parseProductInput('Antec C8 case').name, 'Antec C8 case');
+  eq('CP-807 link key: an "X Case" slug and an "X" slug for one ASIN share the key',
+    parseProductInput('https://www.amazon.com/Antec-C8-Case/dp/B0CP3MZXVH').key, parseProductInput('https://www.amazon.com/Antec-C8/dp/B0CP3MZXVH').key);
+
+  const amazonTitle = 'Title: Amazon.com: Antec C8 Full-Tower E-ATX PC Case, Dual-Chamber, No Fans, Black | Tempered Glass Front & Side Panels, 360mm Radiator : Electronics\n\nURL Source: https://www.amazon.com/dp/B0CP3MZXVH\n\nMarkdown Content:\nrest';
+  const pasted = (content, title = 'https://www.amazon.com/dp/B0CP3MZXVH') => ({ url: 'https://www.amazon.com/dp/B0CP3MZXVH', title, content });
+  eq('CP-807 modelNameFromPage: a one-letter suffix model is taken', modelNameFromPage('Logitech Mouse', pasted('Title: Amazon.com: Logitech MX Master 3S - Wireless Performance Mouse : Electronics')), 'Logitech MX Master 3S');
+  eq('CP-807 modelNameFromPage: the Amazon title gives the model', modelNameFromPage('Antec Chamber', pasted(amazonTitle)), 'Antec C8');
+  eq('CP-807 modelNameFromPage: a page title field works too', modelNameFromPage('Antec Chamber', pasted('', 'Antec C8 Dual Chamber Full Tower Case | Antec')), 'Antec C8');
+  eq('CP-807 modelNameFromPage: a name with a model stays', modelNameFromPage('Antec C8', pasted(amazonTitle)), 'Antec C8');
+  eq('CP-807 modelNameFromPage: another brand in the title is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Lian Li O11 Dynamic EVO Mid Tower Case : Electronics')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a title with no model is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Antec Full Tower Gaming Case Black : Electronics')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a bot-check title is ignored', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com\n\nURL Source: x')), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: no page keeps the name', modelNameFromPage('Antec Chamber', null), 'Antec Chamber');
+  eq('CP-807 modelNameFromPage: a spec-only number is not a model', modelNameFromPage('Antec Chamber', pasted('Title: Amazon.com: Antec 360mm Full Tower Case : Electronics')), 'Antec Chamber');
+
+  // CP-812 (a): a lone one-digit V/W word is the model, not volts or watts.
+  eq('CP-812 trimProductType: a lone "2V" model stays', trimProductType('Foo Bar 2V'), 'Foo Bar 2V');
+  eq('CP-812 trimProductType: a lone "3W" model stays', trimProductType('Foo Bar 3W'), 'Foo Bar 3W');
+  eq('CP-812 trimProductType: a voltage after a model still goes', trimProductType('DeWalt DCD791 9V'), 'DeWalt DCD791');
+  eq('CP-812 trimProductType: a two-digit watt rating still goes', trimProductType('Anker Nano 65W'), 'Anker Nano');
+  eq('CP-812 hasModelNumber: a lone "9W" stays a rating, so a page title can give the model', hasModelNumber('Philips Hue Bulb 9W'), false);
+  eq('CP-812 hasModelNumber: "Anker Nano 65W" still has none', hasModelNumber('Anker Nano 65W'), false);
+  eq('CP-812 distillProductName: a lone "2V" model stays', distillProductName('Foo Bar 2V'), 'Foo Bar 2V');
+
+  // CP-812 (b): "+" names a model ("Galaxy S24+"), so it is part of the key.
+  ok('CP-812 productNameKey: "Galaxy S24+" and "Galaxy S24" differ', productNameKey('Samsung Galaxy S24+') !== productNameKey('Samsung Galaxy S24'));
+  eq('CP-812 productNameKey: "S24+" and "S24 Plus" share a key', productNameKey('Samsung Galaxy S24+'), productNameKey('Samsung Galaxy S24 Plus'));
+  eq('CP-812 productNameKey: "+" reads as plus', productNameKey('Synology DS224+'), 'verify:name:ds224 plus synology');
+  eq('CP-812 productNameKey: a "+" between words is not a plus', productNameKey('AirPods + case'), productNameKey('AirPods case'));
+  ok('CP-812 link key: an S24+ slug and an S24 slug for one page differ',
+    parseProductInput('https://shop.example/p/123 Galaxy S24+').key !== parseProductInput('https://shop.example/p/123 Galaxy S24').key);
+
+  // CP-812 (c): a generic path segment is not a name, so the query stays.
+  for (const [label, url, expected] of [
+    ['product_info.php keeps products_id', 'https://shop.example/product_info.php?products_id=42&utm_source=x',
+      { name: null, url: 'https://shop.example/product_info.php?products_id=42', key: 'verify:url:shop.example/product_info.php?products_id=42' }],
+    ['product-detail keeps id', 'https://shop.example/product-detail?id=7',
+      { name: null, url: 'https://shop.example/product-detail?id=7', key: 'verify:url:shop.example/product-detail?id=7' }],
+    ['product/view keeps ref used as the id', 'https://shop.example/catalog/product-view?ref=AB123&fbclid=z',
+      { name: null, url: 'https://shop.example/catalog/product-view?ref=AB123', key: 'verify:url:shop.example/catalog/product-view?ref=AB123' }],
+  ]) {
+    const got = parseProductInput(url);
+    eq(`CP-812 generic path: ${label}`, { name: got.name, url: got.url, key: got.key }, expected);
+  }
+  ok('CP-812 generic path: two products on product_info.php get two keys',
+    parseProductInput('https://shop.example/product_info.php?products_id=42').key !== parseProductInput('https://shop.example/product_info.php?products_id=43').key);
+  eq('CP-812 a real name slug still drops the query',
+    parseProductInput('https://shop.example/sony-wh-1000xm6-headphones?ref=home').url, 'https://shop.example/sony-wh-1000xm6-headphones');
 
   return report;
 }

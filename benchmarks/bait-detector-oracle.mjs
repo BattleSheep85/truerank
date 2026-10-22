@@ -12,21 +12,32 @@
 //
 // Usage:  node benchmarks/bait-detector-oracle.mjs
 //         N=40 node benchmarks/bait-detector-oracle.mjs
+//         REPLAY=1 node benchmarks/bait-detector-oracle.mjs   (free: re-scores the
+//           saved grok verdicts against the current detectors, no API calls)
+//
+// A live run saves its verdicts to results/bait-oracle-verdicts.json, so a detector
+// change is measured on the SAME sample (the sample itself depends on our scorer).
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { callLLM } from '../worker/engine/llm.js';
 import {
   hasSponsoredContent, hasClickbaitFraming, hasAiInjection,
   isListicle, hasAffiliateLinks, scoreSource,
 } from '../worker/lib/credibility.js';
 
+const REPLAY = process.env.REPLAY === '1';
+const VERDICTS_FILE = new URL('./results/bait-oracle-verdicts.json', import.meta.url);
+
 // ── ENV ──────────────────────────────────────────────────────────────────────
-const e = {};
-for (const l of readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8').split('\n')) {
-  const m = l.match(/^([A-Z_]+)=(.*)$/); if (m) e[m[1]] = m[2].trim();
+function loadKey() {
+  const e = {};
+  for (const l of readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8').split('\n')) {
+    const m = l.match(/^([A-Z_]+)=(.*)$/); if (m) e[m[1]] = m[2].trim();
+  }
+  return process.env.OPENROUTER_API_KEY || e.OPENROUTER_API_KEY;
 }
-const KEY = e.OPENROUTER_API_KEY;
-if (!KEY) { console.error('need OPENROUTER_API_KEY in .dev.vars'); process.exit(1); }
+const KEY = REPLAY ? null : loadKey();
+if (!REPLAY && !KEY) { console.error('need OPENROUTER_API_KEY in .dev.vars or the env'); process.exit(1); }
 
 const ORACLE = 'x-ai/grok-4.5';
 const N = Number(process.env.N) || 36;
@@ -115,25 +126,37 @@ function ourVerdict(src) {
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
-process.stderr.write(`sampling ${sample.length} sources (${tagged.length} tagged / ${clean.length} clean available), oracle=${ORACLE}\n`);
-
-const results = [];
+let results = [];
 let totalCost = 0, oracleFail = 0;
-let idx = 0;
-async function worker() {
-  for (;;) {
-    const i = idx++;
-    if (i >= sample.length) return;
-    const src = sample[i];
-    const o = await askOracle(src);
-    totalCost += o.cost;
-    if (!o.ok) { oracleFail++; process.stderr.write(`  [${i + 1}] oracle-parse-fail: ${o.raw}\n`); continue; }
-    const ours = ourVerdict(src);
-    results.push({ src, oracle: o, ours });
-    process.stderr.write(`  [${i + 1}/${sample.length}] grok=${o.bait ? 'BAIT:' + o.category : 'clean '} | ours=${ours.flagged ? 'flag[' + ours.tags.join(',') + ']' : 'clean'} | ${(src.title || '').slice(0, 50)}\n`);
+
+async function runOracle() {
+  process.stderr.write(`sampling ${sample.length} sources (${tagged.length} tagged / ${clean.length} clean available), oracle=${ORACLE}\n`);
+  let idx = 0;
+  async function worker() {
+    for (;;) {
+      const i = idx++;
+      if (i >= sample.length) return;
+      const src = sample[i];
+      const o = await askOracle(src);
+      totalCost += o.cost;
+      if (!o.ok) { oracleFail++; process.stderr.write(`  [${i + 1}] oracle-parse-fail: ${o.raw}\n`); continue; }
+      results.push({ src, oracle: o });
+      process.stderr.write(`  [${i + 1}/${sample.length}] grok=${o.bait ? 'BAIT:' + o.category : 'clean '} | ${(src.title || '').slice(0, 50)}\n`);
+    }
   }
+  await Promise.all(Array.from({ length: 4 }, () => worker()));
+  writeFileSync(VERDICTS_FILE, JSON.stringify({ oracle: ORACLE, cost: totalCost, oracleFail, results }, null, 1));
 }
-await Promise.all(Array.from({ length: 4 }, () => worker()));
+
+if (REPLAY) {
+  const saved = JSON.parse(readFileSync(VERDICTS_FILE, 'utf8'));
+  results = saved.results;
+  oracleFail = saved.oracleFail;
+  process.stderr.write(`replaying ${results.length} saved ${saved.oracle} verdicts (original spend $${Number(saved.cost).toFixed(4)})\n`);
+} else {
+  await runOracle();
+}
+results = results.map((r) => ({ ...r, ours: ourVerdict(r.src) }));
 
 // ── COMPARE ─────────────────────────────────────────────────────────────────────
 const grokBait = results.filter((r) => r.oracle.bait);
@@ -194,4 +217,6 @@ if (overFlag.length) {
   if (overFlag.length > 12) console.log(`  … +${overFlag.length - 12} more`);
 }
 
-console.log(`\ngrok-4.5 spend: $${totalCost.toFixed(4)}  (${results.length + oracleFail} calls)`);
+console.log(REPLAY
+  ? '\nreplay: no API calls'
+  : `\ngrok-4.5 spend: $${totalCost.toFixed(4)}  (${results.length + oracleFail} calls)`);

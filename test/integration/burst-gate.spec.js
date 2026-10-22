@@ -18,7 +18,7 @@ import worker from '../../worker/index.js';
 import { handleSignup } from '../../worker/handlers/auth.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
 import { renderResearchResult } from '../../worker/pages/research-page.js';
-import { monthKey } from '../../worker/pipeline/orchestrator.js';
+import { monthKey } from '../../worker/lib/utils.js';
 
 // Mirrors wrangler.toml's [ratelimits.simple] limit. The gate is documented as
 // permissive, so assertions allow a small epsilon above it.

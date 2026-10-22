@@ -23,15 +23,14 @@ import { buildAffiliateUrl, resolveAmazonTag } from '../lib/affiliate-links.js';
 import { resolveAsins } from '../lib/asin-resolver.js';
 import { resolveImages } from '../lib/image-resolver.js';
 import { getResearchById, generateId } from '../lib/db.js';
-import { sanitizeUrl, slugify, nowEpoch, parseJsonSafe } from '../lib/utils.js';
+import { isAmazonViable } from '../lib/page-kind.js';
+import { sanitizeUrl, slugify, nowEpoch, parseJsonSafe, toPersistedSources } from '../lib/utils.js';
 import { submitToIndexNow } from '../lib/indexnow.js';
 import { notifySubscribersForResearch } from '../lib/notify.js';
 import { screenQuery, rejectionMessage, classifierRejectToReason } from '../lib/safety.js';
 import { purgePageCache } from '../routes/pages.js';
 import { llmRouteFromEnv } from '../lib/llm-route.js';
-
-// Monthly spend ceiling default; overridden by env.MONTHLY_BUDGET_USD.
-const DEFAULT_MONTHLY_BUDGET_USD = 60;
+import { incrementMonthlyCost, monthlySpendUsd, monthlyBudgetUsd } from '../lib/budget.js';
 
 /**
  * Run the full research pipeline for a query. Called by the Queue consumer.
@@ -181,8 +180,9 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
     const tail = result.products.slice(ENRICH_TOP);
 
     // Recover direct Amazon /dp/ links for products missing/redirect-hidden URLs.
-    // Skipped when the classifier says this category isn't sold on Amazon.
-    const amazonViable = facets?.sold_on_amazon !== false && facets?.is_service !== true;
+    // Skipped when the classifier says this category isn't sold on Amazon, or when
+    // it is a service, local place or experience (CP-803).
+    const amazonViable = isAmazonViable(facets);
     let enriched = head;
     if (amazonViable) {
         await report('Resolving direct product links...');
@@ -225,7 +225,7 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
     });
 
     const resultJson = { ...result, query, source_count: sources.length, filtered_count: 0 };
-    const sourcesJson = sources.map((s) => ({ url: s.url, credibility: s.credibility }));
+    const sourcesJson = toPersistedSources(sources);
 
     const updateStmt = env.DB.prepare(
         `UPDATE research SET status = 'complete', summary = ?1, category = ?2,
@@ -284,8 +284,8 @@ export async function persistEngineResult(env, reportId, query, facets, topicalC
  */
 export async function claimNextPendingJob(env) {
     // Respect the monthly budget on the off-CF path too: don't claim new work
-    // once the month's recorded spend hits the cap. Uses D1 SUM(cost_usd) —
-    // immutable per row, so no lost-update race like the KV counter.
+    // once the month's recorded spend hits the cap. Uses the race-free D1
+    // spend (monthly_spend ledger, or research SUM(cost_usd)), not the KV cache.
     if (await monthlySpendUsd(env) >= monthlyBudgetUsd(env)) return null;
     // Exclude kind='verification' rows: they are RANKING-pipeline claims only
     // (this feeds runResearchPipeline via the off-CF worker). Verification rows
@@ -307,71 +307,6 @@ export async function claimNextPendingJob(env) {
     const { facets, topicalCategory, clarifications } = cls;
     const config = ENGINE_CONFIG;
     return { reportId: claimed.id, query: claimed.query, slug: claimed.slug, facets, topicalCategory, clarifications, config };
-}
-
-/**
- * Increment the month-keyed KV spend counter by this run's cost. Read-add-put
- * is fine at this volume (one writer per run, low concurrency). 30-day TTL so
- * old months age out on their own. NaN/zero costs are no-ops.
- */
-export async function incrementMonthlyCost(env, cost) {
-    if (!Number.isFinite(cost) || cost <= 0) return;
-    try {
-        const key = `cost:${monthKey()}`;
-        const current = Number(await env.KV.get(key)) || 0;
-        await env.KV.put(key, String(current + cost), { expirationTtl: 30 * 86400 });
-    } catch (err) {
-        console.error('[orchestrator] monthly cost update failed:', err instanceof Error ? err.message : String(err));
-    }
-}
-
-// Month-to-date research spend from D1 (SUM of per-row cost_usd). cost_usd is
-// immutable once written, so SUM has no lost-update race under concurrent off-CF
-// completions — the accurate budget source (the KV counter is a soft cache).
-export async function monthlySpendUsd(env) {
-    try {
-        const d = new Date();
-        const start = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
-        const row = await env.DB.prepare(
-            'SELECT COALESCE(SUM(cost_usd), 0) AS total FROM research WHERE completed_at >= ?1'
-        ).bind(start).first();
-        return Number(row?.total) || 0;
-    } catch { return 0; }
-}
-
-// Current month as 'YYYY-MM', derived from request-time clock.
-export function monthKey(d = new Date()) {
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
-}
-
-export function monthlyBudgetUsd(env) {
-    // An explicit MONTHLY_BUDGET_USD=0 is a kill switch: with spend always >= 0,
-    // the governor's `spent >= budget` check refuses every new run (503). Only an
-    // unset, empty, negative, or non-numeric value falls back to the default.
-    const raw = env.MONTHLY_BUDGET_USD;
-    if (raw === undefined || raw === null || String(raw).trim() === '') {
-        return DEFAULT_MONTHLY_BUDGET_USD;
-    }
-    const v = Number(raw);
-    return Number.isFinite(v) && v >= 0 ? v : DEFAULT_MONTHLY_BUDGET_USD;
-}
-
-// Authoritative budget gate for intake (POST /api/research, /api/chat). The KV
-// counter (cost:YYYY-MM) is a fast soft cache that can lag or lose concurrent
-// updates; D1 SUM(cost_usd) is race-free but only counts COMPLETED runs. Gating on
-// MAX(KV, D1) closes the split-brain where intake trusted only the racy KV value
-// while the off-CF claim path + cron fallback already gate on the accurate D1 sum.
-// Short-circuits on KV to avoid a D1 query on every request when already capped.
-export async function budgetExhausted(env) {
-    const budget = monthlyBudgetUsd(env);
-    if (budget <= 0) return true; // MONTHLY_BUDGET_USD=0 kill switch
-    let kv = 0;
-    try { kv = Number(await env.KV.get(`cost:${monthKey()}`)) || 0; } catch { kv = 0; }
-    if (kv >= budget) return true;
-    const d1 = await monthlySpendUsd(env);
-    return Math.max(kv, d1) >= budget;
 }
 
 /**

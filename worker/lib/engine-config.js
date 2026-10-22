@@ -48,6 +48,11 @@ export const ENGINE_CONFIG = {
   // gemini-3.5-flash-lite as fallback added 0 correct on set 2; glm-5.3-flash hit the length
   // cap live and pushed runs past the Worker time limit.
   stanceFallbackModel: 'minimax/minimax-m3',
+  // The primary judge answers each claim this many times and the majority
+  // stance per source counts (worker/engine/stance-votes.js, CP-789). mimo
+  // thinks before it answers, so one call is not repeatable even at
+  // temperature 0. About $0.0005 per extra call.
+  stanceVotes: 3,
   // Verify evidence: true reranks each claim's candidate passages with the Jina
   // reranker (worker/engine/verify-rerank.js) before the stance judge. Needs
   // JINA_API_KEY; without it, or on a rerank error, the term-ranked selection is used.
@@ -129,8 +134,10 @@ export const ENGINE_CONFIG = {
   // being read, wait at most this long for it. 0 = wait for it.
   verifyClaimPatienceMs: 0,
   // When the primary stance call (a fast model, a few seconds as a rule) has
-  // no verdict after this many ms, the fallback judge starts, and the first
-  // decided verdict wins (never fewer decided claims). 0 = off.
+  // no verdict after this many ms, the fallback judge starts early to save
+  // time. The verdict still follows the cascade (a decided primary verdict
+  // wins, else a decided fallback verdict), whichever answers first (CP-789).
+  // 0 = off.
   verifyHedgeMs: 10_000,
   // When the extract call (one call, 1 to 4 s as a rule) has no reply after
   // this many ms, a second request goes out; the first reply wins. 0 = off.
@@ -139,6 +146,9 @@ export const ENGINE_CONFIG = {
   // and extract, its searches wait for the claims, and its reads wait for the
   // test page reads. false runs it after the test pages.
   verifyOverlapGather: true,
+  // CP-807: a link name with no model number waits at most this long for the
+  // pasted page's title before the check goes on with the name it has.
+  verifyPastedNameReadMs: 10_000,
   maxConcurrency: 6, // parallel sub-researchers on the CF queue consumer (6 = validated memory-safe; bumping to 12 gave no latency gain — bottleneck is the agent loop + synth, not gather)
   reportSections: ['summary', 'products', 'comparison', 'categories', 'pitfalls', 'buyerGuide', 'methodology'],
 };

@@ -4,7 +4,8 @@ import { fetchPageContent } from '../lib/jina.js';
 import { scoreSource, extractAmazonProductUrls } from '../lib/credibility.js';
 import { fetchYoutubeDescription, isYouTube } from '../lib/youtube.js';
 import { isFetchableUrl } from '../lib/url-guard.js';
-import { searxngSearch } from './searxng.js';
+import { gated } from '../lib/connection-gate.js';
+import { searxngSearch, urlKey } from './searxng.js';
 
 // ─── Provider primitives (Serper + HN Algolia) ───────────────────────────────
 // NOTE: Do NOT evaluate `new Date()` at module load. Cloudflare Workers freeze
@@ -518,7 +519,9 @@ export async function runSearch(query, provider, env, recencySensitive) {
   const state = { searchCount: 0, fetchCount: 0, sources: [], notes: [] };
   const tc = { function: { name: 'web_search', arguments: JSON.stringify({ query, provider: provider || 'web' }) } };
   try {
-    await executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive });
+    // A check's connection gate (worker/lib/connection-gate.js): the search
+    // holds one slot, so its provider timers start only when it can connect.
+    await gated(env?.connectionGate, undefined, () => executeTool(tc, state, { maxSearches: 99999, maxFetches: 99999 }, { env, recencySensitive }));
   } catch (err) {
     // A single bad provider call never aborts the burst, but it is logged:
     // a silent catch here hid a broken web search for weeks.
@@ -605,6 +608,9 @@ async function executeSearch(
   const exaApiKey = env?.EXA_API_KEY;
   const searxngUrl = env?.SEARXNG_URL;
   const searxngGate = env?.LITELLM_GATE_TOKEN;
+  const searxngKv = env?.KV;
+  // forceFresh runs (worker/jobs.js searchEnvFor) skip the cached answers.
+  const searxngCacheBypass = env?.SEARXNG_CACHE_BYPASS === true;
 
   state.searchCount++;
   let results;
@@ -625,7 +631,7 @@ async function executeSearch(
   // skipSearxng: the 'searxng' provider already asked SearXNG, so a second
   // call would only repeat the same weak or failed answer.
   const webFallback = async (q, { skipSearxng = false } = {}) => {
-    const sx = searxngUrl && !skipSearxng ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate }) : null;
+    const sx = searxngUrl && !skipSearxng ? await searxngSearch(q, searxngUrl, { timeRange: tr, gateToken: searxngGate, kv: searxngKv, cacheBypass: searxngCacheBypass }) : null;
     if (sx !== null) return sx;
     const brave = braveApiKey ? await braveSearch(q, braveApiKey, { timeRange: tr }) : null;
     if (brave !== null) return brave;
@@ -683,7 +689,7 @@ async function executeSearch(
     case 'searxng': {
       // Self-hosted metasearch (free, broad). Falls back to Serper, then the web
       // chain without SearXNG (Brave / Exa / Tavily), when SearXNG fails or is weak.
-      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate }) : null;
+      const sx = searxngUrl ? await searxngSearch(query, searxngUrl, { sourceLabel: 'web', timeRange: tr, gateToken: searxngGate, kv: searxngKv, cacheBypass: searxngCacheBypass }) : null;
       if (sx !== null) { results = sx; subs = 1; break; }
       const serp = await serperSearch(query, serperApiKey, { sourceLabel: 'web', timeRange: tr });
       results = serp === null ? await webFallback(query, { skipSearxng: true }) : serp;
@@ -702,9 +708,16 @@ async function executeSearch(
     }
   }
 
-  // Deduplicate against existing sources
-  const seenUrls = new Set(state.sources.map((s) => s.url));
-  const newResults = results.filter((r) => !seenUrls.has(r.url));
+  // Deduplicate against existing sources and within this answer by URL key,
+  // so the same page from two providers (www, http, trailing slash) counts once.
+  const seenKeys = new Set(state.sources.map((s) => urlKey(s.url)));
+  const newResults = results.filter((r) => {
+    const key = urlKey(r.url);
+    if (key === null) return true;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
 
   // Video provider: fetch YouTube descriptions in parallel. Descriptions carry
   // the affiliate-link evidence ("Buy here: amzn.to/...") that title+snippet
@@ -774,7 +787,7 @@ async function executeReadPage(
   if (!url || !isFetchableUrl(url)) return ['Error: valid public HTTPS URL is required', 0];
 
   state.fetchCount++;
-  const content = await fetchPageContent(url, env?.JINA_API_KEY, signal ? { signal } : undefined);
+  const content = await fetchPageContent(url, env?.JINA_API_KEY, { signal, gate: env?.connectionGate });
 
   if (!content) {
     return [`Could not read ${url} — page may be paywalled, JS-only, or blocked. Use the snippet instead.`, 1];
@@ -785,7 +798,8 @@ async function executeReadPage(
   // links, hands-on testing language, and listicle structure are usually
   // only detectable from the full text, not the search snippet.
   const amzUrls = extractAmazonProductUrls(content);
-  const existing = state.sources.find((s) => s.url === url);
+  const key = urlKey(url);
+  const existing = state.sources.find((s) => urlKey(s.url) === key);
   if (existing) {
     existing.content = content;
     existing.credibility = scoreSource({

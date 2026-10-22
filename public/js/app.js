@@ -1,7 +1,7 @@
 /**
- * Frank frontend - theme toggle, example queries, and the live research
- * flow (submit -> queue -> SSE progress -> redirect). Reports are rendered
- * server-side at /research/:slug; on completion we always navigate there.
+ * Frank frontend - theme toggle, example queries, and the research flow
+ * (submit -> queue -> open /research/:slug, which shows live progress and then
+ * the report, both server-rendered). The SSE log here is only a fallback.
  */
 (function () {
     'use strict';
@@ -331,6 +331,16 @@
                     recordHistory(data.slug, pendingQuery);
                     addProgress('Found existing research. Redirecting…');
                     window.location.href = '/research/' + data.slug;
+                    return;
+                }
+                // CP-421: the server-rendered /research/<slug> page carries the rich
+                // live progress view, so open it as soon as the run is queued. The
+                // homepage log below stays only as a fallback when no slug came back.
+                if (data.slug) {
+                    researchDone = true;
+                    recordHistory(data.slug, pendingQuery);
+                    addProgress('Queued. Opening the live research page…');
+                    window.location.href = '/research/' + encodeURIComponent(data.slug);
                     return;
                 }
                 addProgress('Queued. Connecting to the live read…');

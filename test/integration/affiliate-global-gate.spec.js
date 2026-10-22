@@ -19,9 +19,15 @@ import { applySchema } from './_schema.js';
 import { handleAffiliateClick } from '../../worker/handlers/affiliate.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
 import { checkRateLimit, ipRateKey } from '../../worker/lib/rate-limit.js';
-import { AFFILIATE_GLOBAL_LIMIT, AFFILIATE_GLOBAL_KEY } from '../../worker/lib/affiliate-gate.js';
+import {
+  AFFILIATE_GLOBAL_LIMIT, AFFILIATE_GLOBAL_KEY, AFFILIATE_HOURLY_KEY, affiliateHourlyLimit,
+} from '../../worker/lib/affiliate-gate.js';
 
 const PER_IP_CLICK_LIMIT = 30; // mirrors worker/handlers/affiliate.js
+const HOURLY_BUCKET = `ratelimit:${AFFILIATE_HOURLY_KEY}`;
+const hourlyHits = async () => (await env.DB.prepare(
+  'SELECT COUNT(*) n FROM rate_limit_hits WHERE bucket = ?1',
+).bind(HOURLY_BUCKET).first()).n;
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36';
 
 // The native binding's counting behaviour inside one window: the first `limit`
@@ -63,6 +69,11 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM affiliate_clicks WHERE product_id = ?1').bind(pid).run();
+  // Storage persists across the tests in this file, so reset the site-wide
+  // hourly counter (CP-353, D1 window, KV fallback): each test measures one
+  // layer on a fresh hour.
+  await env.DB.prepare('DELETE FROM rate_limit_hits WHERE bucket = ?1').bind(HOURLY_BUCKET).run();
+  await env.KV.delete(HOURLY_BUCKET);
 });
 
 describe('site-wide affiliate gate: the binding is wired', () => {
@@ -178,5 +189,47 @@ describe('per-IP cap is unchanged by the new layer', () => {
     }), env);
     expect(isTagged(res)).toBe(false);
     expect(limiter.seen.size).toBe(0);
+  });
+});
+
+describe('slow, wide source under the per-minute gate (CP-353)', () => {
+  beforeEach(() => {
+    // The per-minute gate is pinned open: this is the shape it cannot see.
+    env.RL_AFFILIATE_GLOBAL = openLimiter;
+  });
+
+  it('reads the hourly ceiling from wrangler.toml [vars]', () => {
+    expect(env.AFFILIATE_GLOBAL_HOURLY_LIMIT).toBe('30');
+    expect(affiliateHourlyLimit(env)).toBe(30);
+  });
+
+  it('tags only the hourly ceiling when 40 addresses send one click each', async () => {
+    const limit = affiliateHourlyLimit(env);
+    const results = [];
+    for (let i = 0; i < 40; i++) {
+      results.push(await handleAffiliateClick(pid, clickRequest(pid, `100.64.7.${i + 1}`), env));
+    }
+    expect(results.every((r) => r.status === 302)).toBe(true);
+    expect(results.filter(isTagged).length).toBe(limit);
+    const logged = await env.DB.prepare('SELECT COUNT(*) n FROM affiliate_clicks WHERE product_id = ?1').bind(pid).first();
+    expect(logged.n).toBe(limit);
+    // Counted on the atomic D1 window, one exact count across locations.
+    expect(await hourlyHits()).toBe(limit);
+  });
+
+  it('does not spend the hourly budget on a click the per-IP cap already flagged', async () => {
+    // Raise the hourly ceiling above the per-IP cap, so the hourly count can
+    // only stop at 30 if flagged clicks never reach it.
+    const saved = env.AFFILIATE_GLOBAL_HOURLY_LIMIT;
+    env.AFFILIATE_GLOBAL_HOURLY_LIMIT = '100';
+    try {
+      const ip = '100.64.8.1';
+      for (let i = 0; i < PER_IP_CLICK_LIMIT + 5; i++) {
+        await handleAffiliateClick(pid, clickRequest(pid, ip), env);
+      }
+      expect(await hourlyHits()).toBe(PER_IP_CLICK_LIMIT);
+    } finally {
+      env.AFFILIATE_GLOBAL_HOURLY_LIMIT = saved;
+    }
   });
 });

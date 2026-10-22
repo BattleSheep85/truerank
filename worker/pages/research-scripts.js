@@ -171,7 +171,7 @@ export function subscribeScript(researchId = null) {
         body:JSON.stringify({email:email,researchId:researchId})
       }).then(function(r){var ct=r.headers.get('content-type')||'';if(ct.indexOf('application/json')===-1){throw new Error('non-json')}return r.json()}).then(function(d){
         if(d&&d.ok){
-          if(msg)msg.textContent='Check your inbox and click the link to confirm.';
+          if(msg)msg.textContent=d.mail==='off'?'Email is not switched on yet, so we cannot send you anything. Please try again later.':'Check your inbox and click the link to confirm.';
           form.style.display='none';
         }else{
           if(msg)msg.textContent='That email looks off. Try again?';

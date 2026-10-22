@@ -1,5 +1,11 @@
 # truerank-research-worker — deploy guide (track 2 / Approach B)
 
+> **Retired 2026-09-25.** The Blackbox stack `truerank-research-worker` (ID 138) and its
+> files under `/mnt/pods/truerank-research-worker` were deleted. Production research runs
+> Cloudflare-side (`EXTERNAL_WORKER_ENABLED = "false"` since 2026-07-22). This guide is kept
+> as history only: the steps below no longer work, and there is no off-CF rollback without
+> rebuilding the host setup first.
+
 Runs the **parallel research engine off Cloudflare** so research has no
 ~950-subrequest / 20-min cap and can fan out with high concurrency. The public
 site keeps serving from Cloudflare's edge; only *processing* moves to this

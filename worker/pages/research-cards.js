@@ -193,14 +193,35 @@ function criticalReviewsBlock(p, cons) {
     ? 'We didn’t find enough independent reviews to score this confidently — read the criticism we did find before buying:'
     : 'This scores below 4★. Here’s the criticism reviewers actually raised — read it and decide whether any of it is a dealbreaker for you:';
   const introCls = 'mb-2 text-body-sm leading-relaxed text-ink-2';
-  const body = items
-    ? `<p class="${introCls}">${intro}</p><ul class="crit-list flex flex-col gap-1.5 pl-4 [&>li]:list-disc">${items}</ul>`
-    : ((cons || []).length
-        ? `<p class="${introCls}">The main caveat reviewers raised is noted above. We didn’t surface additional specific criticism — read recent buyer reviews before purchasing.</p>`
-        : `<p class="${introCls}">This scores below 4★ and we couldn’t surface specific, credible criticism — treat the rating cautiously and read recent buyer reviews before purchasing.</p>`);
+  const quotes = criticalQuotesHtml(p.critical_reviews);
+  const consHtml = items
+    ? `<p class="${introCls}">${quotes ? 'Other criticism we found:' : intro}</p><ul class="crit-list flex flex-col gap-1.5 pl-4 [&>li]:list-disc">${items}</ul>`
+    : '';
+  const fallback = (cons || []).length
+    ? `<p class="${introCls}">The main caveat reviewers raised is noted above. We didn’t surface additional specific criticism — read recent buyer reviews before purchasing.</p>`
+    : `<p class="${introCls}">This scores below 4★ and we couldn’t surface specific, credible criticism — treat the rating cautiously and read recent buyer reviews before purchasing.</p>`;
+  const body = quotes
+    ? `<p class="${introCls}">${intro}</p>${quotes}${consHtml ? `<div class="mt-3">${consHtml}</div>` : ''}`
+    : (consHtml || fallback);
   return `<section class="critical-reviews mt-4 border border-trust-low bg-trust-low-bg p-4" aria-label="Critical reviews">
 <h4 class="crit-head flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-trust-low"><span aria-hidden="true">&#9888;</span> Why some reviewers rated it low</h4>
 <div class="mt-2">${body}</div></section>`;
+}
+
+// CP-399: verbatim 1-2★ review quotes, each with its star count and a link to its source.
+function criticalQuotesHtml(list) {
+  const safe = (Array.isArray(list) ? list : [])
+    .filter((q) => q && typeof q.quote === 'string' && q.quote.trim() && typeof q.sourceUrl === 'string' && isValidHttpsUrl(q.sourceUrl));
+  if (!safe.length) return '';
+  const items = safe.map((q) => {
+    const label = (typeof q.sourceTitle === 'string' && q.sourceTitle.trim()) || new URL(q.sourceUrl).hostname.replace(/^www\./, '');
+    const stars = Number.isFinite(Number(q.stars)) ? `${Number(q.stars)}/5` : '';
+    return `<li class="crit-quote border-l-2 border-trust-low pl-4">
+<blockquote class="text-body-sm italic leading-relaxed text-ink">“${escapeHtml(q.quote.trim())}”</blockquote>
+<p class="mt-1 font-mono text-[11px] text-ink-3">${stars ? `<span class="readout text-trust-low">${stars}</span> · ` : ''}<a href="${escapeHtml(q.sourceUrl)}" target="_blank" rel="noopener noreferrer nofollow" class="text-accent hover:text-accent-hover">${escapeHtml(label)}</a></p>
+</li>`;
+  }).join('');
+  return `<ul class="crit-quotes flex flex-col gap-2">${items}</ul>`;
 }
 
 // "Our pick" box: a high-visibility card for the rank-1 product, shown above the
