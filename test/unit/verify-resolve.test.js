@@ -16,6 +16,8 @@ import {
   extractRetailerSpecText,
   extractBuyerReviews,
   harvestBuyerReviews,
+  readBuyerReviewPages,
+  readClaimPages,
   reviewTextHash,
   sanitizeReviewSnippet,
   buildClaimTextBlock,
@@ -25,6 +27,7 @@ import {
   MAX_REVIEW_SNIPPET_CHARS,
 } from '../../worker/engine/verify-resolve.js';
 import { scoreSource } from '../../worker/lib/credibility.js';
+import { createConnectionGate } from '../../worker/lib/connection-gate.js';
 
 export async function runVerifyResolveTests() {
   const report = { passed: 0, failed: 0, failures: [] };
@@ -183,6 +186,41 @@ export async function runVerifyResolveTests() {
     evidencePagesToRead(mixedSources, 'Antec C8').map((s) => s.url),
     [c8Page.url],
   );
+  // CP-718: GamersNexus ("Antec C8 ARGB") and KitGuru ("Antec Constellation C8") name the Antec C8.
+  const page = (url, title) => ({ url, title });
+  eq('CP-718 lighting: "Antec C8 ARGB" names the Antec C8', namesProduct(page('https://gamersnexus.net/cases/antec-c8-argb-case-review', 'Antec C8 ARGB Case Review'), 'Antec C8'), true);
+  eq('CP-718 lighting: "Antec C8 ARGB" is not another model', namesOtherModel(page('https://gamersnexus.net/cases/antec-c8-argb-case-review', 'Antec C8 ARGB Case Review'), 'Antec C8'), false);
+  eq('CP-718 lighting: "Antec C8 ARGB Wood" is still another model', namesProduct(page('https://x.com/r', 'Antec C8 ARGB Wood Review'), 'Antec C8'), false);
+  eq('CP-718 lighting: "Antec C8 Wood" is still another model', namesOtherModel(page('https://x.com/r', 'Antec C8 Wood Review'), 'Antec C8'), true);
+  eq('CP-718 series word: "Antec Constellation C8" names the Antec C8', namesProduct(page('https://www.kitguru.net/components/cases/antec-constellation-c8-case-review/', 'Antec Constellation C8 Case Review - KitGuru'), 'Antec C8'), true);
+  eq('CP-718 series word: "Antec Constellation C8 Wood" does not', namesProduct(page('https://x.com/r', 'Antec Constellation C8 Wood Review'), 'Antec C8'), false);
+  eq('CP-718 series word: "Antec C5 vs C8" does not name it twice-removed', namesProduct(page('https://x.com/r', 'Antec Flux vs Lian Li C8'), 'Antec C8'), false);
+  eq('CP-718 series word: "Galaxy Tab S9" is not the Galaxy S9', namesProduct(page('https://x.com/r', 'Samsung Galaxy Tab S9 review'), 'Galaxy S9'), false);
+  eq('CP-718 series word: body text never uses the series-word match', aboutProduct({ url: 'https://x.com/roundup', title: 'Best phones', content: 'In our test the Pixel lasted 8 hours.' }, 'Pixel 8'), false);
+  eq('CP-718 series word: titles do', aboutProduct({ url: 'https://x.com/r', title: 'Google Pixel 8 review', content: '' }, 'Pixel 8'), true);
+  eq('CP-718 series word: three-word names keep the strict match', namesProduct(page('https://x.com/r', 'Samsung Galaxy Ultra S25 review'), 'Samsung Galaxy S25'), false);
+
+  // CP-718: ten TechPowerUp pages of one review took every read; Reddit reads are always blocked.
+  const tpuPages = [1, 2, 3, 4, 5, 6].map((n) => ({
+    url: `https://www.techpowerup.com/review/antec-c8/${n}.html`, title: 'Antec C8 Review | TechPowerUp', content: 'snippet', credibility: { score: 90 },
+  }));
+  const otherReviews = [
+    { url: 'https://gamersnexus.net/cases/surprisingly-good-antec-c8-argb-case-review', title: 'Antec C8 ARGB Case Review', content: 'snippet', credibility: { score: 85 } },
+    { url: 'https://www.kitguru.net/components/cases/antec-constellation-c8-case-review/', title: 'Antec Constellation C8 Case Review', content: 'snippet', credibility: { score: 80 } },
+  ];
+  const redditPage = { url: 'https://www.reddit.com/r/buildapc/comments/1kwyfmf/antec_c8_review', title: 'Antec C8 review?', content: 'snippet', credibility: { score: 70 } };
+  const tpuFirst = [...tpuPages, redditPage, ...otherReviews];
+  const testPicks = testPagesToRead(tpuFirst, 'Antec C8').map((s) => s.url);
+  eq('CP-718 testPagesToRead: at most 2 pages per site', testPicks.filter((u) => u.includes('techpowerup')).length, 2);
+  eq('CP-718 testPagesToRead: GamersNexus and KitGuru get reads', otherReviews.every((s) => testPicks.includes(s.url)), true);
+  eq('CP-718 testPagesToRead: Reddit is not read', testPicks.some((u) => u.includes('reddit')), false);
+  const blogs = ['alice', 'bob', 'carol'].map((n) => ({ url: `https://${n}.substack.com/p/antec-c8-review`, title: 'Antec C8 review', content: 'snippet', credibility: { score: 70 } }));
+  eq('CP-718 testPagesToRead: blogs on a shared host are separate sites', testPagesToRead(blogs, 'Antec C8').length, 3);
+  const gatherPicks = evidencePagesToRead(tpuFirst, 'Antec C8').map((s) => s.url);
+  eq('CP-718 evidencePagesToRead: at most 2 pages per site', gatherPicks.filter((u) => u.includes('techpowerup')).length, 2);
+  eq('CP-718 evidencePagesToRead: Reddit is not read', gatherPicks.some((u) => u.includes('reddit')), false);
+  eq('CP-718 evidencePagesToRead: the other reviews are read', otherReviews.every((s) => gatherPicks.includes(s.url)), true);
+
   eq(
     'rankClaimCandidates: checking Antec C8 keeps only c8 maker page, dropping c8-wood',
     rankClaimCandidates([c8WoodMakerPage, c8MakerPage], 'Antec C8').map((s) => s.url),
@@ -389,6 +427,27 @@ export async function runVerifyResolveTests() {
   eq('harvestBuyerReviews: caps total harvested reviews at 200', cappedHarvest[0].reviewCount, 200);
   eq('harvestBuyerReviews: sourceType is buyer-review', cappedHarvest[0].source, 'buyer-review');
 
+  // CP-782: one buyer review with a paid-promotion marker must not tag the
+  // whole host's aggregated buyer-review source as sponsored-content.
+  const plainReviews = Array.from({ length: 5 }, (_, idx) =>
+    `##### _4.0 out of 5 stars_ Review ${idx + 1}\nReviewed in the United States on October 2, 2026\nVerified Purchase\nThe Sony WH-1000XM6 noise canceling held up on ${idx + 3} long train rides this month.`,
+  );
+  const sponsoredReview = '##### _5.0 out of 5 stars_ Promo\nReviewed in the United States on October 3, 2026\nVerified Purchase\nLove the Sony WH-1000XM6, use my code for 10% off #ad #sponsored and the sound is great.';
+  const deniedReview = '##### _5.0 out of 5 stars_ Honest\nReviewed in the United States on October 4, 2026\nVerified Purchase\nThis is not a sponsored post, I bought the Sony WH-1000XM6 myself and the battery lasts all week.';
+  const mixedHost = harvestBuyerReviews([{
+    url: 'https://www.amazon.com/dp/B0DK85GRFZ',
+    title: 'Sony WH-1000XM6',
+    content: `# Customer reviews\n${[...plainReviews, sponsoredReview, deniedReview].join('\n')}`,
+  }], 'Sony WH-1000XM6');
+  eq('harvestBuyerReviews: a review with a paid-promotion marker is dropped (CP-782)', mixedHost[0].reviewCount, 6);
+  ok('harvestBuyerReviews: the dropped promo review text is not in the aggregate (CP-782)', !mixedHost[0].content.includes('use my code'));
+  ok('harvestBuyerReviews: a "not a sponsored post" review is kept (CP-782)', mixedHost[0].content.includes('bought the Sony WH-1000XM6 myself'));
+  const mixedParsed = parseRetailerPage(`# Customer reviews\n${[...plainReviews, sponsoredReview].join('\n')}`, { url: 'https://www.amazon.com/dp/B0DK85GRFZ' });
+  ok('parseRetailerPage: a dropped promo review is recorded with sponsored-content (CP-782)',
+    mixedParsed.droppedIncentivized.some((r) => r.tags.includes('sponsored-content') && r.text.includes('use my code')));
+  const mixedCred = scoreSource({ url: mixedHost[0].url, title: mixedHost[0].title, content: mixedHost[0].content, sourceType: 'buyer-review' });
+  ok('scoreSource: the host aggregate is not tagged sponsored-content by one review (CP-782)', !mixedCred.tags.includes('sponsored-content'));
+
   // scoreSource on buyer-review source tags community + buyer-review (not manufacturer)
   const buyerCred = scoreSource({
     url: cappedHarvest[0].url,
@@ -410,12 +469,46 @@ export async function runVerifyResolveTests() {
   eq('extractBuyerReviews: extracts first-hand owner comment from Reddit thread', redditComments.length, 1);
   eq('extractBuyerReviews: tags Reddit comment kind as owner-comment', redditComments[0].kind, 'owner-comment');
 
+  // CP-778: the shared read of an Amazon claim page won (usable spec text) and
+  // the focused read with the buyer reviews was stopped, so the check had no
+  // buyer-review evidence. readBuyerReviewPages reads those pages again.
+  {
+    const product = 'Antec C8';
+    const amazonClaim = { url: 'https://www.amazon.com/Antec-C8-Compatible-Dual-Chamber-Full-Tower/dp/B0CP3MZXVH', title: 'Antec C8 Full-Tower E-ATX PC Case', content: 'Antec C8 spec text. '.repeat(80) };
+    const makerClaim = { url: 'https://www.antec.com/product/case/c8', title: 'Antec C8', content: 'Antec C8 spec text. '.repeat(80) };
+    const alreadyHasReviews = { url: 'https://www.newegg.com/antec-c8/p/N82E16811129306', title: 'Antec C8', content: 'spec\n[Buyer review] The Antec C8 fit my 360 mm radiator on top with room to spare.' };
+    const reviewText = 'spec\n# Customer reviews\n[Buyer review] Fits a 4090 with lots of room, cable routing behind the board is easy.\n[Buyer review] The Antec C8 panels pop off with no tools and the glass is thick.';
+    const asked = [];
+    const focusedRead = async (url) => {
+      asked.push(url);
+      return reviewText;
+    };
+    const pages = await readBuyerReviewPages([amazonClaim, makerClaim, alreadyHasReviews], product, { focusedRead });
+    eq('readBuyerReviewPages: reads only retailer claim pages without buyer reviews', asked, [amazonClaim.url]);
+    eq('readBuyerReviewPages: returns the read page with the focused text', pages.map((p) => [p.url, p.content]), [[amazonClaim.url, reviewText]]);
+    eq('readBuyerReviewPages: does not change the claim source', amazonClaim.content.startsWith('Antec C8 spec text.'), true);
+    const harvested = harvestBuyerReviews([amazonClaim, ...pages], product);
+    eq('readBuyerReviewPages: harvest finds the buyer reviews of the read page', harvested.map((h) => [h.source, h.reviewCount]), [['buyer-review', 2]]);
+
+    const none = await readBuyerReviewPages([amazonClaim], product, { focusedRead: async () => 'spec text without any reviews' });
+    eq('readBuyerReviewPages: a read without buyer reviews adds nothing', none, []);
+    const failed = await readBuyerReviewPages([amazonClaim], product, { focusedRead: async () => { throw new Error('boom'); } });
+    eq('readBuyerReviewPages: a failed read adds nothing and does not throw', failed, []);
+    const stopped = new AbortController();
+    stopped.abort();
+    const skipped = await readBuyerReviewPages([amazonClaim], product, { focusedRead, signal: stopped.signal });
+    eq('readBuyerReviewPages: a stopped run reads nothing', skipped, []);
+    eq('readBuyerReviewPages: bad input gives an empty list', await readBuyerReviewPages(null, product, { focusedRead }), []);
+  }
+
   // sanitizeReviewSnippet unit checks
   eq(
     'sanitizeReviewSnippet: strips markdown links, images, HTML, and trailing Helpful/Report',
     sanitizeReviewSnippet('![img](https://x.com/a.jpg) **Great** [battery life](https://amazon.com/dp/B001) <b>30h</b> https://t.co/abc 5 people found this helpful Helpful Report'),
     'Great battery life 30h',
   );
+
+  await runConnectionGateCases({ eq, ok });
 
   ok('verify-resolve suite ran assertions', report.passed > 0);
 
@@ -428,5 +521,77 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (r.failed > 0) {
     for (const f of r.failures) console.error('  FAIL', f);
     process.exit(1);
+  }
+}
+
+// CP-718 round 3: the focused read waits for a connection slot before it
+// opens its connection, and the run's gate reaches every focused read.
+async function runConnectionGateCases({ eq, ok }) {
+  const quietLog = console.log;
+  console.log = () => {};
+  try {
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      let started = false;
+      const read = readFocusedPage('https://www.example.com/acme-c8-review', async () => {
+        started = true;
+        return { ok: true, status: 200, text: async () => 'Acme C8 review text' };
+      }, '', { gate });
+      await new Promise((r) => setTimeout(r, 5));
+      eq('readFocusedPage gate: waits for a free slot', started, false);
+      release();
+      await held;
+      ok('readFocusedPage gate: reads once the slot frees', (await read).includes('Acme C8 review text'));
+      eq('readFocusedPage gate: slot freed', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      const stop = new AbortController();
+      let calls = 0;
+      const read = readFocusedPage('https://www.example.com/late', async () => { calls++; return { ok: true, status: 200, text: async () => 'x' }; }, '', { gate, signal: stop.signal });
+      stop.abort();
+      eq('readFocusedPage gate: stopped while waiting gives no text', await read, '');
+      eq('readFocusedPage gate: stopped while waiting never fetches', calls, 0);
+      release();
+      await held;
+    }
+    {
+      const gate = createConnectionGate(1);
+      let cancelled = 0;
+      const text = await readFocusedPage('https://www.example.com/gone', async () => ({
+        ok: false, status: 503, body: { cancel: async () => { cancelled++; } }, text: async () => '',
+      }), '', { gate });
+      eq('readFocusedPage gate: an HTTP error gives no text', text, '');
+      eq('readFocusedPage gate: the error body is cancelled', cancelled, 1);
+      eq('readFocusedPage gate: slot freed after an error', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(2);
+      const seen = [];
+      const amazon = { url: 'https://www.amazon.com/Antec-C8/dp/B0CP3MZXVH', title: 'Antec C8', content: 'Antec C8 spec text. '.repeat(80) };
+      await readBuyerReviewPages([amazon], 'Antec C8', { gate, focusedRead: async (_url, _f, _k, opts) => { seen.push(opts?.gate); return ''; } });
+      ok('readBuyerReviewPages: passes the gate to the focused read', seen.length === 1 && seen[0] === gate);
+    }
+    {
+      const gate = createConnectionGate(2);
+      const env = { connectionGate: gate };
+      const seenFocused = [];
+      const seenShared = [];
+      const candidates = [{ url: 'https://www.acme.com/c8', title: 'Acme C8', content: '' }];
+      await readClaimPages(candidates, env, {
+        wanted: 1,
+        maxReads: 1,
+        read: async (source, readEnv) => { seenShared.push(readEnv?.connectionGate); source.content = ''; },
+        focusedRead: async (_url, _f, _k, opts) => { seenFocused.push(opts?.gate); return ''; },
+      });
+      ok('readClaimPages: the shared read gets the env with the gate', seenShared.length === 1 && seenShared[0] === gate);
+      ok('readClaimPages: the focused read gets the env gate', seenFocused.length === 1 && seenFocused[0] === gate);
+    }
+  } finally {
+    console.log = quietLog;
   }
 }

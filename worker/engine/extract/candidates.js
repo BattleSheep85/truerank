@@ -192,9 +192,40 @@ function trimNameTail(toks) {
   return out;
 }
 
+// CP-397: apparel names have no model code, so review words bleed onto the end ("Uniqlo
+// Premium Linen Shirt Great", "Madewell Perfect Vintage Jean Fits True"). For an APPAREL
+// query (opts.apparel) a code-free name ends at its LAST garment noun; a coded name
+// ("Baggies Shorts 5 Inch") is left alone. Other categories never see this rule, so
+// "Samsung Top Load Washer" and "Allen Edmonds Dress Shoe" keep their names.
+const GARMENT_NOUNS = new Set(['shirt', 'shirts', 'tee', 'tees', 't-shirt', 't-shirts', 'sweater', 'sweaters', 'crewneck',
+  'cardigan', 'hoodie', 'sweatshirt', 'polo', 'henley', 'overshirt', 'blouse', 'top', 'tank', 'jean', 'jeans', 'pants',
+  'pant', 'trousers', 'chinos', 'chino', 'joggers', 'jogger', 'shorts', 'leggings', 'skirt', 'dress', 'jumpsuit',
+  'jacket', 'coat', 'parka', 'blazer', 'vest', 'socks', 'boxers', 'briefs', 'underwear', 'robe', 'pajamas', 'swimsuit',
+  // footwear shares the apparel cluster; its noun ends the name ("Allen Edmonds Dress Shoe")
+  'shoe', 'shoes', 'boot', 'boots', 'sneaker', 'sneakers', 'sandal', 'sandals', 'loafer', 'loafers', 'slipper', 'slippers',
+  'heels', 'flats', 'clogs', 'mules']);
+const MAX_NAME_TOKENS = 5;
+const MAX_GARMENT_NAME_TOKENS = 6; // "Quince European Linen Long Sleeve Shirt"
+const isGarment = (t) => GARMENT_NOUNS.has(cleanTok(t).toLowerCase());
+function cutAtGarment(toks) {
+  if (toks.some((t) => hasModelCode(t))) return toks;
+  let last = -1;
+  for (let k = 1; k < toks.length; k++) if (isGarment(toks[k])) last = k;
+  return last > 0 ? toks.slice(0, last + 1) : toks;
+}
+const isBrandList = (toks) => toks.length >= 2 && toks.every((t) => { const l = cleanTok(t).toLowerCase(); return BRANDS.has(l) || STOPWORDS.has(l); });
+
+// A brand-led run keeps 3 words after the brand; for apparel it may reach further to a
+// garment noun ("Everlane Organic Cotton Box-Cut Tee").
+function brandLedName(parts, span, apparel) {
+  let end = Math.min(parts.length, span + 3);
+  if (apparel) for (let k = parts.length - 1; k >= end; k--) if (isGarment(parts[k])) { end = k + 1; break; }
+  return parts.slice(0, end).join(' ');
+}
+
 // All candidate name strings in one sentence: Title-Case runs + brand-led runs
 // (the latter catches lowercase brands like "eufy", "iRobot").
-function extractNames(sent) {
+function extractNames(sent, apparel = false) {
   const out = [];
   let m; TITLECASE_RUN.lastIndex = 0;
   while ((m = TITLECASE_RUN.exec(sent)) !== null) out.push(m[1].trim());
@@ -207,11 +238,11 @@ function extractNames(sent) {
     else if (BRANDS.has(l1)) span = 1;
     if (!span) continue;
     const parts = toks.slice(i, i + span).map(cleanTok);
-    for (let j = i + span; j < toks.length && j < i + span + 3; j++) {
+    for (let j = i + span; j < toks.length && j < i + span + MAX_GARMENT_NAME_TOKENS - 1; j++) {
       const t = cleanTok(toks[j]);
       if (/^[A-Z]/.test(t) || /\d/.test(t)) parts.push(t); else break;
     }
-    out.push(parts.join(' '));
+    out.push(brandLedName(parts, span, apparel));
   }
   return out;
 }
@@ -224,7 +255,7 @@ export function harvestCandidates(sources, notes, opts = {}) {
   const cands = new Map();
   for (const u of units) {
     for (const sent of sentences(u.text)) {
-      for (const raw of extractNames(sent)) {
+      for (const raw of extractNames(sent, opts.apparel)) {
         let toks = raw.split(/\s+/).map(cleanTok).filter(Boolean);
         // strip leading stopword/publisher/number/year tokens; trailing stopword/year
         while (toks.length && (STOPWORDS.has(toks[0].toLowerCase()) || PUBLISHERS.has(toks[0].toLowerCase()) || /^\d+$/.test(toks[0]) || YEAR_RE.test(toks[0]))) toks.shift();
@@ -232,7 +263,8 @@ export function harvestCandidates(sources, notes, opts = {}) {
         const bt = brandTruncate(toks); // split a 2-product merge; flag a 3+ brand list
         if (bt.drop) continue;
         toks = trimNameTail(trimNameLead(bt.toks)); // strip leading non-product words + trailing bleed
-        if (!toks.length) continue;
+        if (opts.apparel) toks = cutAtGarment(toks);
+        if (!toks.length || isBrandList(toks)) continue; // "Our Favorite ... From Uniqlo Everlane" → a brand list
         const name = toks.join(' ');
         const low = name.toLowerCase();
         if (low.length < 3 || PUBLISHERS.has(low) || toks.every((t) => STOPWORDS.has(t.toLowerCase()))) continue;
@@ -246,7 +278,8 @@ export function harvestCandidates(sources, notes, opts = {}) {
         if (opts.physical && toks.length === 1 && !hasStrongCode(name)) continue; // bare brand for a physical product = noise ("flair")
         if (isBoilerplate(name)) continue; // license footers, CTAs, timestamps, nav
         // Real-markdown noise rejects (clean fixtures never had these):
-        if (toks.length > 5) continue;                          // concatenated headings/lists
+        const maxToks = opts.apparel && brand && isGarment(toks[toks.length - 1]) ? MAX_GARMENT_NAME_TOKENS : MAX_NAME_TOKENS;
+        if (toks.length > maxToks) continue;                    // concatenated headings/lists
         if (toks.length >= 4 && !brand) continue;               // long non-brand string = a heading
         if (/[[\]()]|\.(?:jpg|jpeg|png|webp|gif|avif|svg)\b|https?:/i.test(name)) continue; // md/url/img debris
         if (!brand && /\b(?:more|from|vetted|customer|photo|image|zoom|click|shop|deal|review|guide|under|dollars?|cheapest|budget|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i.test(low)) continue; // nav/date/category
@@ -281,7 +314,52 @@ export function harvestCandidates(sources, notes, opts = {}) {
     }
     if (c.sents.length) cands.set(key, c); // only when actually present in sources
   }
-  return [...cands.values()];
+  return splitMergedCandidates([...cands.values()]);
+}
+
+// CP-395: two neighbor products harvested as ONE candidate ("Synology Photos Immich").
+// A code-free name is split when a prefix and the rest are BOTH candidates in their own
+// right, each with a mention outside the merged name. The merged row's sentences go to
+// both parts, so neither starves of pros/cons. Names with a model code are left to
+// brandTruncate, and a bare one-token brand prefix never splits ("Sony" + "WH-1000XM5").
+function splitMergedCandidates(cands) {
+  const byKey = new Map(cands.map((c) => [norm(c.name), c]));
+  const splits = new Map();
+  for (const c of cands) {
+    const parts = findSplit(c, byKey);
+    if (parts) splits.set(c, parts);
+  }
+  if (!splits.size) return cands;
+  const extra = new Map();
+  for (const [merged, parts] of splits) {
+    for (const part of parts) {
+      const prev = extra.get(part) || { srcIdx: [], sents: [] };
+      extra.set(part, { srcIdx: [...prev.srcIdx, ...merged.srcIdx], sents: [...prev.sents, ...merged.sents] });
+    }
+  }
+  return cands
+    .filter((c) => !splits.has(c))
+    .map((c) => {
+      const add = extra.get(c);
+      if (!add) return c;
+      const have = new Set(c.sents.map(sentKey));
+      const fresh = add.sents.filter((x) => { const k = sentKey(x); if (have.has(k)) return false; have.add(k); return true; });
+      return { ...c, srcIdx: new Set([...c.srcIdx, ...add.srcIdx]), sents: [...c.sents, ...fresh] };
+    });
+}
+
+const sentKey = (x) => `${x.idx}\u0000${x.sentence}`;
+
+function findSplit(c, byKey) {
+  if (c.toks.length < 3 || hasModelCode(c.name)) return null;
+  const mergedLow = c.name.toLowerCase();
+  const standsAlone = (part) => part && part !== c && part.sents.some((s) => !s.sentence.toLowerCase().includes(mergedLow));
+  for (let k = 2; k < c.toks.length; k++) {
+    const head = byKey.get(norm(c.toks.slice(0, k).join(' ')));
+    const tail = byKey.get(norm(c.toks.slice(k).join(' ')));
+    if (standsAlone(head) && standsAlone(tail)) return [head, tail];
+  }
+  return null;
 }
 
 // ── entity resolution (conservative — under-merge beats over-merge) ────────────

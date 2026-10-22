@@ -10,7 +10,9 @@ import { synthesizeHonest } from './extract/index.js';
 import { parseFencedJson } from '../lib/llm-json.js';
 import { runPool } from '../lib/pool.js';
 import { runRecallGather } from './recall-gather.js';
+import { runThinCorpusFallback, readableBodyCount } from './thin-corpus.js';
 import { runOpeningBook, OPENING_BOOK_TEMPLATES } from './opening-book.js';
+import { urlKey } from './searxng.js';
 
 // ─── Event emission ────────────────────────────────────────────────────────
 //
@@ -59,6 +61,10 @@ export const SUBREQUEST_BUDGET = PLATFORM_SUBREQUEST_LIMIT - POST_ENGINE_RESERVE
 // Searches reserved for the post-planner recall gather phase so recall-driven
 // searches can still run after the planner loop ends.
 export const RECALL_RESERVE_SEARCHES = 8;
+// CP-396: the thin-corpus fallback's own allowance (searches, direct reads, hard time cap).
+export const THIN_CORPUS_SEARCHES = 3;
+export const THIN_CORPUS_READS = 4;
+export const THIN_CORPUS_GRACE_MS = 30_000;
 
 export async function runEngine(
   query,
@@ -71,7 +77,7 @@ export async function runEngine(
   clarifications,
 ) {
   const loopSearchCap = Math.max(1, config.maxSearches - RECALL_RESERVE_SEARCHES);
-  const agentTools = buildAgentTools(facets);
+  const agentTools = buildAgentTools();
   // Default recency_sensitive to true when facets are missing (legacy rows in
   // the queue). Matches the classifier's default — tech-heavy traffic wants
   // the aggressive filter by default.
@@ -117,8 +123,8 @@ export async function runEngine(
         state.searchCount += ob.searched;
         subrequestsUsed += ob.searched * 6;
         if (ob.sources && ob.sources.length > 0) {
-          const knownUrls = new Set(state.sources.map((s) => s?.url).filter(Boolean));
-          const newSources = ob.sources.filter((s) => s?.url && !knownUrls.has(s.url));
+          const knownKeys = new Set(state.sources.map((s) => s?.url).filter(Boolean).map(urlKey));
+          const newSources = ob.sources.filter((s) => s?.url && !knownKeys.has(urlKey(s.url)));
           state.sources = [...state.sources, ...newSources];
         }
         console.log(`[opening-book] searched ${ob.searched}, sources +${ob.sources.length}`);
@@ -284,7 +290,10 @@ export async function runEngine(
     // the corpus synthesis/extraction sees is identical to a sequential run.
     if (state.sources.length) {
       const byUrl = new Map();
-      for (const s of state.sources) if (s && s.url && !byUrl.has(s.url)) byUrl.set(s.url, s);
+      for (const s of state.sources) {
+        const key = urlKey(s?.url);
+        if (key !== null && !byUrl.has(key)) byUrl.set(key, s);
+      }
       state.sources = [...byUrl.values()];
     }
 
@@ -329,9 +338,40 @@ export async function runEngine(
             await emitEvent(onEvent, state, 'status', `Ran ${r.searched} recall searches for missing leaders...`);
           }
         }
-      } catch {
-        /* failure must never abort research */
+      } catch (err) {
+        // Never aborts research; logged so a broken recall phase is visible.
+        console.warn(`[recall-gather] failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+  }
+
+  // ── Thin-corpus fallback (CP-396) ────────────────────────────────────────
+  // Fires only when a preview of the extraction finds < 3 products (the linen-shirts case;
+  // the check runs inside). It has its own small allowance, since a thin run has usually
+  // spent its budget on unreadable pages: it may start up to THIN_CORPUS_GRACE_MS past the
+  // loop budget (recall often ends there) and is cut off THIN_CORPUS_GRACE_MS after it
+  // starts. Subrequest budget still applies.
+  const thinSubs = THIN_CORPUS_SEARCHES * 6 + THIN_CORPUS_READS;
+  if (
+    Date.now() - startTime <= config.agentLoopBudgetMs + THIN_CORPUS_GRACE_MS &&
+    subrequestsUsed + thinSubs < SUBREQUEST_BUDGET - SUBREQUEST_RESERVE_FOR_SYNTHESIS
+  ) {
+    try {
+      const t = await runThinCorpusFallback({
+        query, topicalCategory, sources: state.sources, notes: state.notes, facets, env, recencySensitive,
+        maxSearches: THIN_CORPUS_SEARCHES, maxReads: THIN_CORPUS_READS, deadlineMs: THIN_CORPUS_GRACE_MS,
+      });
+      if (t.triggered) {
+        state.searchCount += t.searched;
+        state.fetchCount += t.read;
+        subrequestsUsed += thinSubs;
+        state.sources = t.sources;
+        console.log(`[thin-corpus] searched ${t.searched}, read ${t.read}, readable now ${readableBodyCount(state.sources)}`);
+        await emitEvent(onEvent, state, 'status', 'Few products found, searched forums and long-term reviews...');
+      }
+    } catch (err) {
+      // Never aborts research; logged so a broken fallback is visible.
+      console.warn(`[thin-corpus] fallback failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -429,7 +469,7 @@ export async function runEngine(
   }
 
   // Extract JSON — first pass on streamed content.
-  let parsed = parseFencedJson(synthContent);
+  let parsed = parseFencedJson(synthContent, 'synthesis');
 
   // If the streamed content didn't parse (stream truncation, early close), retry
   // with the non-streaming path which buffers the full response. This keeps the
@@ -450,7 +490,7 @@ export async function runEngine(
       state.totalCostUsd += retryResponse.usage.cost;
     }
     const retryContent = retryResponse.choices?.[0]?.message?.content ?? '';
-    parsed = parseFencedJson(retryContent);
+    parsed = parseFencedJson(retryContent, 'synthesis');
     if (parsed === null) {
       throw Object.assign(new Error(`Invalid JSON from synthesis: ${retryContent.slice(0, 200)}`), { totalCostUsd: state.totalCostUsd });
     }

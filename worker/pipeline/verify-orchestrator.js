@@ -14,7 +14,7 @@ import { ENGINE_CONFIG } from '../lib/engine-config.js';
 import { getResearchById, generateId } from '../lib/db.js';
 import { nowEpoch } from '../lib/utils.js';
 import { llmRouteFromEnv } from '../lib/llm-route.js';
-import { incrementMonthlyCost } from './orchestrator.js';
+import { incrementMonthlyCost } from '../lib/budget.js';
 
 /**
  * Run the verification pipeline for a subject product. Called by the Queue
@@ -71,7 +71,10 @@ export async function runVerificationPipeline(env, reportId, { product, productU
         }
 
         if (result.status === 'ok') {
-            return await persistVerificationResult(env, reportId, result);
+            const { lateCostUsd, ...saved } = result;
+            const persisted = await persistVerificationResult(env, reportId, saved);
+            if (persisted.status === 'complete') await recordLateCost(env, reportId, lateCostUsd);
+            return persisted;
         }
 
         // Unknown/unexpected result shape from verify() — treat as a failure
@@ -136,6 +139,23 @@ async function persistVerificationResult(env, reportId, result) {
 
     await incrementMonthlyCost(env, result.costUsd);
     return { status: 'complete', claims: (result.claims || []).length };
+}
+
+/**
+ * Add the cost of judge hedge calls that finished after the verdict was saved
+ * (CP-808) to the row and the month. Errors are logged, never thrown: the
+ * report is already complete.
+ */
+async function recordLateCost(env, reportId, lateCostUsd) {
+    try {
+        const late = Number(await lateCostUsd) || 0;
+        if (late <= 0) return;
+        await env.DB.prepare('UPDATE research SET cost_usd = COALESCE(cost_usd, 0) + ?1 WHERE id = ?2')
+            .bind(late, reportId).run();
+        await incrementMonthlyCost(env, late);
+    } catch (err) {
+        console.error(JSON.stringify({ where: 'verify-late-cost', reportId, error: err instanceof Error ? err.message : String(err) }));
+    }
 }
 
 function buildClaimInsert(env, reportId, claim) {

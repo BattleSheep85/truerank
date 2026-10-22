@@ -1,7 +1,7 @@
 /**
- * Frank frontend - theme toggle, example queries, and the live research
- * flow (submit -> queue -> SSE progress -> redirect). Reports are rendered
- * server-side at /research/:slug; on completion we always navigate there.
+ * Frank frontend - theme toggle, example queries, and the research flow
+ * (submit -> queue -> open /research/:slug, which shows live progress and then
+ * the report, both server-rendered). The SSE log here is only a fallback.
  */
 (function () {
     'use strict';
@@ -333,6 +333,16 @@
                     window.location.href = '/research/' + data.slug;
                     return;
                 }
+                // CP-421: the server-rendered /research/<slug> page carries the rich
+                // live progress view, so open it as soon as the run is queued. The
+                // homepage log below stays only as a fallback when no slug came back.
+                if (data.slug) {
+                    researchDone = true;
+                    recordHistory(data.slug, pendingQuery);
+                    addProgress('Queued. Opening the live research page…');
+                    window.location.href = '/research/' + encodeURIComponent(data.slug);
+                    return;
+                }
                 addProgress('Queued. Connecting to the live read…');
                 connectSSE(data.id, data.slug, pendingQuery);
                 // Independent watchdog: poll from the start regardless of SSE
@@ -605,4 +615,43 @@
         setFormsBusy(false);
         scrollToEl(document.getElementById('hero'));
     };
+
+    // --- Email capture (#notify-form on home + /best/ hubs & guides) ---
+    function wireNotifyForm() {
+        var form = document.getElementById('notify-form');
+        if (!form || form.__wired) return;
+        form.__wired = true;
+        var input = document.getElementById('notify-email');
+        var msg = document.getElementById('notify-msg');
+        var researchId = form.getAttribute('data-research-id') || null;
+        form.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            var email = ((input && input.value) || '').trim();
+            if (!email) return;
+            if (msg) msg.textContent = 'Saving...';
+            var payload = { email: email };
+            if (researchId) payload.researchId = researchId;
+            fetch('/api/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(function (r) {
+                var ct = r.headers.get('content-type') || '';
+                if (ct.indexOf('application/json') === -1) throw new Error('non-json');
+                return r.json();
+            }).then(function (d) {
+                if (d && d.ok) {
+                    if (msg) msg.textContent = d.mail === 'off'
+                        ? 'Email is not switched on yet, so we cannot send you anything. Please try again later.'
+                        : 'Check your inbox and click the link to confirm.';
+                    form.style.display = 'none';
+                } else {
+                    if (msg) msg.textContent = 'That email looks off. Try again?';
+                }
+            }).catch(function () {
+                if (msg) msg.textContent = 'Something went wrong. Try again later.';
+            });
+        });
+    }
+    wireNotifyForm();
 })();

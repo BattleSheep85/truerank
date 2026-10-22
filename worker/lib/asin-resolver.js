@@ -164,7 +164,7 @@ function searchProviderFromEnv(env) {
     const gateToken = env?.LITELLM_GATE_TOKEN;
     return {
       retailerFallback: true,
-      siteSearch: (host, subject) => searxngThenBrave(host, subject, { searxngUrl, gateToken, braveKey }),
+      siteSearch: (host, subject) => searxngThenBrave(host, subject, { searxngUrl, gateToken, kv: env?.KV, braveKey }),
     };
   }
   if (braveKey) {
@@ -187,8 +187,8 @@ async function braveSiteSearch(host, subject, apiKey) {
 
 // SearXNG site: results mapped to the Serper organic shape. A failed query
 // (null) retries once on Brave when a Brave key is set; otherwise no candidates.
-async function searxngThenBrave(host, subject, { searxngUrl, gateToken, braveKey }) {
-  const results = await searxngSiteSearch(siteQuery(host, subject), searxngUrl, { gateToken });
+async function searxngThenBrave(host, subject, { searxngUrl, gateToken, kv, braveKey }) {
+  const results = await searxngSiteSearch(siteQuery(host, subject), searxngUrl, { gateToken, kv });
   if (results === null) return braveKey ? braveSiteSearch(host, subject, braveKey) : [];
   return results.map((r) => ({ link: r.url, title: r.title }));
 }

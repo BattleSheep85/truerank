@@ -35,6 +35,10 @@ EXTERNAL_WORKER_ENABLED = "false"
 DEV_AUTH_USER = "dev"
 # Small independent budget so dev runs can't eat the prod allowance.
 MONTHLY_BUDGET_USD = "10"
+# Site-wide ceiling on TAGGED affiliate clicks per hour (/api/go, CP-353).
+# Over it, a click still redirects but without our associate tag and unlogged.
+# Read by worker/lib/affiliate-gate.js; 30 is above the busiest real hour (24).
+AFFILIATE_GLOBAL_HOURLY_LIMIT = "30"
 # No programmatic-SEO flywheel on dev.
 FLYWHEEL_DAILY_MAX = "0"
 ADSENSE_PUBLISHER_ID = "pub-6952672558994325"
