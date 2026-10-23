@@ -11,6 +11,7 @@ import { renderCategoryHub } from '../pages/category.js';
 import { classifyQuery } from '../lib/classifier.js';
 import { renderClarifyPage, extractClarifications } from '../pages/clarify.js';
 import { handleStartResearch } from '../handlers/research.js';
+import { isCrossSiteBrowser, isCrossSiteEmbed } from '../lib/cross-site.js';
 import { displayQuery, escapeLikeWildcards, canonicalizeQuery } from '../lib/utils.js';
 import { listableRowsSql } from '../lib/listable.js';
 import { recordView, parsePageMeta, buildPageMeta } from '../lib/view-counter.js';
@@ -112,6 +113,14 @@ export async function handleNewResearch(request, url, env) {
     const purposeHeaders = `${request.headers.get('Sec-Purpose') || ''} ${request.headers.get('Purpose') || ''}`.toLowerCase();
     if (purposeHeaders.includes('prefetch')) {
         return new Response(null, { status: 204 });
+    }
+
+    // The internal request below carries no browser headers, so the CP-894
+    // guard in handleStartResearch never sees them. Refuse here, before any
+    // work: a cross-site form post, or a cross-site embed of a GET (CP-895).
+    const crossSite = request.method === 'POST' ? isCrossSiteBrowser(request) : isCrossSiteEmbed(request);
+    if (crossSite) {
+        return Response.redirect(new URL('/research', url.origin).toString(), 302);
     }
 
     let form = null;
