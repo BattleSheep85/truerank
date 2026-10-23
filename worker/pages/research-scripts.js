@@ -258,6 +258,7 @@ export function chatScript(slug) {
         body:JSON.stringify({query:query,clarifications:refinements||{}})
       }).then(function(r){return r.json()}).then(function(d){
         if(d.error){if(status)status.textContent=d.error;return;}
+        if(d.cached&&d.slug&&location.pathname==='/research/'+d.slug){if(status)status.textContent='Frank already has a recent report for that question: this page.';return;}
         if(d.slug){window.location.href='/research/'+d.slug;return;}
         if(d.id){window.location.href='/research/'+d.id;return;}
         if(status)status.textContent='Something went wrong. Try again.';

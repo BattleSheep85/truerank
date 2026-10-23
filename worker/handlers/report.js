@@ -10,7 +10,7 @@ import { apiStatus } from '../lib/status.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { hashIp } from '../lib/ip-hash.js';
-import { maybeStartDisagreementRerun } from '../lib/disagreement.js';
+import { maybeStartDisagreementRerun, voterNetwork, DISAGREE_MAX_RATING } from '../lib/disagreement.js';
 
 // Saved sources keep a ~200-character snippet each (CP-408), about 20 KB or
 // more per report. Only the eval's groundedness check reads them, so the API
@@ -131,7 +131,9 @@ export async function handleFeedback(request, env) {
     });
 
     // The vote is saved either way: a re-run failure only costs the re-run.
+    // Only a "No" can push a report over the threshold.
     let rerun = false;
+    if (ratingNum > DISAGREE_MAX_RATING) return jsonResponse({ success: true, rerun });
     try {
         rerun = await maybeStartDisagreementRerun(env, report);
     } catch (err) {
@@ -140,11 +142,14 @@ export async function handleFeedback(request, env) {
     return jsonResponse({ success: true, rerun });
 }
 
-// Without a salt the vote is still saved, but it cannot count toward a re-run.
+// One voter per network (IPv4 /24, IPv6 /64), so one person with a few
+// addresses on the same line counts once. Without a salt the vote is still
+// saved, but it cannot count toward a re-run.
 async function voterHashFor(ip, env) {
-    if (ip === 'unknown') return null;
+    const network = voterNetwork(ip);
+    if (!network) return null;
     try {
-        return await hashIp(ip, env);
+        return await hashIp(`vote:${network}`, env);
     } catch (err) {
         console.error('[feedback] voter hash unavailable:', err instanceof Error ? err.message : String(err));
         return null;

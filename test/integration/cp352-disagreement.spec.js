@@ -9,7 +9,8 @@ import { handleFeedback } from '../../worker/handlers/report.js';
 import { renderResearchResult } from '../../worker/pages/research-page.js';
 import { generateId, insertResearch } from '../../worker/lib/db.js';
 import { canonicalizeQuery, squashQuery } from '../../worker/lib/utils.js';
-import { DISAGREE_THRESHOLD } from '../../worker/lib/disagreement.js';
+import { DISAGREE_THRESHOLD, DISAGREE_DAILY_LIMIT, voterNetwork } from '../../worker/lib/disagreement.js';
+import { checkRateLimit } from '../../worker/lib/rate-limit.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
 const SECRET = 'test-worker-secret-352';
@@ -115,12 +116,12 @@ describe('disagreement trigger', () => {
     const canonical = canonicalizeQuery('cp352 disagree widget', { budget: 'under 100' });
     sent.length = 0;
     for (let i = 0; i < DISAGREE_THRESHOLD - 1; i++) {
-      const body = await (await handleFeedback(vote(id, 1, `198.51.100.${i + 1}`), testEnv)).json();
+      const body = await (await handleFeedback(vote(id, 1, `198.51.${i + 1}.1`), testEnv)).json();
       expect(body.rerun).toBe(false);
     }
     expect(await runsFor(canonical)).toBe(1);
 
-    const last = await (await handleFeedback(vote(id, 1, '198.51.100.50'), testEnv)).json();
+    const last = await (await handleFeedback(vote(id, 1, '198.51.50.1'), testEnv)).json();
     expect(last.rerun).toBe(true);
     expect(sent).toHaveLength(1);
     expect(await runsFor(canonical)).toBe(2);
@@ -132,7 +133,7 @@ describe('disagreement trigger', () => {
     expect(rerun.status).toBe('pending');
 
     // More "No" votes inside 14 days start nothing new.
-    const more = await (await handleFeedback(vote(id, 1, '198.51.100.51'), testEnv)).json();
+    const more = await (await handleFeedback(vote(id, 1, '198.51.51.1'), testEnv)).json();
     expect(more.rerun).toBe(false);
     expect(sent).toHaveLength(1);
     expect(await runsFor(canonical)).toBe(2);
@@ -142,7 +143,7 @@ describe('disagreement trigger', () => {
     const id = await seedReport('cp352 repeat voter widget');
     sent.length = 0;
     for (let i = 0; i < DISAGREE_THRESHOLD + 2; i++) {
-      await handleFeedback(vote(id, 1, '198.51.100.60'), testEnv);
+      await handleFeedback(vote(id, 1, '198.51.60.1'), testEnv);
     }
     expect(sent).toHaveLength(0);
     const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE report_id = ?').bind(id).first();
@@ -152,10 +153,10 @@ describe('disagreement trigger', () => {
   it('a visitor who changes a "No" to a "Yes" no longer counts', async () => {
     const id = await seedReport('cp352 change mind widget');
     sent.length = 0;
-    await handleFeedback(vote(id, 1, '198.51.100.70'), testEnv);
-    await handleFeedback(vote(id, 5, '198.51.100.70'), testEnv);
+    await handleFeedback(vote(id, 1, '198.51.70.1'), testEnv);
+    await handleFeedback(vote(id, 5, '198.51.70.1'), testEnv);
     for (let i = 0; i < DISAGREE_THRESHOLD - 1; i++) {
-      await handleFeedback(vote(id, 1, `198.51.100.${71 + i}`), testEnv);
+      await handleFeedback(vote(id, 1, `198.51.${71 + i}.1`), testEnv);
     }
     expect(sent).toHaveLength(0);
   });
@@ -164,7 +165,7 @@ describe('disagreement trigger', () => {
     const id = await seedReport('cp352 agree widget');
     sent.length = 0;
     for (let i = 0; i < DISAGREE_THRESHOLD + 1; i++) {
-      await handleFeedback(vote(id, 5, `198.51.100.${80 + i}`), testEnv);
+      await handleFeedback(vote(id, 5, `198.51.${80 + i}.1`), testEnv);
     }
     expect(sent).toHaveLength(0);
   });
@@ -174,7 +175,7 @@ describe('disagreement trigger', () => {
     sent.length = 0;
     const broke = { ...testEnv, MONTHLY_BUDGET_USD: '0' };
     for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
-      await handleFeedback(vote(id, 1, `198.51.100.${90 + i}`), broke);
+      await handleFeedback(vote(id, 1, `198.51.${90 + i}.1`), broke);
     }
     expect(sent).toHaveLength(0);
   });
@@ -185,8 +186,69 @@ describe('disagreement trigger', () => {
     await seedReport('cp352 superseded widget');
     sent.length = 0;
     for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
-      await handleFeedback(vote(oldId, 1, `198.51.100.${100 + i}`), testEnv);
+      await handleFeedback(vote(oldId, 1, `198.51.${100 + i}.1`), testEnv);
     }
     expect(sent).toHaveLength(0);
+  });
+
+  it('two addresses on the same /24 count as one voter', async () => {
+    const id = await seedReport('cp352 same network widget');
+    sent.length = 0;
+    for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
+      await handleFeedback(vote(id, 1, `203.0.113.${10 + i}`), testEnv);
+    }
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a disagreement re-run cannot start another re-run inside 14 days', async () => {
+    const id = await seedReport('cp352 chain widget');
+    sent.length = 0;
+    for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
+      await handleFeedback(vote(id, 1, `198.51.${120 + i}.1`), testEnv);
+    }
+    expect(sent).toHaveLength(1);
+    const rerunId = sent[0].reportId;
+    await completeResearch(env.DB, { id: rerunId, result: JSON.stringify({ products: [] }) });
+    await insertProductV2(env.DB, { researchId: rerunId, name: 'Widget', rank: 1 });
+    for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
+      await handleFeedback(vote(rerunId, 1, `198.51.${130 + i}.1`), testEnv);
+    }
+    expect(sent).toHaveLength(1);
+  });
+
+  it(`stops after ${DISAGREE_DAILY_LIMIT} disagreement re-runs a day site-wide, and frees the claim`, async () => {
+    for (let i = 0; i < DISAGREE_DAILY_LIMIT; i++) {
+      await checkRateLimit(env.KV, 'disagree:global', DISAGREE_DAILY_LIMIT, 86400, env.DB);
+    }
+    const id = await seedReport('cp352 daily cap widget');
+    sent.length = 0;
+    for (let i = 0; i < DISAGREE_THRESHOLD; i++) {
+      await handleFeedback(vote(id, 1, `198.51.${140 + i}.1`), testEnv);
+    }
+    expect(sent).toHaveLength(0);
+    const claim = await env.DB.prepare('SELECT 1 FROM disagreement_reruns WHERE report_id = ?').bind(id).first();
+    expect(claim).toBeNull();
+  });
+
+  it('refuses a vote posted from another site', async () => {
+    const id = await seedReport('cp352 cross site widget');
+    const req = new Request('https://chrisputer.tech/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '198.51.150.1', Origin: 'https://evil.example' },
+      body: JSON.stringify({ reportId: id, rating: 1 }),
+    });
+    expect((await handleFeedback(req, testEnv)).status).toBe(403);
+  });
+});
+
+describe('voterNetwork', () => {
+  it('groups IPv4 by /24 and IPv6 by /64', () => {
+    expect(voterNetwork('198.51.100.7')).toBe('198.51.100.0/24');
+    expect(voterNetwork('2001:db8:0:1:2:3:4:5')).toBe('2001:db8:0:1::/64');
+    expect(voterNetwork('2001:db8:0:0001::abcd')).toBe('2001:db8:0:1::/64');
+    expect(voterNetwork('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(voterNetwork('unknown')).toBeNull();
+    expect(voterNetwork('1.2.3')).toBeNull();
+    expect(voterNetwork('2001:db8:zz::1')).toBeNull();
   });
 });
