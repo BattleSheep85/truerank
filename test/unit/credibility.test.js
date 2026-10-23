@@ -65,6 +65,13 @@ export function runCredibilityTests() {
     ['linksynergy', isAffiliateUrl('https://click.linksynergy.com/deeplink?id=X&mid=1234'), true],
     ['ebay-campid', isAffiliateUrl('https://ebay.com/itm/12345?campid=5338123456'), true],
     ['irclickid', isAffiliateUrl('https://example.com/product?irclickid=abc123def'), true],
+    // CP-370 inc.3: video-description affiliate shortlinks (Genius Link, LMG, Tradedoubler).
+    ['geni-us-short', isAffiliateUrl('https://geni.us/StandDeskPro'), true],
+    ['lmg-gg-short', isAffiliateUrl('https://lmg.gg/8KV3S'), true],
+    ['tidd-ly-short', isAffiliateUrl('https://tidd.ly/3XyZabc'), true],
+    ['plain-genius-word', isAffiliateUrl('https://example.com/genius-bar-review'), false],
+    ['geni-us-lookalike-host', isAffiliateUrl('https://homegeni.us/review'), false],
+    ['lmg-gg-in-path', isAffiliateUrl('https://example.com/assets/lmg.gg-logo.png'), false],
     ['clean-url', isAffiliateUrl('https://rtings.com/tv/reviews/lg/c4-oled'), false],
     ['empty-url', isAffiliateUrl(''), false],
 
@@ -82,6 +89,9 @@ export function runCredibilityTests() {
       hasAffiliateLinks('Read more at https://rtings.com/tv/reviews/sony-a95l — no commerce.'),
       false],
     ['content-empty', hasAffiliateLinks(''), false],
+    ['content-has-geni-us',
+      hasAffiliateLinks('Gear I use:\nDesk: https://geni.us/abc123\nChair: https://geni.us/xyz'),
+      true],
 
     // ── isHandsOn ─────────────────────────────────────────────────────────
     ['hands-on-tested', isHandsOn('We tested this monitor for 6 weeks in our lab.'), true],
@@ -99,11 +109,28 @@ export function runCredibilityTests() {
     ['listicle-n-best', isListicle('15 Best Coffee Makers You Can Buy', ''), true],
     ['not-listicle-review', isListicle('LG C4 OLED Review: The King Returns', ''), false],
     ['not-listicle-analysis', isListicle('Why the M4 MacBook Air is Apple\'s Best', ''), false],
+    // CP-370 inc.3: video-hype listicle titles.
+    ['listicle-ranked-caps', isListicle('Best BUDGET Earbuds Under $50 in 2026 (RANKED)', ''), true],
+    ['listicle-ranked-tail', isListicle('Every Budget Espresso Machine Ranked', ''), true],
+    ['listicle-n-that-matter', isListicle('3 Desk Accessories That ACTUALLY Matter! (for 9-5 workers)', ''), true],
+    ['listicle-n-that-matter-plain', isListicle('5 Specs That Matter When Buying a TV', ''), true],
+    ['not-listicle-ranked-mid', isListicle('Top-ranked OLED panel teardown: what LG changed', ''), false],
+    ['not-listicle-ranked-choice', isListicle('Ranked choice voting explained', ''), false],
+    ['listicle-ranked-youtube-suffix', isListicle('Every Budget Espresso Machine Ranked - YouTube', ''), true],
+    ['listicle-ranked-channel-suffix', isListicle('Every Budget Espresso Machine Ranked | Coffee Channel', ''), true],
+    ['not-listicle-top-ranked-tail', isListicle('Sony WH-1000XM6 review: still top-ranked', ''), false],
+    ['not-listicle-top-ranked-caps', isListicle('LG C5 TOP-RANKED IN RTINGS TESTS', ''), false],
+    ['not-listicle-matter-no-number', isListicle('Does Driver Size Really Matter?', ''), false],
 
     // ── Domain classification ─────────────────────────────────────────────
     ['expert-rtings', isExpertDomain('https://www.rtings.com/tv/reviews/lg/c4'), true],
     ['expert-wirecutter', isExpertDomain('https://www.nytimes.com/wirecutter/reviews/best-monitors/'), true],
     ['expert-toms', isExpertDomain('https://tomshardware.com/gpus/rtx-5090-review'), true],
+    // CP-778: PC hardware labs with hands-on tests (Antec C8 got cred 50 from TechPowerUp).
+    ['expert-techpowerup', isExpertDomain('https://www.techpowerup.com/review/antec-c8/'), true],
+    ['expert-gamersnexus', isExpertDomain('https://gamersnexus.net/cases/surprisingly-good-antec-c8-argb-case-review'), true],
+    ['expert-techspot', isExpertDomain('https://www.techspot.com/review/2800-antec-c8/'), true],
+    ['expert-hwcanucks', isExpertDomain('https://www.hardwarecanucks.com/cases/antec-c8-review/'), true],
     ['not-expert', isExpertDomain('https://some-blog.com/best-tvs-2026'), false],
 
     ['community-reddit', isCommunityDomain('https://www.reddit.com/r/buildapc/comments/xyz'), true],
@@ -112,6 +139,12 @@ export function runCredibilityTests() {
 
     ['manufacturer-amazon', isManufacturerDomain('https://amazon.com/dp/B08XYZ'), true],
     ['manufacturer-apple', isManufacturerDomain('https://apple.com/macbook-pro/'), true],
+    // CP-370 inc.3: marketplace listings are seller copy, not reviews.
+    ['manufacturer-etsy', isManufacturerDomain('https://www.etsy.com/listing/1043833373/linen-shirt'), true],
+    ['manufacturer-ebay', isManufacturerDomain('https://www.ebay.com/itm/123456789'), true],
+    ['manufacturer-ebay-uk', isManufacturerDomain('https://www.ebay.co.uk/itm/123456789'), true],
+    ['manufacturer-ebay-de', isManufacturerDomain('https://www.ebay.de/itm/123456789'), true],
+    ['not-manufacturer-ebay-lookalike', isManufacturerDomain('https://debay.com/review'), false],
     ['not-manufacturer', isManufacturerDomain('https://rtings.com'), false],
 
     // ── hasAiInjection ────────────────────────────────────────────────────
@@ -158,6 +191,16 @@ export function runCredibilityTests() {
     ['sponsored-negative-addons', hasSponsoredContent('The #addons ecosystem for this device is rich.'), false],
     ['sponsored-negative-normal', hasSponsoredContent('We loved this whisper-quiet purifier and the build quality impressed us.'), false],
     ['sponsored-negative-empty', hasSponsoredContent(''), false],
+    // CP-782: a denial is not a paid-promotion marker.
+    ['cp782-not-a-sponsored-post', hasSponsoredContent('This is not a sponsored post, I paid for it.'), false],
+    ['cp782-not-sponsored-by', hasSponsoredContent('Not sponsored by Sony in any way.'), false],
+    ['cp782-isnt-sponsored-content', hasSponsoredContent("This isn't sponsored content."), false],
+    ['cp782-no-sponsored-content', hasSponsoredContent('No sponsored content here, just my opinion.'), false],
+    ['cp782-non-sponsored-post', hasSponsoredContent('An honest, non-sponsored post.'), false],
+    ['cp782-never-brought-to-you-by', hasSponsoredContent('This was never brought to you by a brand.'), false],
+    ['cp782-denial-then-real-marker', hasSponsoredContent('Not sponsored by Sony. This video is sponsored by NordVPN.'), true],
+    ['cp782-hashtag-never-denied', hasSponsoredContent('Say no to bad coffee #ad'), true],
+    ['cp782-denial-far-before-marker', hasSponsoredContent('I am not a fan of the color. Sponsored by Acme.'), true],
 
     // ── hasClickbaitFraming ───────────────────────────────────────────────
     ['clickbait-trick-big-brands', hasClickbaitFraming("This $89 purifier SHOCKED engineers — the trick big brands don't want you to know", ''), true],
@@ -469,6 +512,26 @@ export function runCredibilityTests() {
   cases.push(['regression-no-embargo', plainHandsOnReview.tags.includes('embargo-nda'), false]);
   cases.push(['regression-independence-in-band',
     plainHandsOnReview.independence >= 60 && plainHandsOnReview.independence <= 75, true]);
+
+  // ── CP-779: a "we tested" phrase on an unlisted blog (thegadgetdigest.com,
+  // soundmali.com) must not outscore an established outlet's plain review (65).
+  const unlistedHandsOn = scoreSource({
+    url: 'https://thegadgetdigest.com/airpods-pro-2-review',
+    title: 'AirPods Pro 2 Review',
+    content: 'We tested the AirPods Pro 2 for a week. Great sound and ANC.',
+    sourceType: 'web',
+  });
+  const expertPlain = scoreSource({
+    url: 'https://www.soundguys.com/apple-airpods-pro-2-review',
+    title: 'AirPods Pro 2 review',
+    content: 'The AirPods Pro 2 have great ANC.',
+    sourceType: 'web',
+  });
+  cases.push(['cp779-unlisted-handsOn-tagged', unlistedHandsOn.tags.includes('hands-on'), true]);
+  cases.push(['cp779-unlisted-handsOn-below-75', unlistedHandsOn.score < 75, true]);
+  cases.push(['cp779-unlisted-handsOn-below-expert-plain', unlistedHandsOn.score < expertPlain.score, true]);
+  cases.push(['cp779-unlisted-handsOn-still-credible', unlistedHandsOn.score >= 45, true]);
+  cases.push(['cp779-expert-handsOn-unchanged', handsOnExpert.score, 90]);
 
   // Format badge sanity.
   const badge = formatCredibilityBadge(handsOnExpert);

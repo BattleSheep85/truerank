@@ -195,9 +195,12 @@ export async function recordUserSearch(db, userId, researchId, query) {
     }
 }
 
+// A search whose report was retired keeps its query but loses its slug (CP-804),
+// so history lists, which skip rows with no slug, never link to it.
 export async function getUserSearches(db, userId, limit = 50) {
     const rows = await db.prepare(
-        `SELECT us.query, us.created_at, r.slug, r.status, r.category
+        `SELECT us.query, us.created_at,
+                CASE WHEN r.retired_at IS NULL THEN r.slug END AS slug, r.status, r.category
          FROM user_searches us
          LEFT JOIN research r ON r.id = us.research_id
          WHERE us.user_id = ?1

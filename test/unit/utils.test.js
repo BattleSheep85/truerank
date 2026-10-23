@@ -2,8 +2,8 @@
 import {
   slugify, generateSlug, isValidHttpsUrl, sanitizeUrl, escapeLikeWildcards,
   escapeHtml, escapeXml, displayQuery, isNotModified, timeAgo, parseJsonSafe,
-  publicResearchFilter, canonicalizeQuery, singularizeToken, squashQuery,
-  safeUserFacingError,
+  publicResearchFilter, publicNameFilter, canonicalizeQuery, singularizeToken, squashQuery,
+  safeUserFacingError, monthKey, toPersistedSources, SOURCE_SNIPPET_CHARS,
 } from '../../worker/lib/utils.js';
 
 export function runUtilsTests() {
@@ -81,6 +81,8 @@ export function runUtilsTests() {
   // publicResearchFilter (string builder; just verify alias substitution)
   ok('publicFilter uses alias', publicResearchFilter('r').includes("r.status = 'complete'"));
   ok('publicFilter thin-page gate', publicResearchFilter('research').includes('research_id = research.id'));
+  ok('publicNameFilter skips test runs and retired rows', publicNameFilter('v').includes("v.query NOT LIKE 'test %'") && publicNameFilter('v').includes('v.retired_at IS NULL'));
+  ok('publicFilter shares the name rule', publicResearchFilter('r').includes(publicNameFilter('r')));
 
   // singularizeToken: table-driven tests for exceptions and plural rules
   const singularizeCases = [
@@ -140,6 +142,34 @@ export function runUtilsTests() {
       ok(`collision pair: "${trio[i]}" vs "${trio[j]}"`, queriesCollide(trio[i], trio[j]));
     }
   }
+
+  // monthKey (CP-358: moved here from pipeline/orchestrator.js)
+  eq('monthKey pads month', monthKey(new Date(Date.UTC(2026, 0, 31, 23, 59))), '2026-01');
+  eq('monthKey december', monthKey(new Date(Date.UTC(2026, 11, 1))), '2026-12');
+  ok('monthKey default is now', /^\d{4}-\d{2}$/.test(monthKey()));
+
+  // toPersistedSources (CP-408): keep a short text snippet per source so live
+  // reports can be audited against what the engine actually read.
+  eq('snippet cap is 200', SOURCE_SNIPPET_CHARS, 200);
+  const long = 'word '.repeat(100);
+  const persisted = toPersistedSources([
+    { url: 'https://a.com', credibility: 80, title: 'A', content: long },
+    { url: 'https://b.com', credibility: 40, content: '  line one\n\n  line two  ' },
+    { url: 'https://c.com', credibility: 10 },
+    { url: 'https://d.com', credibility: 5, content: '   ' },
+  ]);
+  eq('snippet capped', persisted[0].snippet.length, 200);
+  eq('snippet keeps url + credibility', [persisted[0].url, persisted[0].credibility], ['https://a.com', 80]);
+  eq('snippet collapses whitespace', persisted[1].snippet, 'line one line two');
+  eq('no content → no snippet key', persisted[2], { url: 'https://c.com', credibility: 10 });
+  eq('blank content → no snippet key', persisted[3], { url: 'https://d.com', credibility: 5 });
+  eq('non-array → empty', toPersistedSources(null), []);
+  const emoji = toPersistedSources([{ url: 'https://g.com', credibility: 1, content: 'a'.repeat(199) + '😀😀' }]);
+  eq('snippet does not split an emoji', emoji[0].snippet, 'a'.repeat(199) + '😀');
+  eq('skips non-objects', toPersistedSources([null, 'x', { url: 'https://e.com', credibility: 1 }]), [{ url: 'https://e.com', credibility: 1 }]);
+  const input = [{ url: 'https://f.com', credibility: 1, content: 'abc' }];
+  toPersistedSources(input);
+  eq('input not mutated', input, [{ url: 'https://f.com', credibility: 1, content: 'abc' }]);
 
   return report;
 }

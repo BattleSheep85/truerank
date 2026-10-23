@@ -3,7 +3,7 @@ import { formatCredibilityBadge } from '../lib/credibility.js';
 // Facet-specific focus blocks. Multiple facets can activate simultaneously —
 // "best pizza delivery in Austin" lights up is_buyable + needs_location +
 // is_service, and all three blocks concatenate into one prompt.
-function facetFocusBlocks(facets) {
+export function facetFocusBlocks(facets) {
   const blocks = [];
   if (facets.is_buyable) {
     blocks.push(

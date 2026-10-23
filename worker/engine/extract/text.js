@@ -32,7 +32,7 @@ export const words = (s) => String(s || '').toLowerCase().match(/[a-z0-9'’#-]+
 export const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 // Split a sentence into clauses so a mixed "X is great but the bin is small" yields
 // a separate pro AND con, and a comparison "A and B are best; C is value" separates.
-const CLAUSE_SPLIT = /\s*(?:;|—|–|\bbut\b|\bthough\b|\bhowever\b|\bwhereas\b|\bwhile\b|\bexcept\b|\byet\b)\s+/i;
+export const CLAUSE_SPLIT = /\s*(?:;|—|–|\bbut\b|\bthough\b|\bhowever\b|\bwhereas\b|\bwhile\b|\bexcept\b|\byet\b)\s+/i;
 // Contrast markers introduce a drawback. A clause AFTER one carries a con even when a
 // positive category word cancels the negative to a mild net score ("bulky for a
 // portable speaker": bulky −1.3 + portable +1.2 ≈ −0.1).

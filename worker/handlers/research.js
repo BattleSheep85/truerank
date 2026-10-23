@@ -6,13 +6,11 @@
  * GET /api/research/:slug/events — activity-feed poll for the server-rendered page
  */
 
-import {
-    generateId, insertResearch, findResearchByCanonicalQuery,
-    getResearchById, getResearchBySlug,
-} from '../lib/db.js';
-import { generateSlug, canonicalizeQuery, squashQuery, parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
+import { findResearchByCanonicalQuery, getResearchById, getResearchBySlug } from '../lib/db.js';
+import { startResearchRun } from '../lib/research-run.js';
+import { canonicalizeQuery, squashQuery, parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
 import { screenQuery, rejectionMessage } from '../lib/safety.js';
-import { budgetExhausted } from '../pipeline/orchestrator.js';
+import { budgetExhausted } from '../lib/budget.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { checkGlobalResearchSpend } from '../lib/spend-gate.js';
@@ -56,9 +54,10 @@ export async function handleStartResearch(request, env) {
     const isInternal = await isWorkerAuthed(request, env);
 
     const normalizedQuery = query.toLowerCase();
-    // Optional 'fresh' flag bypasses clustering (re-run buttons); rate
-    // limiting below still applies.
-    const fresh = !!body.fresh;
+    // 'fresh' bypasses clustering for internal callers only (CP-352). A public
+    // caller's fresh is ignored and gets the cached report: readers trigger a
+    // re-run by disagreeing with a report instead (worker/lib/disagreement.js).
+    const fresh = !!body.fresh && isInternal;
     // Internal-only: an external benchmark harness measures run-to-run stability, so it must be able to force a genuinely fresh run. Honored ONLY for callers that present the same X-Worker-Secret used by /api/internal/*; a public caller's forceFresh is ignored.
     const forceFresh = body.forceFresh === true && isInternal;
     if (forceFresh) console.log('[research] forceFresh honored (internal auth)');
@@ -134,7 +133,7 @@ export async function handleStartResearch(request, env) {
         const rateKey = await ipRateKey('research', clientIp, env);
         const burst = await checkBurstGate(env.RL_BURST, rateKey);
         const velocity = burst.allowed
-            ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+            ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
             : burst;
         if (!velocity.allowed) {
             const retryAfter = Math.max(1, Math.ceil((velocity.resetAt - Date.now()) / 1000));
@@ -177,38 +176,22 @@ export async function handleStartResearch(request, env) {
     // lowering or removing either one without a replacement would expose the whole
     // month of budget to a single actor.
 
-    // Create the permanent research row. Slug mirrors Exhaustive's shape:
-    // slugify(query) + '-' + first 8 chars of the id.
-    const id = generateId();
-    const slug = generateSlug(normalizedQuery, id);
-    await insertResearch(env.DB, {
-        id,
-        slug,
+    // forceFresh (worker secret only) also skips the cached SearXNG
+    // answers, so a stability benchmark measures a fresh gather (CP-819).
+    const run = await startResearchRun(env, {
         query: normalizedQuery,
         canonicalQuery: canonical,
         squashedQuery: squashed,
         clarifications: clarificationsJson,
+        bypassSearchCache: forceFresh,
     });
-
     if (sessionUser) {
-        await recordUserSearch(env.DB, sessionUser.id, id, normalizedQuery);
+        await recordUserSearch(env.DB, sessionUser.id, run.id, normalizedQuery);
     }
-
-    // Enqueue research job (message shape unchanged — queue consumer keys on it).
-    // If the queue send throws (transient Queues outage, binding misconfiguration),
-    // flip the already-inserted row to failed so it doesn't orphan as 'pending'.
-    try {
-        await env.RESEARCH_QUEUE.send({
-            reportId: id,
-            query: normalizedQuery,
-        });
-    } catch (err) {
-        console.error('[research] queue send failed:', err instanceof Error ? err.message : String(err));
-        try {
-            await env.DB.prepare("UPDATE research SET status = 'failed' WHERE id = ?").bind(id).run();
-        } catch { /* best-effort cleanup */ }
+    if (!run.ok) {
         return jsonResponse({ error: 'Could not enqueue research job — please retry' }, 503);
     }
+    const { id, slug } = run;
 
     return jsonResponse({
         id,
@@ -226,7 +209,8 @@ export async function handleResearchStatus(reportId, env) {
     if (!row) {
         row = await getResearchBySlug(env.DB, reportId);
     }
-    if (!row) {
+    // A retired report answers like a missing one (CP-804).
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
@@ -285,7 +269,7 @@ export async function handleResearchStream(reportId, env, request) {
                 dbRow = await getResearchBySlug(env.DB, reportId);
             }
 
-            if (!dbRow) {
+            if (!dbRow || dbRow.retired_at != null) {
                 send(9997, { type: 'error', error: 'Report not found' });
                 controller.close();
                 return;
@@ -347,7 +331,6 @@ export async function handleResearchStream(reportId, env, request) {
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Access-Control-Allow-Origin': '*',
         },
     });
 }
@@ -361,7 +344,7 @@ export async function handleResearchStream(reportId, env, request) {
 export async function handleResearchEvents(slug, url, env) {
     const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
     const row = await getResearchBySlug(env.DB, slug);
-    if (!row) {
+    if (!row || row.retired_at != null) {
         return jsonResponse({ error: 'Not found' }, 404);
     }
 
@@ -383,7 +366,6 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
         status,
         headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
             ...extraHeaders,
         },
     });

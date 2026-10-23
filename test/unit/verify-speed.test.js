@@ -395,7 +395,7 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
   // ── verify.js: budget, judge caps, fallback on a failed primary ──────────
   await guarded('verifyBudget and ENGINE_CONFIG knobs', async () => {
     eq('verifyBudget: unset, zero, and negative knobs are 0 (no deadline)', verifyModule.verifyBudget({ verifyTestReadMs: 0, verifyGatherReadMs: -5 }), {
-      resolveReadMs: 0, testReadMs: 0, gatherReadMs: 0, plannerMs: 0, stanceCallMs: 0, claimPatienceMs: 0, hedgeMs: 0, extractHedgeMs: 0, overlapGather: false,
+      resolveReadMs: 0, testReadMs: 0, gatherReadMs: 0, plannerMs: 0, stanceCallMs: 0, claimPatienceMs: 0, hedgeMs: 0, extractHedgeMs: 0, overlapGather: false, pastedNameReadMs: 0,
     });
     eq('verifyBudget: positive knobs pass through', verifyModule.verifyBudget({ verifyResolveReadMs: 15000, verifyClaimPatienceMs: 3000, verifyOverlapGather: true }).resolveReadMs, 15000);
     const budget = verifyModule.verifyBudget(ENGINE_CONFIG);
@@ -462,14 +462,47 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
       order.push(`end ${model}`);
       return model === 'primary' ? primaryReply : supportReply;
     };
+    const contradictReply = { choices: [{ message: { content: JSON.stringify({ verdicts: [{ url: scored[0].url, stance: 'contradict', span: 'In our battery test the Acme Buds Pro lasted 10 hours.' }] }) }, finish_reason: 'stop' }], usage: { cost: 0.001 } };
     const decided = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowPrimary(supportReply), product, hedgeMs: 5 }));
     eq('judgeClaim hedge: the fallback starts while a slow primary runs', order.slice(0, 2), ['start primary', 'start second']);
-    eq('judgeClaim hedge: after the hedge the first decided verdict wins, even over a decided slow primary', decided.judgeModel, 'second');
+    eq('judgeClaim hedge: a decided slow primary keeps its verdict, although the fallback answered first', decided.judgeModel, 'primary');
+    eq('judgeClaim hedge: the cost counts both calls once both finished', decided.costUsd, 0.002);
+    // CP-808: the primary decides while the early fallback still runs. Its
+    // cost is not in costUsd yet; lateCostUsd settles to it when it finishes.
+    const slowSecond = async (_key, model) => {
+      await tick(model === 'primary' ? 10 : 40);
+      return supportReply;
+    };
+    const lateCase = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowSecond, product, hedgeMs: 5 }));
+    eq('judgeClaim hedge: a decided primary returns before the slow fallback, counting only its own cost', [lateCase.judgeModel, lateCase.costUsd], ['primary', 0.001]);
+    eq('judgeClaim hedge: the unfinished fallback cost arrives as lateCostUsd', await lateCase.lateCostUsd, 0.001);
+    eq('judgeClaim hedge: a finished fallback has no lateCostUsd', decided.lateCostUsd, undefined);
     order.length = 0;
     const undecided = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM: slowPrimary(neutralReply), product, hedgeMs: 5 }));
-    eq('judgeClaim hedge: after the hedge the first decided verdict wins (the fallback here), with one fallback call', [undecided.judgeModel, order.filter((o) => o === 'start second').length], ['second', 1]);
-    eq('judgeClaim hedge: the fallback verdict does not wait for the slow primary', order.indexOf('end second') < order.indexOf('end primary') || !order.includes('end primary'), true);
+    eq('judgeClaim hedge: an unsubstantiated primary takes the decided fallback verdict, with one fallback call', [undecided.judgeModel, order.filter((o) => o === 'start second').length], ['second', 1]);
     await tick(40);
+
+    // The verdict must not depend on which judge answers first (CP-789).
+    // Primary and fallback disagree; every timing and the hedge on or off
+    // must give the same verdict and model.
+    const timed = (primaryMs, secondMs, primaryReply, secondReply) => async (_key, model) => {
+      await tick(model === 'primary' ? primaryMs : secondMs);
+      return model === 'primary' ? primaryReply : secondReply;
+    };
+    const outcomeOf = async (callLLM, hedgeMs) => {
+      const r = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', callLLM, product, hedgeMs }));
+      return `${r.judgeModel}:${r.verdict.status}`;
+    };
+    const timings = [[20, 1, 0], [20, 1, 5], [20, 40, 5], [1, 20, 5], [1, 1, 0]];
+    const disagree = [];
+    const unsure = [];
+    for (const [pMs, sMs, hedgeMs] of timings) {
+      disagree.push(await outcomeOf(timed(pMs, sMs, supportReply, contradictReply), hedgeMs));
+      unsure.push(await outcomeOf(timed(pMs, sMs, neutralReply, contradictReply), hedgeMs));
+    }
+    await tick(50);
+    eq('judgeClaim: a decided primary verdict wins at every timing, hedge on or off', new Set(disagree).size === 1 && disagree[0].startsWith('primary:'), true);
+    eq('judgeClaim: an unsubstantiated primary takes the fallback verdict at every timing, hedge on or off', new Set(unsure).size === 1 && unsure[0].startsWith('second:'), true);
 
     // After the hedge, neither decided: the primary result is kept.
     const bothNeutral = async (_key, model) => {
@@ -494,8 +527,46 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
     await tick(60);
     eq('judgeClaim hedge: a fast primary verdict calls no fallback', order, ['primary']);
 
+    // Stance votes (CP-789): the primary judge answers `votes` times and the
+    // majority stance per source counts. The fallback judge answers once.
+    let n = 0;
+    const votingReplies = [supportReply, neutralReply, supportReply];
+    const voted = await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => votingReplies[n++] }));
+    eq('classifyStance votes: one call per vote', n, 3);
+    eq('classifyStance votes: the majority stance, costs summed', [voted.rows.map((r) => r.stance), voted.costUsd], [['support'], 0.003]);
+    n = 0;
+    const oneFails = await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => { n++; if (n === 1) throw new Error('upstream 502'); return n === 2 ? supportReply : contradictReply; } }));
+    eq('classifyStance votes: a failed vote drops out (a 1-1 tie is neutral)', oneFails.rows.map((r) => r.stance), ['neutral']);
+    let allFailed = null;
+    try {
+      await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', votes: 3, callLLM: async () => { throw new Error('down'); } }));
+    } catch (err) {
+      allFailed = err.message;
+    }
+    eq('classifyStance votes: every vote failed throws', allFailed, 'down');
+    const calls = { primary: 0, second: 0 };
+    const counted = await quiet(() => verifyModule.judgeClaim({ claim, scoredEvidence: scored, apiKey: 'k', model: 'primary', fallbackModel: 'second', votes: 3, product, callLLM: async (_k, model) => { calls[model]++; return model === 'primary' ? neutralReply : supportReply; } }));
+    eq('judgeClaim votes: the primary votes 3 times, the fallback once', [calls.primary, calls.second, counted.judgeModel], [3, 1, 'second']);
+    const perModel = { primary: 0, second: 0 };
+    await quiet(() => verifyModule.judgeClaims({ claims: [claim], scoredEvidence: scored, config: { stanceModel: 'primary', stanceFallbackModel: 'second', stanceVotes: 3 }, apiKey: 'k', product, callLLM: async (_k, model) => { perModel[model]++; return supportReply; } }));
+    eq('judgeClaims: config.stanceVotes sets the primary votes', perModel, { primary: 3, second: 0 });
+    eq('ENGINE_CONFIG: the primary stance judge votes 3 times', ENGINE_CONFIG.stanceVotes, 3);
+
     const noCap = [];
     await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', callLLM: async (_k, _m, _msgs, opts) => { noCap.push('hardMsOverride' in opts); return supportReply; } }));
     eq('classifyStance: no cap unless hardMs is set', noCap, [false]);
+
+    // Judge call timing (CP-789 QA): each stance call logs how long it waited
+    // for the response headers and how many judge calls were open when it began.
+    const logged = [];
+    const log = console.log;
+    console.log = (...a) => { logged.push(a.join(' ')); };
+    try {
+      await verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', callLLM: async (_k, _m, _msgs, opts) => { opts.onTiming({ headersMs: 4200, totalMs: 9100 }); return supportReply; } });
+    } finally {
+      console.log = log;
+    }
+    const timing = logged.find((l) => l.includes('judge call'));
+    ok('classifyStance: logs the judge call timing', Boolean(timing) && timing.includes('headers after 4200 ms') && timing.includes('9100 ms total') && /\d+ judge calls open/.test(timing));
   });
 }

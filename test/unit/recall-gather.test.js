@@ -170,6 +170,19 @@ export async function runRecallGatherTests() {
     eq('sources collected ignores failed search', res.sources.length, 3);
   }
 
+  // ── runRecallGather: url variants of a known page are not appended (CP-710) ──
+  {
+    const res = await runRecallGather({
+      query: 'best tools',
+      sources: [{ url: 'https://www.example.com/known/', title: 'Init', content: 'Init' }],
+      openrouterKey: 'sk-test',
+      recallModel: 'test-model',
+      maxSearches: 2,
+      deps: { propose: async () => ['Alpha One'], search: async () => [{ url: 'http://example.com/known', title: 'Alpha One', content: 'x' }] },
+    });
+    eq('url variant of a known page is not a new source', res.sources.length, 0);
+  }
+
   // ── runRecallGather: proposals already evidenced produce searched === 0 ────
   {
     let searchCalled = false;

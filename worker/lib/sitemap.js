@@ -33,10 +33,13 @@ export async function getLatestResearchLastmod(env, cacheVersion) {
     const n = parseInt(cached, 10);
     if (n > 0) return n;
   }
+  // Retiring a row removes a URL, so it counts as a change too (CP-804).
   const row = await env.DB.prepare(
-    `SELECT MAX(COALESCE(research.completed_at, research.created_at)) AS lm
-     FROM research
-     WHERE ${publicResearchFilter('research')}`
+    `SELECT MAX(
+       COALESCE((SELECT MAX(COALESCE(research.completed_at, research.created_at))
+                   FROM research WHERE ${publicResearchFilter('research')}), 0),
+       COALESCE((SELECT MAX(retired_at) FROM research WHERE retired_at IS NOT NULL), 0)
+     ) AS lm`
   ).first();
   const lm = row?.lm && row.lm > 0 ? row.lm : undefined;
   if (lm) await env.KV.put(key, String(lm), { expirationTtl: LASTMOD_CACHE_TTL });
@@ -219,9 +222,10 @@ export async function generateOgImage(slug, env) {
   const row = await env.DB.prepare(
     `SELECT r.query, r.category, r.summary,
        (SELECT COUNT(*) FROM products WHERE products.research_id = r.id) AS product_count
-     FROM research r WHERE r.slug = ?`
+     FROM research r WHERE r.slug = ? AND r.retired_at IS NULL`
   ).bind(slug).first();
 
+  // Missing or retired (CP-804): the generic site card.
   if (!row) {
     return new Response(OG_IMAGE_SVG, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
   }
