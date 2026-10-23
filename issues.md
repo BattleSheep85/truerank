@@ -389,8 +389,19 @@ looked at total volume.
       per-IP cap to the atomic D1 window (pass env.DB) would close the
       second. Could also be an internal check run; not confirmed.
       worker/handlers/affiliate.js.
-- [ ] LOW (data): the incident's 1,232 rows are still in `affiliate_clicks` and
+- [x] LOW (data): the incident's 1,232 rows are still in `affiliate_clicks` and
       inflate click reporting for 2026-08-14/15. Not deleted, kept as evidence.
+      Fixed 2026-10-23 (CP-354, owner chose backup and delete): 1,232 rows
+      (ids 5412 to 6643, 2026-08-14 21:15:52 to 2026-08-15 00:43:58 UTC)
+      deleted from production D1. Window count is now 0. Backup (not in git,
+      holds `ip_hash`): agentbox `~/projects/web/frank/backups/d1/`
+      `cp-354-affiliate-clicks-2026-08-14-incident.json`. D1 Time Travel
+      bookmark before the delete: `0000849f-00000028-0000510d-e054a467406833507f01de54a405a3a7`
+      (D1 keeps it about 30 days).
+- [ ] LOW (ops): the BWS value `FRANK_METRICS_TOKEN` does not match the
+      Worker secret `METRICS_TOKEN`: `GET /metrics` returns 401 with it
+      (checked 2026-10-23, CP-354). Put one value in both places.
+      docs/metrics-api.md.
 
 ## 2026-08-03: Research archive pagination, one definition of "listable"
 
