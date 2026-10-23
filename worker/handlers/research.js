@@ -17,12 +17,17 @@ import { checkGlobalResearchSpend } from '../lib/spend-gate.js';
 import { getSessionUser, recordUserSearch } from '../lib/auth.js';
 import { apiStatus } from '../lib/status.js';
 import { isWorkerAuthed } from '../lib/worker-auth.js';
+import { refuseCrossSite, CROSS_SITE_ERROR } from '../lib/cross-site.js';
 
 /**
  * Handle POST /api/research
  * Validates input, clusters on canonical query, checks the monthly budget, enqueues job.
  */
 export async function handleStartResearch(request, env) {
+    // A cross-site page must not start paid runs through its visitors' browsers (CP-894).
+    if (await refuseCrossSite(request, env)) {
+        return jsonResponse({ error: CROSS_SITE_ERROR }, 403);
+    }
     let body;
     try {
         body = await request.json();
