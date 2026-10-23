@@ -46,6 +46,7 @@ import { withConnectionGate } from '../lib/connection-gate.js';
 import { rerankClaimEvidence } from './verify-rerank.js';
 import { isNearSpecValue } from '../lib/quantity.js';
 import { readCachedClaims, writeCachedClaims, shortenCachedClaims } from '../lib/claim-cache.js';
+import { readSavedPages, writeSavedPages, shortenSavedPages } from '../lib/page-cache.js';
 import { mergeStanceVotes } from './stance-votes.js';
 import { readPageInto } from './tools.js';
 import { screenQuery } from '../lib/safety.js';
@@ -858,6 +859,9 @@ async function classifyStanceOnce(args) {
 // A truncated reply over this many sources is split and judged again.
 const MIN_SPLIT_SOURCES = 4;
 
+// Stance calls open in this isolate now (a log figure only, see stanceCall).
+let judgeCallsOpen = 0;
+
 // One stance call. Returns { rows, costUsd, truncated }.
 async function stanceCall({ claim, evidence, apiKey, model, callLLM, reasoning, product, hardMs = 0 }) {
   const picked = Array.isArray(evidence) ? evidence : [];
@@ -879,7 +883,19 @@ async function stanceCall({ claim, evidence, apiKey, model, callLLM, reasoning, 
   // See extractClaims above for why this parameter exists. `hardMs` (optional)
   // caps the call (config.verifyStanceCallMs); a timeout throws.
   const cap = hardMs > 0 ? { hardMsOverride: hardMs } : {};
-  const resp = await callLLM(apiKey, model, messages, { maxTokens: STANCE_MAX_TOKENS, temperature: 0, reasoning, ...cap });
+  // CP-789 QA: judge calls do not use the connection gate, so log how long
+  // each waited for its response headers and how many were open when it began.
+  const openAtStart = judgeCallsOpen;
+  judgeCallsOpen += 1;
+  const onTiming = ({ headersMs, totalMs }) => console.log(
+    `[verify] judge call ${claim.id} ${model}: headers after ${headersMs} ms, ${totalMs} ms total, ${openAtStart} judge calls open at start`,
+  );
+  let resp;
+  try {
+    resp = await callLLM(apiKey, model, messages, { maxTokens: STANCE_MAX_TOKENS, temperature: 0, reasoning, onTiming, ...cap });
+  } finally {
+    judgeCallsOpen -= 1;
+  }
   const costUsd = Number.isFinite(resp?.usage?.cost) ? resp.usage.cost : 0;
   const choice = resp?.choices?.[0];
   const raw = choice?.message?.content ?? '';
@@ -1051,8 +1067,10 @@ export async function judgeClaim({ claim, scoredEvidence, apiKey, model, fallbac
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
-// Claims judged at the same time. Each claim makes the same LLM calls as
-// before, so the subrequest count does not change, only the overlap.
+// Claims judged at the same time. The overlap does not change how many LLM
+// calls a claim makes, but config.stanceVotes does: with 3 votes each claim
+// makes 3 primary judge calls (up to 36 at once for 12 claims), plus the
+// fallback judge when it runs.
 export const CLAIM_JUDGE_CONCURRENCY = 12;
 
 /**
@@ -1317,13 +1335,67 @@ export async function stableProductClaims(args) {
  * After the verdict: a check that ended with no score (not enough independent
  * evidence) keeps its claim set only CLAIM_CACHE_WEAK_TTL_SECONDS, so a later
  * run can extract other claims instead of repeating the same dead end for 30
- * days (CP-819). A scored check leaves the set alone. Never throws.
+ * days (CP-819), and its saved pages too (CP-789). A scored check leaves
+ * them alone. Never throws.
  */
 export async function keepClaimsByOutcome(kv, product, productUrl, overall) {
   if (overall?.score !== null && overall?.score !== undefined) return;
   if (await shortenCachedClaims(kv, product, productUrl)) {
     console.log(`[verify] claims: no score, saved set for "${product}" kept one day`);
   }
+  // The saved pages too (CP-789): the same pages would give no score again.
+  if (await shortenSavedPages(kv, product, productUrl)) {
+    console.log(`[verify] pages: no score, saved pages for "${product}" kept one day`);
+  }
+}
+
+/**
+ * After a scored check that gathered its own pages (CP-789): saves its claims
+ * and scored evidence for 30 days (writeSavedPages), so the next check of
+ * the same product judges the same pages. Saved only after the judges ran,
+ * so a check that fails or gets no score never fixes its pages for 30 days.
+ * A forceFresh (benchmark) run and a run that reused saved pages save
+ * nothing. Never throws.
+ */
+export async function savePagesByOutcome(kv, product, productUrl, collected, overall, { forceFresh = false } = {}) {
+  if (forceFresh || collected?.fromSavedPages !== false) return;
+  if (overall?.score === null || overall?.score === undefined) return;
+  if ((collected.claims?.length ?? 0) < MIN_CLAIMS) return;
+  const saved = await writeSavedPages(kv, product, productUrl, { claims: collected.claims, claimSources: collected.claimSources, sources: collected.scoredEvidence });
+  if (saved) console.log(`[verify] pages: saved ${collected.scoredEvidence.length} pages for "${product}" for 30 days`);
+}
+
+/**
+ * Steps 1 to 5 from the product's saved pages (page-cache.js, CP-789): the
+ * claims and scored evidence a check of the same product saved in the last
+ * 30 days, so this check judges the same pages. null when nothing usable is
+ * saved. Same shape as collectClaimsAndEvidence's 'ok' result, at no cost.
+ */
+async function savedPagesResult(kv, product, productUrl, startedAt) {
+  const saved = await readSavedPages(kv, product, productUrl);
+  if (!saved) return null;
+  // The claim set rules of stableProductClaims: testable, at least MIN_CLAIMS.
+  const claims = saved.claims.filter(isTestableClaim).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  if (claims.length < MIN_CLAIMS) {
+    console.warn(`[verify] pages: saved pages for "${product}" ignored, ${claims.length} testable claims`);
+    return null;
+  }
+  console.log(`[verify] pages: reused ${saved.sources.length} saved pages and ${claims.length} claims for "${product}" (saved ${new Date(saved.savedAt).toISOString()})`);
+  const claimSources = saved.claimSourceUrls.map((url) => ({ url }));
+  const now = Date.now();
+  return {
+    status: 'ok',
+    product,
+    resolved: { claimSources, candidates: [], rejected: [], queries: [] },
+    claims,
+    claimSources,
+    tests: { sources: [], queries: [], reads: 0, filled: 0 },
+    gathered: { sources: [], totalCostUsd: 0 },
+    scoredEvidence: saved.sources,
+    costUsd: 0,
+    fromSavedPages: true,
+    marks: { startedAt, extractedAt: now, gatheredAt: now },
+  };
 }
 
 /**
@@ -1428,7 +1500,7 @@ function gatherEvidence({ product, config, apiKey, env, emit, readPage, budget, 
  * product, resolved, claims, claimSources, tests, gathered, scoredEvidence, costUsd,
  * marks: { startedAt, extractedAt, gatheredAt } }.
  */
-export async function collectClaimsAndEvidence({ product: givenProduct, productUrl, config, apiKey, env: callerEnv, onEvent, callLLM, extractCallLLM }) {
+export async function collectClaimsAndEvidence({ product: givenProduct, productUrl, config, apiKey, env: callerEnv, onEvent, callLLM, extractCallLLM, forceFresh = false }) {
   // CP-718 round 3: the check's searches and page reads share a few
   // connection slots, so a read's timer starts only when it can connect.
   const env = withConnectionGate(callerEnv);
@@ -1436,6 +1508,8 @@ export async function collectClaimsAndEvidence({ product: givenProduct, productU
   const budget = verifyBudget(config);
   const startedAt = Date.now();
   const { product, pastedPage } = await nameFromPastedPage({ product: givenProduct, productUrl, env, readMs: budget.pastedNameReadMs });
+  const saved = forceFresh ? null : await savedPagesResult(env?.KV, product, productUrl ?? null, startedAt);
+  if (saved) return saved;
   const evidenceReads = new AbortController();
   const readPage = evidenceReader(env, { signal: evidenceReads.signal });
   const gate = deferred();
@@ -1494,6 +1568,7 @@ export async function collectClaimsAndEvidence({ product: givenProduct, productU
       gathered,
       scoredEvidence,
       costUsd: extracted.costUsd + (gathered.totalCostUsd || 0),
+      fromSavedPages: false,
       marks: { startedAt, extractedAt, gatheredAt },
     };
   } finally {
@@ -1519,10 +1594,10 @@ export async function collectClaimsAndEvidence({ product: givenProduct, productU
  * claims, evidenceCount, costUsd, lateCostUsd }` (lateCostUsd: a promise of the
  * hedge calls' cost still running, lateJudgeCost).
  */
-export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM }) {
+export async function runVerification({ product, productUrl, config, apiKey, env, onEvent, callLLM, forceFresh = false }) {
   // CP-777: "X" and "X case" check the same product the same way.
   const subject = trimProductType(product) || product;
-  const collected = await collectClaimsAndEvidence({ product: subject, productUrl, config, apiKey, env, onEvent, callLLM });
+  const collected = await collectClaimsAndEvidence({ product: subject, productUrl, config, apiKey, env, onEvent, callLLM, forceFresh });
   if (collected.status === 'needs_url') {
     return {
       status: 'needs_url',
@@ -1545,6 +1620,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   // 7. OVERALL
   const overall = overallVerdict(claimVerdicts);
   await keepClaimsByOutcome(env?.KV, checked, productUrl ?? null, overall);
+  await savePagesByOutcome(env?.KV, checked, productUrl ?? null, collected, overall, { forceFresh });
 
   return {
     status: 'ok',

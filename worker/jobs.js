@@ -243,7 +243,7 @@ export async function processResearchMessage(message, env) {
 // runVerificationPipeline, fast-fail on an escaped error so the row never
 // hangs in 'processing' until the cron reaper.
 export async function processVerificationMessage(message, env) {
-    const { reportId, product, productUrl } = message.body;
+    const { reportId, product, productUrl, forceFresh } = message.body;
     try {
         const claim = await env.DB.prepare(
             "UPDATE research SET status = 'processing', processing_started_at = ?2 WHERE id = ?1 AND status = 'pending'"
@@ -259,7 +259,7 @@ export async function processVerificationMessage(message, env) {
             return;
         }
 
-        await runVerificationPipeline(env, reportId, { product, productUrl });
+        await runVerificationPipeline(env, reportId, { product, productUrl, forceFresh: forceFresh === true });
         message.ack();
     } catch (err) {
         console.error(`Queue verification error for ${reportId}:`, err);

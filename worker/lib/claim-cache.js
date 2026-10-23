@@ -49,14 +49,25 @@ function pageKeyOf(productUrl) {
  * handler's reuseKey rule), and each pasted page keeps its own claims.
  */
 export function claimCacheKey(product, productUrl = null) {
+  const subject = productCacheSubject(product, productUrl);
+  return subject ? KEY_PREFIX + subject : null;
+}
+
+/**
+ * The product part of a saved-set key (claimCacheKey without its prefix):
+ * the name key, plus `|page:<page>` with a pasted page. null when the name
+ * has no key or the pasted page does not parse. Shared with page-cache.js.
+ */
+export function productCacheSubject(product, productUrl = null) {
   const nameKey = productNameKey(String(product ?? '').trim());
   if (!nameKey) return null;
   const page = pageKeyOf(productUrl);
   if (productUrl && !page) return null;
-  return KEY_PREFIX + nameKey + (page ? `|page:${page}` : '');
+  return nameKey + (page ? `|page:${page}` : '');
 }
 
-function validClaim(c) {
+/** A saved claim: non-empty text up to MAX_CLAIM_CHARS and a known type. */
+export function validClaim(c) {
   return Boolean(c) && typeof c.text === 'string' && c.text.trim().length > 0
     && c.text.length <= MAX_CLAIM_CHARS && CLAIM_TYPES.includes(c.type);
 }

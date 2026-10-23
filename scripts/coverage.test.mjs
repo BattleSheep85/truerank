@@ -35,6 +35,7 @@ import { runVerifyResolveTests } from '../test/unit/verify-resolve.test.js';
 import { runSafetyTests } from '../test/unit/safety.test.js';
 import { runPageKindTests } from '../test/unit/page-kind.test.js';
 import { runCriticalExcerptsTests } from '../test/unit/critical-excerpts.test.js';
+import { runPageCacheTests } from '../test/unit/page-cache.test.js';
 
 const suites = [
   ['page-kind', runPageKindTests],
@@ -64,6 +65,7 @@ const suites = [
   ['grounding-check', runGroundingCheckTests],
   ['safety', runSafetyTests],
   ['critical-excerpts', runCriticalExcerptsTests],
+  ['page-cache', runPageCacheTests],
 ];
 
 for (const [name, fn] of suites) {

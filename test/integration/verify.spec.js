@@ -174,3 +174,13 @@ describe('runVerificationPipeline — late judge cost', () => {
     expect(row.cost_usd).toBeCloseTo(0.03);
   });
 });
+
+describe('runVerificationPipeline: forceFresh (CP-789)', () => {
+  it('passes forceFresh to verify only when the message set it', async () => {
+    const seen = [];
+    const verify = async (args) => { seen.push(args.forceFresh); return OK_VERIFY(); };
+    await runVerificationPipeline(env, await seedPendingRow(), { product: 'Test Widget', forceFresh: true }, { verify });
+    await runVerificationPipeline(env, await seedPendingRow(), { product: 'Test Widget' }, { verify });
+    expect(seen).toEqual([true, false]);
+  });
+});

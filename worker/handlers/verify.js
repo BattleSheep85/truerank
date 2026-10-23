@@ -23,6 +23,7 @@ import { isNameKey, parseProductInput, PRODUCT_INPUT_MAX_LEN, PRODUCT_NAME_MAX_L
 import { isFetchableUrl } from '../lib/url-guard.js';
 import { overallVerdict } from '../lib/verdict.js';
 import { isTestableClaim } from '../engine/verify.js';
+import { isWorkerAuthed } from '../lib/worker-auth.js';
 
 const PRODUCT_MIN_LEN = 3;
 const PRODUCT_MIN_ALNUM = 3;
@@ -72,7 +73,14 @@ async function startFromBody(request, env, body) {
 
     const intake = resolveNewProduct(raw, bodyUrl.url);
     if (intake.error) return intake.error;
-    return startNewSubmission(request, env, intake);
+    // Internal-only (CP-789): a benchmark harness measures a full fresh gather,
+    // so forceFresh skips the saved verdict and the saved pages (it saves no
+    // pages either). The saved claim set is still used: claims stay fixed so
+    // only the gather and the judges vary. Honored ONLY with the
+    // X-Worker-Secret of /api/internal/*; a public caller's flag is ignored.
+    const forceFresh = body.forceFresh === true && await isWorkerAuthed(request, env);
+    if (forceFresh) console.log('[verify] forceFresh honored (internal auth)');
+    return startNewSubmission(request, env, { ...intake, forceFresh });
 }
 
 const FORM_FALLBACK_ERROR = 'Frank could not start that check. Please try again.';
@@ -231,7 +239,7 @@ async function startNewSubmission(request, env, intake) {
     if (throttled) return throttled;
 
     // Step 5: a saved verdict costs nothing. No quota, no budget gate, no queue, no row.
-    const saved = await lookupSavedVerdict(env.DB, intake.key);
+    const saved = intake.forceFresh ? null : await lookupSavedVerdict(env.DB, intake.key);
     if (saved) {
         return jsonResponse({ id: saved.id, slug: saved.slug, status: 'completed', reused: true, checkedAt: saved.completed_at });
     }
@@ -287,7 +295,7 @@ async function lookupSavedVerdict(db, key) {
 }
 
 async function handleNewSubmission(env, intake, sessionUser, clientIp) {
-    const { name, productUrl, key } = intake;
+    const { name, productUrl, key, forceFresh } = intake;
     // Free-tier gate: only a brand-new verification submission consumes
     // quota — a needs_input resubmit is a continuation of a run already
     // paid for, so it goes through handleResubmit below untouched.
@@ -312,7 +320,7 @@ async function handleNewSubmission(env, intake, sessionUser, clientIp) {
     ).bind(id, slug, name, productUrl, key, Math.floor(Date.now() / 1000)).run();
 
     try {
-        await env.RESEARCH_QUEUE.send({ reportId: id, kind: 'verification', product: name, productUrl });
+        await env.RESEARCH_QUEUE.send({ reportId: id, kind: 'verification', product: name, productUrl, ...(forceFresh ? { forceFresh: true } : {}) });
     } catch (err) {
         console.error('[verify] queue send failed:', err instanceof Error ? err.message : String(err));
         try {

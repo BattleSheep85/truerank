@@ -23,6 +23,7 @@ import { runLibPureTests } from '../test/unit/lib-pure.test.js';
 import { runAsinResolverTests } from '../test/unit/asin-resolver.test.js';
 import { runVerdictTests } from '../test/unit/verdict.test.js';
 import { runClaimCacheTests } from '../test/unit/claim-cache.test.js';
+import { runPageCacheTests } from '../test/unit/page-cache.test.js';
 import { runVerifyTests } from '../test/unit/verify.test.js';
 import { runVerificationRenderTests } from '../test/unit/verification-render.test.js';
 import { runJinaTests } from '../test/unit/jina.test.js';
@@ -92,6 +93,7 @@ const suites = [
   ['asin-resolver', runAsinResolverTests],
   ['verdict', runVerdictTests],
   ['claim-cache', runClaimCacheTests],
+  ['page-cache', runPageCacheTests], // async suite (awaited below)
   ['verify', runVerifyTests],
   ['verify-resolve', runVerifyResolveTests],
   ['verification-render', runVerificationRenderTests],
