@@ -24,6 +24,7 @@ import { isFetchableUrl } from '../lib/url-guard.js';
 import { overallVerdict } from '../lib/verdict.js';
 import { isTestableClaim } from '../engine/verify.js';
 import { isWorkerAuthed } from '../lib/worker-auth.js';
+import { refuseCrossSite, CROSS_SITE_ERROR as CROSS_SITE_API_ERROR } from '../lib/cross-site.js';
 
 const PRODUCT_MIN_LEN = 3;
 const PRODUCT_MIN_ALNUM = 3;
@@ -45,6 +46,10 @@ const NAME_REQUIRED_MESSAGE = 'That link does not include the product name. Copy
  *   the user-supplied product URL, then re-enqueues.
  */
 export async function handleStartVerify(request, env) {
+    // A cross-site page must not start paid checks through its visitors' browsers (CP-894).
+    if (await refuseCrossSite(request, env)) {
+        return jsonResponse({ error: CROSS_SITE_API_ERROR }, 403);
+    }
     let body;
     try {
         body = await request.json();

@@ -11,6 +11,7 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { hashIp } from '../lib/ip-hash.js';
 import { maybeStartDisagreementRerun, voterNetwork, DISAGREE_MAX_RATING } from '../lib/disagreement.js';
+import { isCrossSiteBrowser, CROSS_SITE_ERROR } from '../lib/cross-site.js';
 
 // Saved sources keep a ~200-character snippet each (CP-408), about 20 KB or
 // more per report. Only the eval's groundedness check reads them, so the API
@@ -82,7 +83,7 @@ export async function handleFeedback(request, env) {
     // A vote can start a paid run, so a cross-site page must not cast votes
     // through its visitors' browsers. Non-browser callers send neither header.
     if (isCrossSiteBrowser(request)) {
-        return jsonResponse({ error: 'Cross-site requests are not accepted' }, 403);
+        return jsonResponse({ error: CROSS_SITE_ERROR }, 403);
     }
     const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
     // Salted IP hash: the key is stored in D1 (CP-808).
@@ -156,11 +157,6 @@ async function voterHashFor(ip, env) {
     }
 }
 
-function isCrossSiteBrowser(request) {
-    if (request.headers.get('Sec-Fetch-Site') === 'cross-site') return true;
-    const origin = request.headers.get('Origin');
-    return Boolean(origin) && origin !== new URL(request.url).origin;
-}
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
     return new Response(JSON.stringify(data), {
