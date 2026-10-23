@@ -64,7 +64,7 @@ describe('index.js routing', () => {
     const res = await SELF.fetch(`${BASE}/research/best-budget-nas`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('best budget nas'.replace(/\b\w/g, (c) => c)); // query appears (any case)
+    expect(html.toLowerCase()).toContain('best budget nas'); // query appears (any case)
     expect(res.headers.get('Content-Type')).toContain('text/html');
   });
 
