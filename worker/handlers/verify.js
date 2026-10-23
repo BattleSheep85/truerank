@@ -74,8 +74,10 @@ async function startFromBody(request, env, body) {
     const intake = resolveNewProduct(raw, bodyUrl.url);
     if (intake.error) return intake.error;
     // Internal-only (CP-789): a benchmark harness measures a full fresh gather,
-    // so forceFresh skips the saved verdict and the saved pages. Honored ONLY
-    // with the X-Worker-Secret of /api/internal/*; a public caller's flag is ignored.
+    // so forceFresh skips the saved verdict and the saved pages (it saves no
+    // pages either). The saved claim set is still used: claims stay fixed so
+    // only the gather and the judges vary. Honored ONLY with the
+    // X-Worker-Secret of /api/internal/*; a public caller's flag is ignored.
     const forceFresh = body.forceFresh === true && await isWorkerAuthed(request, env);
     if (forceFresh) console.log('[verify] forceFresh honored (internal auth)');
     return startNewSubmission(request, env, { ...intake, forceFresh });

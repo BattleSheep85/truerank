@@ -18,8 +18,8 @@ export const CLAIM_CACHE_TTL_SECONDS = 30 * 86400;
  */
 export const CLAIM_CACHE_WEAK_TTL_SECONDS = 86400;
 const KEY_PREFIX = `verify-claims:${CLAIM_CACHE_VERSION}:`;
-export const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
-export const MAX_CLAIM_CHARS = 400;
+const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
+const MAX_CLAIM_CHARS = 400;
 const MAX_CACHED_CLAIMS = 12;
 
 // The query that identifies the product, as product-link keeps it: '' for a
@@ -66,7 +66,8 @@ export function productCacheSubject(product, productUrl = null) {
   return nameKey + (page ? `|page:${page}` : '');
 }
 
-function validClaim(c) {
+/** A saved claim: non-empty text up to MAX_CLAIM_CHARS and a known type. */
+export function validClaim(c) {
   return Boolean(c) && typeof c.text === 'string' && c.text.trim().length > 0
     && c.text.length <= MAX_CLAIM_CHARS && CLAIM_TYPES.includes(c.type);
 }

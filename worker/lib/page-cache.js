@@ -9,7 +9,7 @@
 // the entry expires. KV, not D1: one read per check, a native TTL, and the
 // claim sets (claim-cache.js) already live there with the same key rules.
 
-import { productCacheSubject, CLAIM_CACHE_VERSION, CLAIM_TYPES, MAX_CLAIM_CHARS } from './claim-cache.js';
+import { productCacheSubject, validClaim, CLAIM_CACHE_VERSION } from './claim-cache.js';
 
 /** Bump when the saved shape or the evidence scoring changes. */
 export const PAGE_CACHE_VERSION = 'v1';
@@ -42,15 +42,10 @@ function isWebUrl(value) {
   }
 }
 
-function validClaim(c) {
-  return Boolean(c) && typeof c.text === 'string' && c.text.trim().length > 0
-    && c.text.length <= MAX_CLAIM_CHARS && CLAIM_TYPES.includes(c.type);
-}
-
 function validSource(s) {
   return Boolean(s) && isWebUrl(s.url)
     && (s.title == null || typeof s.title === 'string')
-    && typeof s.content === 'string' && s.content.length > 0
+    && typeof s.content === 'string'
     && Number.isFinite(s.credibility) && Number.isFinite(s.independence)
     && Array.isArray(s.tags) && s.tags.every((t) => typeof t === 'string');
 }

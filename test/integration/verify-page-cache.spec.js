@@ -22,9 +22,11 @@ vi.mock('../../worker/engine/tools.js', () => ({
   readPageInto: mocks.readPageInto,
 }));
 
-const { collectClaimsAndEvidence, keepClaimsByOutcome } = await import('../../worker/engine/verify.js');
+const { collectClaimsAndEvidence, keepClaimsByOutcome, savePagesByOutcome } = await import('../../worker/engine/verify.js');
 const { ENGINE_CONFIG } = await import('../../worker/lib/engine-config.js');
-const { pageCacheKey, readSavedPages, PAGE_CACHE_WEAK_TTL_SECONDS } = await import('../../worker/lib/page-cache.js');
+const { pageCacheKey, readSavedPages, writeSavedPages, PAGE_CACHE_WEAK_TTL_SECONDS } = await import('../../worker/lib/page-cache.js');
+
+const SCORED = { score: 70 };
 
 const SPEC_PAGE = [
   'Acme Flip 7 portable speaker with a rugged body and a long battery life for travel and parties.',
@@ -102,6 +104,8 @@ describe('verify saved pages (CP-789)', () => {
     expect(first.status).toBe('ok');
     expect(first.fromSavedPages).toBe(false);
     expect(first.scoredEvidence.length).toBeGreaterThan(0);
+    expect(kv.store.has(pageCacheKey('Acme Flip 7'))).toBe(false); // nothing saved before the judges ran
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, first, SCORED);
     expect(kv.store.has(pageCacheKey('Acme Flip 7'))).toBe(true);
 
     vi.clearAllMocks();
@@ -116,17 +120,42 @@ describe('verify saved pages (CP-789)', () => {
     expect(mocks.runSearch).not.toHaveBeenCalled();
     expect(mocks.readPageInto).not.toHaveBeenCalled();
     expect(mocks.callLLM).not.toHaveBeenCalled();
+    // A run that reused the pages saves nothing, so the 30 days do not restart.
+    const puts = kv.puts.length;
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, second, SCORED);
+    expect(kv.puts.length).toBe(puts);
   });
 
-  it('forceFresh gathers again and saves the new pages', async () => {
+  it('a check with no score or too few claims saves no pages', async () => {
+    const kv = memoryKv();
+    mocks.runSearch.mockImplementation(search('Acme Flip 7'));
+    const res = await runCheck('Acme Flip 7', kv);
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, res, { score: null });
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, { ...res, claims: res.claims.slice(0, 3) }, SCORED);
+    expect(kv.store.has(pageCacheKey('Acme Flip 7'))).toBe(false);
+  });
+
+  it('saved pages with fewer than 4 testable claims are ignored', async () => {
+    const kv = memoryKv();
+    const sources = [{ url: 'https://www.lab.example/x', title: 't', content: REVIEW_TEXT, credibility: 70, independence: 70, tags: [] }];
+    await writeSavedPages(kv, 'Acme Flip 7', null, { claims: [{ text: 'Up to 14 hours of playtime', type: 'spec' }], claimSources: [], sources });
+    mocks.runSearch.mockImplementation(search('Acme Flip 7'));
+    const res = await runCheck('Acme Flip 7', kv);
+    expect(res.fromSavedPages).toBe(false);
+    expect(mocks.runSearch).toHaveBeenCalled();
+  });
+
+  it('forceFresh gathers again and leaves the saved pages alone', async () => {
     const kv = memoryKv();
     mocks.runSearch.mockImplementation(search('Acme Flip 7'));
     const first = await runCheck('Acme Flip 7', kv);
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, first, SCORED);
     const fresh = await runCheck('Acme Flip 7', kv, { forceFresh: true });
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, fresh, SCORED, { forceFresh: true });
     expect(fresh.fromSavedPages).toBe(false);
     expect(fresh.scoredEvidence.map((s) => s.url)).not.toEqual(first.scoredEvidence.map((s) => s.url));
     const saved = await readSavedPages(kv, 'Acme Flip 7');
-    expect(saved.sources.map((s) => s.url)).toEqual(fresh.scoredEvidence.map((s) => s.url));
+    expect(saved.sources.map((s) => s.url)).toEqual(first.scoredEvidence.map((s) => s.url));
   });
 
   it('a bad saved entry is ignored and logged, and the run gathers again', async () => {
@@ -138,6 +167,7 @@ describe('verify saved pages (CP-789)', () => {
     expect(res.fromSavedPages).toBe(false);
     expect(mocks.runSearch).toHaveBeenCalled();
     expect(warn.mock.calls.some((c) => String(c[0]).includes('[page-cache]'))).toBe(true);
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, res, SCORED);
     expect((await readSavedPages(kv, 'Acme Flip 7')).sources.length).toBeGreaterThan(0);
     warn.mockRestore();
   });
@@ -145,6 +175,7 @@ describe('verify saved pages (CP-789)', () => {
   it('works with the real KV binding', async () => {
     mocks.runSearch.mockImplementation(search('Acme Flip 8'));
     const first = await runCheck('Acme Flip 8', testEnv.KV);
+    await savePagesByOutcome(testEnv.KV, 'Acme Flip 8', null, first, SCORED);
     const second = await runCheck('Acme Flip 8', testEnv.KV);
     expect(second.fromSavedPages).toBe(true);
     expect(second.scoredEvidence).toEqual(first.scoredEvidence);
@@ -153,7 +184,7 @@ describe('verify saved pages (CP-789)', () => {
   it('a check with no score keeps its saved pages one day', async () => {
     const kv = memoryKv();
     mocks.runSearch.mockImplementation(search('Acme Flip 7'));
-    await runCheck('Acme Flip 7', kv);
+    await savePagesByOutcome(kv, 'Acme Flip 7', null, await runCheck('Acme Flip 7', kv), SCORED);
     await keepClaimsByOutcome(kv, 'Acme Flip 7', null, { score: null });
     const shortened = kv.puts.filter((p) => p.key === pageCacheKey('Acme Flip 7')).at(-1);
     expect(shortened.opts.expirationTtl).toBe(PAGE_CACHE_WEAK_TTL_SECONDS);

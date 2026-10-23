@@ -149,6 +149,9 @@ export async function runPageCacheTests() {
     // Only the fields the judge uses are saved.
     const kv = memoryKv();
     await writeSavedPages(kv, 'Dyson V15 Detect', null, { ...saved(), sources: [{ ...SOURCES[0], passage: 'p', extra: { a: 1 } }] });
+    const emptyKv = memoryKv();
+    await writeSavedPages(emptyKv, 'Dyson V15 Detect', null, { ...saved(), sources: [...SOURCES, { ...SOURCES[0], url: 'https://example.com/empty', content: '' }] });
+    eq('write: a source with empty text is kept, as the judge saw it', (await readSavedPages(emptyKv, 'Dyson V15 Detect'))?.sources.length, 3);
     eq('write: only judge fields', Object.keys(JSON.parse(kv.puts[0].value).sources[0]).sort(), ['content', 'credibility', 'independence', 'tags', 'title', 'url']);
   }
 

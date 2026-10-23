@@ -1335,7 +1335,8 @@ export async function stableProductClaims(args) {
  * After the verdict: a check that ended with no score (not enough independent
  * evidence) keeps its claim set only CLAIM_CACHE_WEAK_TTL_SECONDS, so a later
  * run can extract other claims instead of repeating the same dead end for 30
- * days (CP-819). A scored check leaves the set alone. Never throws.
+ * days (CP-819), and its saved pages too (CP-789). A scored check leaves
+ * them alone. Never throws.
  */
 export async function keepClaimsByOutcome(kv, product, productUrl, overall) {
   if (overall?.score !== null && overall?.score !== undefined) return;
@@ -1349,6 +1350,22 @@ export async function keepClaimsByOutcome(kv, product, productUrl, overall) {
 }
 
 /**
+ * After a scored check that gathered its own pages (CP-789): saves its claims
+ * and scored evidence for 30 days (writeSavedPages), so the next check of
+ * the same product judges the same pages. Saved only after the judges ran,
+ * so a check that fails or gets no score never fixes its pages for 30 days.
+ * A forceFresh (benchmark) run and a run that reused saved pages save
+ * nothing. Never throws.
+ */
+export async function savePagesByOutcome(kv, product, productUrl, collected, overall, { forceFresh = false } = {}) {
+  if (forceFresh || collected?.fromSavedPages !== false) return;
+  if (overall?.score === null || overall?.score === undefined) return;
+  if ((collected.claims?.length ?? 0) < MIN_CLAIMS) return;
+  const saved = await writeSavedPages(kv, product, productUrl, { claims: collected.claims, claimSources: collected.claimSources, sources: collected.scoredEvidence });
+  if (saved) console.log(`[verify] pages: saved ${collected.scoredEvidence.length} pages for "${product}" for 30 days`);
+}
+
+/**
  * Steps 1 to 5 from the product's saved pages (page-cache.js, CP-789): the
  * claims and scored evidence a check of the same product saved in the last
  * 30 days, so this check judges the same pages. null when nothing usable is
@@ -1357,14 +1374,20 @@ export async function keepClaimsByOutcome(kv, product, productUrl, overall) {
 async function savedPagesResult(kv, product, productUrl, startedAt) {
   const saved = await readSavedPages(kv, product, productUrl);
   if (!saved) return null;
-  console.log(`[verify] pages: reused ${saved.sources.length} saved pages and ${saved.claims.length} claims for "${product}" (saved ${new Date(saved.savedAt).toISOString()})`);
+  // The claim set rules of stableProductClaims: testable, at least MIN_CLAIMS.
+  const claims = saved.claims.filter(isTestableClaim).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  if (claims.length < MIN_CLAIMS) {
+    console.warn(`[verify] pages: saved pages for "${product}" ignored, ${claims.length} testable claims`);
+    return null;
+  }
+  console.log(`[verify] pages: reused ${saved.sources.length} saved pages and ${claims.length} claims for "${product}" (saved ${new Date(saved.savedAt).toISOString()})`);
   const claimSources = saved.claimSourceUrls.map((url) => ({ url }));
   const now = Date.now();
   return {
     status: 'ok',
     product,
     resolved: { claimSources, candidates: [], rejected: [], queries: [] },
-    claims: saved.claims,
+    claims,
     claimSources,
     tests: { sources: [], queries: [], reads: 0, filled: 0 },
     gathered: { sources: [], totalCostUsd: 0 },
@@ -1535,10 +1558,6 @@ export async function collectClaimsAndEvidence({ product: givenProduct, productU
     // 5. SCORE EVIDENCE
     const allCandidateSources = [...(extracted.claimSources || []), ...reviewPages, ...tests.sources, ...(gathered.sources || [])];
     const scoredEvidence = scoreEvidence(evidencePool(allCandidateSources, product, productUrl));
-    // Saved under the same rule as the claim set (stableProductClaims).
-    if (extracted.claims.length >= MIN_CLAIMS) {
-      await writeSavedPages(env?.KV, product, productUrl ?? null, { claims: extracted.claims, claimSources: extracted.claimSources, sources: scoredEvidence });
-    }
     return {
       status: 'ok',
       product,
@@ -1601,6 +1620,7 @@ export async function runVerification({ product, productUrl, config, apiKey, env
   // 7. OVERALL
   const overall = overallVerdict(claimVerdicts);
   await keepClaimsByOutcome(env?.KV, checked, productUrl ?? null, overall);
+  await savePagesByOutcome(env?.KV, checked, productUrl ?? null, collected, overall, { forceFresh });
 
   return {
     status: 'ok',
