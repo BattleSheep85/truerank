@@ -79,16 +79,11 @@ export default {
         const path = url.pathname;
         const method = request.method;
 
-        // CORS preflight
+        // The site and the API share one origin, so no route grants
+        // cross-origin access (CP-431). A preflight from another site gets no
+        // CORS headers, and the browser refuses the real request.
         if (method === 'OPTIONS') {
-            return new Response(null, {
-                headers: {
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                    'Access-Control-Max-Age': '86400',
-                },
-            });
+            return new Response(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } });
         }
 
         // Dev-only password wall (no-op in production — see requireDevAuth).
@@ -443,7 +438,6 @@ export default {
                 status: 500,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
                 },
             });
         }

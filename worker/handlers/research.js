@@ -331,7 +331,6 @@ export async function handleResearchStream(reportId, env, request) {
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Access-Control-Allow-Origin': '*',
         },
     });
 }
@@ -367,7 +366,6 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
         status,
         headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
             ...extraHeaders,
         },
     });
