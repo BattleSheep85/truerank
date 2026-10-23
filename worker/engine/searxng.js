@@ -1,6 +1,6 @@
 // SearXNG metasearch client. The self-hosted instance aggregates ten free
 // engines, so raw answers hold duplicates, dictionary and shopping junk, and
-// off-topic hits. This module cleans them (URL normalization, dedupe, blocked
+// off-topic hits. This module cleans them (URL-key dedupe, blocked
 // domains, relevance), reranks, and returns null for weak answers so the caller
 // falls through to the paid providers (Brave, Exa, Tavily).
 // The public instance sits behind the BunkerWeb X-Edge-Gate header gate.
@@ -15,6 +15,17 @@ export const SEARXNG_MAX_RESULTS = 15;
 export const SEARXNG_MIN_USABLE = 3;
 // SearXNG category for image engines (bing images, startpage images).
 export const SEARXNG_IMAGES_CATEGORY = 'images';
+// Usable answers stay in KV this long, so repeat runs of a query do not hit
+// the free engines again (they CAPTCHA the home IP under load, CP-713).
+export const SEARXNG_CACHE_TTL_S = 4 * 3600;
+// A thin web answer (some engines failed AND fewer than
+// SEARXNG_THIN_RAW_RESULTS raw results) stays only this long, so the next run
+// asks again (CP-819). Two engines (gmx, neosearch) fail on almost every
+// request (live sample 2026-10-19: 6 of 6 queries, 47 to 74 raw results), so
+// failed engines alone would shorten nearly every answer.
+export const SEARXNG_PARTIAL_CACHE_TTL_S = 30 * 60;
+export const SEARXNG_THIN_RAW_RESULTS = 20;
+const CACHE_KEY_PREFIX = 'searxng:v1:';
 // "1000×1000", "1200x1050", "3000 x 3000", "1500 X 851".
 const RESOLUTION_RE = /^\s*(\d+)\s*[x×X]\s*(\d+)\s*$/;
 const NO_RESOLUTION = Object.freeze({ width: 0, height: 0 });
@@ -70,8 +81,8 @@ function trimTrailingSlashes(path) {
   return path.slice(0, end) || '/';
 }
 
-// Canonical https URL with tracking noise removed, or null when unusable.
-export function normalizeResultUrl(url) {
+// Parsed http(s) URL, or null when unusable.
+function parseResultUrl(url) {
   if (typeof url !== 'string' || url.length > MAX_URL_LENGTH) return null;
   let parsed;
   try {
@@ -80,22 +91,55 @@ export function normalizeResultUrl(url) {
     return null;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-  const host = canonicalHost(parsed.hostname);
-  if (!host) return null;
+  return canonicalHost(parsed.hostname) ? parsed : null;
+}
+
+// Copy of a parsed URL without userinfo, tracking params, or fragment.
+// Userinfo goes because credentials leak and "rtings.com@evil.example" reads
+// as the wrong host.
+function stripNoise(parsed) {
   const params = [...parsed.searchParams].filter(
     ([key]) => !TRACKING_PARAMS.has(key) && !key.startsWith(TRACKING_PREFIX),
   );
-  // Edit a parsed copy so the host stays in the host slot.
   const out = new URL(parsed.href);
-  out.protocol = 'https:';
-  out.hostname = host;
-  // Drop userinfo: credentials leak, and "rtings.com@evil.example" reads as the wrong host.
   out.username = '';
   out.password = '';
-  out.pathname = trimTrailingSlashes(parsed.pathname);
   out.search = new URLSearchParams(params).toString();
   out.hash = '';
+  return out;
+}
+
+// Canonical https URL with tracking noise removed, or null when unusable.
+// A merge key only: it removes www. and forces https, which can break a host
+// that answers only on www or http, so never fetch or show it.
+export function normalizeResultUrl(url) {
+  const parsed = parseResultUrl(url);
+  if (!parsed) return null;
+  // Edit a parsed copy so the host stays in the host slot.
+  const out = stripNoise(parsed);
+  out.protocol = 'https:';
+  out.hostname = canonicalHost(parsed.hostname);
+  out.pathname = trimTrailingSlashes(parsed.pathname);
   return out.href;
+}
+
+// The URL to fetch and show: host and path as the engine gave them (www. and
+// trailing slash kept), minus userinfo, tracking params, and fragment. https
+// stays forced because read_page and Jina accept only https. Null when unusable.
+function displayResultUrl(url) {
+  const parsed = parseResultUrl(url);
+  if (!parsed) return null;
+  const out = stripNoise(parsed);
+  out.protocol = 'https:';
+  return out.href;
+}
+
+// Dedupe key shared by every search provider, so the same page from two
+// providers (or with www, http, or a trailing slash) counts once. A URL that
+// does not parse is its own key; a missing URL has none (null).
+export function urlKey(url) {
+  if (typeof url !== 'string' || !url) return null;
+  return normalizeResultUrl(url) ?? url;
 }
 
 const alnum = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -154,22 +198,23 @@ function parsePublishedMs(value) {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-// Merge duplicates by normalized URL. Keeps the earliest index, unions
-// engines, keeps the longest content. Returns new objects only.
+// Merge duplicates by normalized URL. Keeps the earliest index and its
+// original URL, unions engines, keeps the longest content. Returns new objects only.
 function mergeDuplicates(raw) {
   const byUrl = new Map();
   raw.forEach((r, index) => {
-    const url = normalizeResultUrl(r?.url);
-    if (!url) return;
+    const key = normalizeResultUrl(r?.url);
+    if (!key) return;
     const engines = Array.isArray(r.engines) ? r.engines.filter((e) => typeof e === 'string') : [];
     const content = typeof r.content === 'string' ? r.content : '';
-    const prev = byUrl.get(url);
+    const prev = byUrl.get(key);
     if (!prev) {
       const title = typeof r.title === 'string' ? r.title : '';
-      byUrl.set(url, { url, title, content, engines: [...new Set(engines)], index, publishedMs: parsePublishedMs(r.publishedDate) });
+      const url = displayResultUrl(r.url);
+      byUrl.set(key, { key, url, title, content, engines: [...new Set(engines)], index, publishedMs: parsePublishedMs(r.publishedDate) });
       return;
     }
-    byUrl.set(url, {
+    byUrl.set(key, {
       ...prev,
       engines: [...new Set([...prev.engines, ...engines])],
       content: content.length > prev.content.length ? content : prev.content,
@@ -190,7 +235,7 @@ function isFresh(item, nowMs) {
 function scoreItem(item, nowMs) {
   const position = Math.max(0, POS_MAX - item.index);
   const engines = ENGINE_BONUS * Math.max(0, item.engines.length - 1);
-  const domain = isExpertDomain(item.url) ? EXPERT_BONUS : isCommunityDomain(item.url) ? COMMUNITY_BONUS : 0;
+  const domain = isExpertDomain(item.key) ? EXPERT_BONUS : isCommunityDomain(item.key) ? COMMUNITY_BONUS : 0;
   const fresh = isFresh(item, nowMs) ? FRESH_BONUS : 0;
   return position + engines + domain + fresh;
 }
@@ -199,7 +244,7 @@ export function rankResults(raw, query, nowMs) {
   if (!Array.isArray(raw)) return [];
   const tokens = queryTokens(query);
   return mergeDuplicates(raw)
-    .filter((item) => !isBlocked(item.url) && isRelevant(item, tokens))
+    .filter((item) => !isBlocked(item.key) && isRelevant(item, tokens))
     .map((item) => ({ item, score: scoreItem(item, nowMs) }))
     .sort((a, b) => b.score - a.score || a.item.index - b.item.index)
     .slice(0, SEARXNG_MAX_RESULTS)
@@ -227,8 +272,9 @@ function edgeGateHeader(rawToken) {
 
 function buildSearchUrl(query, baseUrl, opts) {
   const params = new URLSearchParams({ q: query, format: 'json' });
-  if (opts.topic === 'news') params.set('categories', 'news');
-  else if (typeof opts.categories === 'string' && opts.categories) params.set('categories', opts.categories);
+  // No category for topic news: none of the instance's engines serves "news",
+  // so asking for it returned nothing. The general web engines answer instead.
+  if (typeof opts.categories === 'string' && opts.categories) params.set('categories', opts.categories);
   // No time_range: SearXNG drops engines that cannot filter by date, which
   // shrinks the answer. Freshness is a ranking bonus instead.
   return `${baseUrl.replace(/\/+$/, '')}/search?${params.toString()}`;
@@ -259,6 +305,64 @@ async function fetchSearxngJson(query, baseUrl, opts) {
 
 const resultsOf = (data) => (Array.isArray(data?.results) ? data.results : []);
 
+// KV key for one request: a hash of the answer kind (web, site, images),
+// categories, and query. The base URL and gate token stay out, so a
+// SEARXNG_URL change keeps the cache warm and the token never reaches KV.
+export async function searxngCacheKey(query, kind, opts = {}) {
+  const categories = typeof opts.categories === 'string' ? opts.categories : '';
+  const bytes = new TextEncoder().encode(`${kind}\n${categories}\n${query}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${CACHE_KEY_PREFIX}${hex}`;
+}
+
+// Cached answer as { results }, or null on a miss, a KV error, or a bad shape.
+async function readCache(kv, key) {
+  if (!kv) return null;
+  try {
+    const cached = await kv.get(key, 'json');
+    return Array.isArray(cached?.results) ? cached : null;
+  } catch (err) {
+    console.log(`[searxng] cache read failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+async function writeCache(kv, key, raw, ttlSeconds) {
+  if (!kv) return;
+  try {
+    await kv.put(key, JSON.stringify({ results: raw }), { expirationTtl: ttlSeconds });
+  } catch (err) {
+    console.log(`[searxng] cache write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// True when SearXNG reports engines that failed for this request.
+const hasUnresponsiveEngines = (data) =>
+  Array.isArray(data?.unresponsive_engines) && data.unresponsive_engines.length > 0;
+
+// Cache time of a live web answer: short when it is thin (see above).
+const webCacheTtl = ({ raw, unresponsive }) =>
+  (unresponsive && raw.length < SEARXNG_THIN_RAW_RESULTS ? SEARXNG_PARTIAL_CACHE_TTL_S : SEARXNG_CACHE_TTL_S);
+
+// Raw results from the KV cache (opts.kv) or a live request. The caller runs
+// `save()` once it finds a live answer usable, so failures are never cached.
+// opts.cacheBypass === true (forceFresh runs) skips the read but still saves.
+// Returns { raw, unresponsive, save(ttlSeconds) }, or null when the request
+// failed. A cache hit's save does nothing.
+async function loadResults(query, baseUrl, kind, opts) {
+  const key = opts.kv ? await searxngCacheKey(query, kind, opts) : null;
+  const cached = opts.cacheBypass === true ? null : await readCache(opts.kv, key);
+  if (cached) {
+    console.log(`[searxng] cache hit q="${query}"`);
+    return { raw: cached.results, unresponsive: false, save: async () => {} };
+  }
+  const data = await fetchSearxngJson(query, baseUrl, opts);
+  if (data === null) return null;
+  const raw = resultsOf(data);
+  return { raw, unresponsive: hasUnresponsiveEngines(data), save: (ttl = SEARXNG_CACHE_TTL_S) => writeCache(opts.kv, key, raw, ttl) };
+}
+
 // SearXNG image `resolution` string as { width, height }; { 0, 0 } when the
 // value is missing, malformed, or not two positive integers.
 export function parseResolution(value) {
@@ -276,9 +380,9 @@ export function parseResolution(value) {
 // [] for zero results, null on any failure.
 export async function searxngImageSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, { ...opts, categories: SEARXNG_IMAGES_CATEGORY });
-  if (data === null) return null;
-  const raw = resultsOf(data);
+  const loaded = await loadResults(query, baseUrl, 'images', { ...opts, categories: SEARXNG_IMAGES_CATEGORY });
+  if (loaded === null) return null;
+  const { raw } = loaded;
   const images = raw
     .filter((r) => typeof r?.img_src === 'string' && r.img_src !== '')
     .map((r) => {
@@ -286,6 +390,7 @@ export async function searxngImageSearch(query, baseUrl, opts = {}) {
       return { imageUrl: r.img_src, imageWidth: width, imageHeight: height };
     });
   console.log(`[searxng] images q="${query}" → raw ${raw.length}, kept ${images.length}`);
+  if (images.length > 0) await loaded.save();
   return images;
 }
 
@@ -294,12 +399,13 @@ export async function searxngImageSearch(query, baseUrl, opts = {}) {
 // fewer than SEARXNG_MIN_USABLE usable results).
 export async function searxngSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, opts);
-  if (data === null) return null;
-  const raw = resultsOf(data);
+  const loaded = await loadResults(query, baseUrl, 'web', opts);
+  if (loaded === null) return null;
+  const { raw } = loaded;
   const ranked = rankResults(raw, query, Date.now());
   console.log(`[searxng] q="${query}" → raw ${raw.length}, kept ${ranked.length}`);
   if (ranked.length < SEARXNG_MIN_USABLE) return null;
+  await loaded.save(webCacheTtl(loaded));
   const label = opts.sourceLabel ?? 'web';
   return ranked.map((r) => ({ url: r.url, title: r.title, content: r.content, source: label, publishedAt: r.publishedAt }));
 }
@@ -309,9 +415,11 @@ export async function searxngSearch(query, baseUrl, opts = {}) {
 // [] for zero results, null on any failure.
 export async function searxngSiteSearch(query, baseUrl, opts = {}) {
   if (!baseUrl) return null;
-  const data = await fetchSearxngJson(query, baseUrl, opts);
-  if (data === null) return null;
-  return resultsOf(data)
+  const loaded = await loadResults(query, baseUrl, 'site', opts);
+  if (loaded === null) return null;
+  const results = loaded.raw
     .filter((r) => typeof r?.url === 'string')
     .map((r) => ({ url: r.url, title: typeof r.title === 'string' ? r.title : '' }));
+  if (results.length > 0) await loaded.save();
+  return results;
 }

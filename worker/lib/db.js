@@ -162,8 +162,12 @@ export async function logGuideClick(db, { guideSlug, productQuery, network, ipHa
 
 // -- Feedback --
 
-export async function insertFeedback(db, { reportId, rating, comment }) {
+// One vote per visitor per report (CP-352): a second vote from the same
+// voterHash replaces the first. A NULL voterHash never conflicts.
+export async function insertFeedback(db, { reportId, rating, comment, voterHash = null }) {
     await db.prepare(
-        `INSERT INTO feedback (report_id, rating, comment) VALUES (?, ?, ?)`
-    ).bind(reportId, rating, comment || '').run();
+        `INSERT INTO feedback (report_id, rating, comment, voter_hash) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(report_id, voter_hash) DO UPDATE SET
+           rating = excluded.rating, comment = excluded.comment, created_at = datetime('now')`
+    ).bind(reportId, rating, comment || '', voterHash).run();
 }

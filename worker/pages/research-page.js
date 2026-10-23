@@ -6,11 +6,13 @@ import { getResearchBySlug, getProductsByResearchId, getClusterWinnerSlug } from
 import { searchBar } from '../lib/search-bar.js';
 import { RESEARCH_ETA } from '../lib/engine-config.js';
 import { jsonEmbed, productLayoutBoot } from '../lib/list-layout-boot.js';
-import { BTN_PRIMARY, isNonProductCategory, sourceRel, sourceLabel } from './research-primitives.js';
+import { BTN_PRIMARY, sourceRel, sourceLabel } from './research-primitives.js';
+import { pageKind } from '../lib/page-kind.js';
 import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel } from './research-cards.js';
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
 import { buildResearchSeo } from './research-jsonld.js';
 import { recordView } from '../lib/view-counter.js';
+import { mailConfigured } from '../lib/mailer.js';
 
 // Find up to 5 sibling research pages that share canonical tokens. Used to build
 // the "Related research" block — internal links Google rewards for topical depth,
@@ -87,6 +89,10 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     isComplete ? recordView(env.DB, entry) : Promise.resolve(),
   ]);
 
+  const resultData = parseJsonSafe(entry.result, {});
+  // CP-399: verbatim low-star quotes live in research.result, not the products table.
+  const criticalByName = criticalReviewsFromResult(resultData);
+
   // Parse each product's JSON columns ONCE here, so renderProduct and the
   // JSON-LD builder both consume already-parsed values (no double JSON.parse).
   const products = (productRows.results ?? []).map((p) => ({
@@ -95,32 +101,31 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     cons: parseJsonSafe(p.cons, []),
     specs: parseJsonSafe(p.specs, {}),
     metadata: parseJsonSafe(p.metadata, {}),
+    critical_reviews: criticalByName.get(String(p.name || '').toLowerCase()) || [],
   }));
 
   const hasProducts = products.length > 0;
   const isProcessing = entry.status === 'pending' || entry.status === 'processing';
   const isLiveReport = entry.status === 'complete' || (isProcessing && hasProducts);
+  // The email offer shows only when mail can actually go out (same signal as
+  // the signup answer, worker/handlers/subscribe.js, CP-812/CP-819).
+  const mailOn = mailConfigured(env);
   const showProcessingHero = isProcessing && !hasProducts;
   const isFailed = entry.status === 'failed';
 
-  const resultData = parseJsonSafe(entry.result, {});
   // Only surface a stored failure reason if it's a clean, short, user-facing
   // message (e.g. "No reliable products found for this query."). Raw provider /
   // HTTP / JSON errors (e.g. an OpenRouter 403) must never leak to users.
   const failReason = safeUserFacingError(resultData.error, '');
   const buyersGuide = resultData.buyersGuide;
   const hasBuyersGuide = !!(buyersGuide && (buyersGuide.howToChoose || (buyersGuide.pitfalls?.length ?? 0) > 0 || (buyersGuide.marketingToIgnore?.length ?? 0) > 0));
-  // Classifier verdict: this category isn't sold on Amazon (lumber, vehicles,
-  // local venues, ...). Suppresses every Amazon link on the page; CTAs hand
-  // off to Google via /find instead. Legacy rows without the facet default to
-  // Amazon-viable.
+  // Classifier verdict: webOnly = a product Amazon doesn't sell (lumber, vehicles);
+  // isService = a service, local place or experience (CP-803: "coffee shops in Brooklyn"
+  // is is_experience + needs_location, not is_service). Either one suppresses every
+  // Amazon link on the page; CTAs hand off to Google via /find instead. Mirrors the
+  // orchestrator's ASIN-resolution gate. Legacy rows without facets default to products.
   const rowFacets = parseJsonSafe(entry.facets, {}) || {};
-  const webOnly = rowFacets.sold_on_amazon === false;
-  // Service detection must mirror the orchestrator's ASIN-resolution gate
-  // (is_service facet) — the category-string heuristic alone misses services
-  // whose category label isn't in the hints list (e.g. "wedding photographer"),
-  // which would render Amazon CTAs for a hire-a-professional page.
-  const isService = isNonProductCategory(entry.category) || rowFacets.is_service === true;
+  const { isService, webOnly } = pageKind(entry.category, rowFacets);
   // sources persist as either plain URL strings (legacy) or {url, credibility}
   // objects (engine port). Normalize to the URL string for rendering.
   const sourceList = parseJsonSafe(entry.sources, [])
@@ -169,6 +174,14 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     href: `#product-${i + 1}`,
   }));
 
+  // CP-352: readers cannot force a fresh run. Enough "No" answers from
+  // different visitors start one on the server (worker/lib/disagreement.js).
+  const voteSection = `<section class="report-vote mt-6 flex flex-wrap items-center gap-3 border border-line bg-surface-1 px-4 py-3" data-report-id="${escapeHtml(entry.id)}">
+<span class="text-body-sm text-ink-2">Does this match what you found?</span>
+<button type="button" class="share-btn js-vote" data-rating="5">Yes</button>
+<button type="button" class="share-btn js-vote" data-rating="1">No</button>
+<span class="js-vote-msg font-mono text-xs text-ink-3" role="status" aria-live="polite"></span>
+</section>`;
   const chatSection = `<section id="talk-about-it" class="report-chat-feature mt-6 border border-line border-l-2 border-l-accent bg-surface-1 p-5">
 <div class="mb-3.5 flex flex-wrap items-start justify-between gap-3">
 <div>
@@ -219,7 +232,6 @@ ${isLiveReport ? `<div class="share-bar mt-4 flex flex-wrap items-center gap-2">
 <a href="https://reddit.com/submit?url=${shareUrl}&title=${shareText}" target="_blank" rel="noopener noreferrer" class="share-btn"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 01-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 01.042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 014.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 01.14-.197.35.35 0 01.238-.042l2.906.617a1.214 1.214 0 011.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 00-.231.094.33.33 0 000 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 000-.463.327.327 0 00-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 00-.232-.095z"/></svg>Reddit</a>
 <button type="button" class="share-btn js-copy-link" data-url="${pageUrl}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>Copy link</button>
 <button type="button" class="share-btn js-native-share hidden" data-url="${pageUrl}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>Share</button>
-<form action="/research/new" method="POST" class="m-0 inline-block"><input type="hidden" name="q" value="${escapeHtml(entry.query)}"><input type="hidden" name="fresh" value="1"><button type="submit" class="share-btn" title="Ignore the saved report and research this again from scratch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582M20 20v-5h-.581M5.635 9A8 8 0 0118.418 7M18.418 15A8 8 0 015.635 13"/></svg>Re-run fresh</button></form>
 </div>` : ''}
 </div>
 </div>
@@ -232,7 +244,6 @@ ${fromQuery && fromQuery !== entry.query ? `<div class="cluster-banner mt-0 mb-5
 <div class="min-w-0 flex-1 text-body-sm text-ink-2">
 <strong class="text-ink">Matched to existing research.</strong> You asked &ldquo;${escapeHtml(fromQuery)}&rdquo; — we already researched a very similar question (${date}).
 </div>
-<form action="/research/new" method="POST" class="m-0"><input type="hidden" name="q" value="${escapeHtml(fromQuery)}"><input type="hidden" name="fresh" value="1"><button type="submit" class="${BTN_PRIMARY} whitespace-nowrap">Re-research with fresh data</button></form>
 </div>` : ''}
 
 ${Object.keys(clarifications).length > 0 ? `<div class="clarifications-bar mt-5 border border-line bg-surface-1 p-4">
@@ -262,19 +273,19 @@ ${showProcessingHero ? `<div id="processing" class="my-8 border border-accent/30
 </div>
 <div id="activity-feed" class="activity-feed"></div>
 <div class="notify-box mt-5 border border-accent/25 bg-accent-quiet p-4">
-<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
+${mailOn ? `<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
 <form id="notify-form" class="m-0 flex flex-wrap gap-2">
 <input id="notify-email" type="email" name="email" required placeholder="you@example.com" autocomplete="email" maxlength="254" class="min-w-[12rem] flex-1 border border-line bg-bg px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-3">
 <button type="submit" class="${BTN_PRIMARY} whitespace-nowrap">Notify me</button>
 </form>
-<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>
+<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>` : `<p class="m-0 text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready.</p>`}
 </div>
 </div>` : ''}
 
 ${isFailed ? `<div class="my-8 border border-trust-low/40 bg-trust-low-bg p-6">
 <h2 class="font-sans text-lg font-semibold text-trust-low">Research failed</h2>
 <p class="mt-2 text-body-sm text-ink-2">${failReason ? escapeHtml(failReason) : 'Something went wrong during analysis. This could be due to insufficient source data.'}</p>
-<form method="POST" action="/research/new" class="mt-4"><input type="hidden" name="q" value="${escapeHtml(entry.query)}"><input type="hidden" name="fresh" value="1"><button type="submit" class="${BTN_PRIMARY}">Try again</button></form>
+<form method="POST" action="/research/new" class="mt-4"><input type="hidden" name="q" value="${escapeHtml(entry.query)}"><input type="hidden" name="skip_clarify" value="1"><button type="submit" class="${BTN_PRIMARY}">Try again</button></form>
 </div>` : ''}
 
 ${isLiveReport ? (() => {
@@ -299,7 +310,7 @@ ${entry.summary ? `<div class="summary-box border border-line bg-surface-1 p-5">
 ${isLiveReport && products.length === 0 ? `<div class="my-8 border border-line bg-surface-1 p-6">
 <h2 class="font-sans text-xl font-bold text-ink">No clear picks this time</h2>
 <p class="mt-2 text-body-sm text-ink-2">We couldn't find enough trustworthy sources to confidently rank products for this query.</p>
-<form method="POST" action="/research/new" class="mt-4"><input type="hidden" name="q" value="${escapeHtml(entry.query)}"><input type="hidden" name="fresh" value="1"><button type="submit" class="${BTN_PRIMARY}">Try again</button></form>
+<form method="POST" action="/research/new" class="mt-4"><input type="hidden" name="q" value="${escapeHtml(entry.query)}"><input type="hidden" name="skip_clarify" value="1"><button type="submit" class="${BTN_PRIMARY}">Try again</button></form>
 </div>` : ''}
 
 ${isLiveReport && products.length > 0 ? `<p class="affiliate-disclosure my-4 font-mono text-[11px] text-ink-3">We may earn an affiliate commission on qualifying purchases made through links on this page. Rankings remain independent and objective.</p>` : ''}
@@ -308,6 +319,7 @@ ${isLiveReport && products.length > 0 ? renderOurPick(products.find((p) => p.ran
 
 ${isLiveReport ? renderComparisonTable(products, affiliateIds, isService, slug, cleanLinks, webOnly) : ''}
 
+${isLiveReport && products.length > 0 ? voteSection : ''}
 ${isLiveReport ? chatSection : ''}
 
 ${isLiveReport ? renderTrustPanel(entry.sources, entry.completed_at) : ''}
@@ -406,4 +418,15 @@ ${isLiveReport ? `<div class="notify-footer mt-8 border-t border-line pt-6">
     : displayTitle;
   const htmlOut = layout(seoTitle, entry.summary ?? 'AI-powered product research', body, amazonHint + noindex + structuredData + turnstileScript + extra, layoutMeta);
   return { html: htmlOut, lastModified: lastModifiedTs, status: entry.status, viewCount: entry.view_count ?? 0 };
+}
+
+/** Product name (lowercase) → its criticalReviews list, from a parsed research.result. */
+export function criticalReviewsFromResult(resultData) {
+  const map = new Map();
+  const list = Array.isArray(resultData?.products) ? resultData.products : [];
+  for (const p of list) {
+    if (!p || typeof p.name !== 'string' || !Array.isArray(p.criticalReviews) || !p.criticalReviews.length) continue;
+    map.set(p.name.toLowerCase(), p.criticalReviews);
+  }
+  return map;
 }

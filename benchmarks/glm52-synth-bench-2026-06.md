@@ -23,6 +23,24 @@ After adding a pointed specs-grounding rule (`prompts.js`: "include a spec ONLY 
 1. The prompt is now strong enough that even the previously-worst model (glm) complied — **kimi (the incumbent we keep) is at 0/0.** This is the deploy-worthy win.
 2. glm's price fabrication swinging **0.53 → 0 between two runs is real run-to-run non-determinism.** So a single bench run cannot reliably *rank* models on fabrication (the n≥20 / multi-run point from the audit stands). It does NOT change the decision — keep the cheaper incumbent kimi at 0/0 — but it means the *guarantee* of no-lies comes from the **live groundedness monitor on production output**, not from one green bench run. Bench = pre-flight; production monitoring = the standing promise.
 
+### Data check (2026-10-18, CP-409)
+
+The raw files in `results/` were re-read and re-scored with the bench's own groundedness code. What holds and what does not:
+
+| Run | Raw file | Configs × scenarios | Groundedness (prices, specs ungrounded / emitted) | Judges |
+|---|---|---|---|---|
+| First pass, old prompt | `glm52-synth-raw.json` | 4 × 2 = 8 outputs | not measured (metric added later) | 3 per output = **24** |
+| Expanded, old prompt | `glm52-synth-raw-oldprompt.json` | 3 × 6 = 18 outputs | kimi 7/11, 39/48 · glm 11/15, 11/17 · opus 11/16, 13/23 | 3 per output = **54** |
+| Fixed prompt v1 | `glm52-synth-raw-fixedv1.json` | 3 × 6 | kimi 0/3, 2/7 · glm 9/17, 7/18 · opus 0/2, 0/7 | none (deterministic gate) |
+| Fixed prompt v2 | `glm52-synth-raw-fixedv2.json` | 3 × 6 | kimi 0/3, 0/6 · glm 0/3, 0/4 · opus 0/3, 0/3 | none |
+
+- **24 vs 54 judges is not a contradiction once the runs are split:** 24 judged the 2-scenario first pass, 54 judged the 6-scenario expanded pass. Every fraction, cost, and p50 latency in the two tables above matches its raw file.
+- **The judge scores themselves were never saved.** The judges were Claude sessions outside the bench script, and their outputs were not written to `results/`. So the honesty, faithfulness, trap, and conflict scores below (0.81 / 0.74 / 0.63, 0.91 / 0.87 / 0.82 / 0.74, and so on) cannot be checked against data. Treat them as historical notes. They are superseded anyway.
+- **Two contradictions inside the superseded part:** the "Why" section gives glm-5.2 reasoning ON a faithfulness of 0.82 in the ranking and 0.90 in its bullet; and the trailing "Methodology" and "Caveats" describe the 2-scenario pass only. Both are marked below. With no saved judge data, neither number can be confirmed.
+- `glm52-synth-raw-expanded.json` is a byte-identical copy of `glm52-synth-raw-fixedv2.json` (the expanded run's default file name was reused by the v2 run). The old-prompt expanded outputs live in `glm52-synth-raw-oldprompt.json`.
+- Fixed prompt v1 also had glm-5.2 put the trap product in 1 of 6 reports (`trap_present_count: 1`); the other two configs left it out every time.
+- The v2 "0/0" result rests on very few emitted numbers (3 prices per model). It shows the prompt works, not that the models rank equal.
+
 _Everything below was the PRE-prompt-fix analysis that led to this reversal — kept for the audit trail; superseded by the box above._
 
 ---
@@ -34,7 +52,7 @@ Two findings from the expanded **6-scenario** bench (keyboard, headphones, robot
 1. **glm-5.2 (reasoning off) beats kimi-k2.6 on every honesty axis, on 6/6 scenarios** — and is ~2.6× faster. Swap (gated behind a `SYNTH_MODEL` env override for instant rollback). Keep **gemini-2.5-flash** for the planner. Reasoning stays **OFF** (the kimi gotcha reproduces).
 2. **The bigger problem is the prompt, not the model.** Under a strict faithfulness judge, *every* config — including opus — fabricates: synthetic per-product **ratings** (4.4/4.2/4.0), invented **prices** ("$179.95"), and invented **freshness/date metadata** ("within the 12-month window") that no source supports, because the synthesis schema *mandates* those fields. Fixing the prompt lifts every config and is **higher-leverage than the model choice.** (See [issues.md] HIGH.)
 
-**Authoritative result — expanded consensus (n=6, 3 judges/output = 54 judges):**
+**Authoritative result (at the time) — expanded consensus (6 scenarios × 3 configs × 3 judges = 54 judges; raw outputs `results/glm52-synth-raw-oldprompt.json`; judge scores not saved):**
 
 | Synth config | Overall honesty | **Faithfulness** | Trap | Schema | $/call | **p50 latency** | Beats kimi on |
 |---|---|---|---|---|---|---|---|
@@ -56,11 +74,13 @@ The synthesis prompt should explicitly forbid: inventing prices, fabricating num
 
 ## Why — faithfulness is the differentiator, and kimi is the weakest
 
+_This section reports the **2-scenario first pass** (24 judges), not the 6-scenario table above. Judge scores were not saved (see the data check at the top)._
+
 Every config nailed the **trap** (omitted the affiliate/listicle-hyped no-name product 2/2) and flagged conflict sourcing (~0.97–1.0). The trap is no longer the discriminator — **faithfulness** (claims traceable to the supplied sources, no ungrounded spec injection) is, and the consensus order is opus 0.91 > **glm-OFF 0.87** > glm-ON 0.82 > **kimi 0.74**.
 
 - **kimi-k2.6 (0.74)** systematically launders ungrounded specs as fact — fabricated "35-hour battery", "Bluetooth 5.0", "40-hour ANC", **synthetic per-product ratings** (4.4/4.2/4.0), invented freshness metadata ("2024 within 12-month window of 2026" — internally inconsistent), and in one run **dropped a legit product** (NuPhy Air75) that had hands-on + community backing. That is precisely the dishonesty TrueRank exists to avoid.
 - **glm-5.2 OFF (0.87)** bugs are milder and don't distort ranking: one source mislabel (RTINGS vs Reddit), one unsourced "~$100" price, a loose source count. Plus **perfect schema (1.0 vs 0.834)** — retires the off-spec-JSON / empty-synthesis risk kimi carries.
-- **glm-5.2 ON (0.90)** is *worse* than OFF: +54% cost, ~2× latency, more unsourced enrichment, and it emitted **Chinese-language fabricated specs** ("电池续航长达35小时"). Reasoning ON also starves short structured calls (see planner below). Keep `synthReasoning:{enabled:false}`.
+- **glm-5.2 ON (0.90; the ranking above says 0.82, and with no saved judge data neither can be confirmed)** is *worse* than OFF: +54% cost, ~2× latency, more unsourced enrichment, and it emitted **Chinese-language fabricated specs** ("电池续航长达35小时"). Reasoning ON also starves short structured calls (see planner below). Keep `synthReasoning:{enabled:false}`.
 
 ## Planner — keep `gemini-2.5-flash`
 
@@ -75,6 +95,8 @@ Every config nailed the **trap** (omitted the affiliate/listicle-hyped no-name p
 GLM-5.2 OFF *matches* gemini's perfect skepticism but at **3× cost and 8× latency** for a role fired dozens of times/run → no swap. Reasoning ON face-plants (starved JSON on a 400-token budget) — the gotcha, confirmed.
 
 ## Methodology
+
+_Describes the 2-scenario first pass. The 6-scenario passes used the same script with `EXPANDED=1` (4 extra scenarios from `synth-fixture-glm-extra.mjs`, glm reasoning ON dropped)._
 
 - **Synth:** the engine's real `buildSynthesisPrompt` against the planted-trap fixtures (`synth-fixture.mjs`: 2 scenarios, credible [hands-on]/[expert-domain] sources beside an affiliate/listicle-hyped no-name `trap`). Script: `glm52-synth-bench.mjs`. Raw outputs: `results/glm52-synth-raw.json`.
 - **Honesty scoring:** 4 sub-axes (trap-handling, faithfulness, conflict-flagging, marketing-filter) + overall, **3 independent adversarial Claude judges per output × 8 outputs = 24 judges**, consensus by mean (off the OpenRouter budget; judge spread ≤ 0.10). Matches the project's "judge panel" precedent.
@@ -102,5 +124,7 @@ Recommended rollout: env-overridable (`env.SYNTH_MODEL || 'z-ai/glm-5.2'`) so a 
 | Synth bench (4 configs × 2 scenarios) | $0.297 |
 | Planner skepticism (3 configs × 10) | $0.009 |
 | Expanded synth bench (3 configs × 6 scenarios) | $0.803 |
+| Fixed-prompt re-bench v1 (3 × 6) | $0.769 |
+| Fixed-prompt re-bench v2 (3 × 6) | $0.773 |
 | 24 + 54 honesty judges + synthesis | $0 (off OpenRouter — Claude judges) |
-| **Total** | **≈ $1.11 / $100 key cap** |
+| **Total** | **≈ $2.65 / $100 key cap** (the earlier ≈ $1.11 left out the two re-benches; spend figures from the `spend` field of each raw file) |
