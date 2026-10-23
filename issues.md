@@ -2,6 +2,10 @@
 
 Last updated: 2026-10-23
 
+## 2026-10-23: cross-site pages start paid runs via /research/new (CP-895)
+
+- [x] MEDIUM (Security): `GET|POST /research/new` builds its own internal request to `handleStartResearch` with no browser headers, so the CP-894 guard never saw them. Another site could start a paid run with a cross-site form post, or with an embed such as `<img src=".../research/new?q=...&skip_clarify=1">`. Fixed 2026-10-23 (CP-895): `handleNewResearch` refuses a cross-site POST (`isCrossSiteBrowser`) and a cross-site GET that is not a top-level page load (`isCrossSiteEmbed`: `Sec-Fetch-Mode` not `navigate` or `Sec-Fetch-Dest` not `document`). It redirects to `/research` before any work. A shared link that a person clicks still starts a run. A browser that sends no `Sec-Fetch-*` headers still passes on GET; per-IP rate limits cap that case. `worker/routes/pages.js`, `worker/lib/cross-site.js`. Tests: `test/integration/cp895-research-new-cross-site.spec.js`.
+
 ## 2026-10-23: cross-site no-cors POST starts paid runs (CP-894)
 
 - [x] MEDIUM (Security): another website could start paid runs through its visitors' browsers. A no-cors `fetch` with a text/plain JSON body is a simple request (no preflight), and `POST /api/research` and `POST /api/verify` parsed it with `request.json()`. Removing CORS (CP-431) only hid the reply. Fixed 2026-10-23 (CP-894): both handlers call `refuseCrossSite` (`worker/lib/cross-site.js`) before any work and answer 403 when `Sec-Fetch-Site` is `cross-site` or `Origin` is another origin. Server callers (neither header) and callers with a valid `X-Worker-Secret` still pass. `POST /api/feedback` now uses the same shared `isCrossSiteBrowser`. `worker/handlers/research.js`, `worker/handlers/verify.js`. Tests: `test/integration/cp894-cross-site-json.spec.js`.
