@@ -46,7 +46,29 @@ export function pageBehaviorScript() {
       });
     });
   }
-  function run(){wireCopy();wireNativeShare();wireImages()}
+  // Report vote (CP-352): "No" = rating 1, "Yes" = rating 5.
+  function wireVotes(){
+    document.querySelectorAll('[data-report-id] .js-vote').forEach(function(btn){
+      if(btn.__wired)return;btn.__wired=true;
+      btn.addEventListener('click',function(){
+        var box=btn.closest('[data-report-id]');
+        var msg=box.querySelector('.js-vote-msg');
+        var buttons=box.querySelectorAll('.js-vote');
+        function setDisabled(v){buttons.forEach(function(b){b.disabled=v})}
+        function say(t){if(msg)msg.textContent=t}
+        setDisabled(true);
+        fetch('/api/feedback',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({reportId:box.dataset.reportId,rating:Number(btn.dataset.rating)})
+        }).then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d}})}).then(function(res){
+          if(!res.ok){setDisabled(false);say((res.d&&res.d.error)||'Could not save your answer. Try again later.');return;}
+          say(btn.dataset.rating==='1'?'Thanks. When enough readers disagree, Frank researches this again.':'Thanks for telling us.');
+        }).catch(function(){setDisabled(false);say('Network error. Try again.')});
+      });
+    });
+  }
+  function run(){wireCopy();wireNativeShare();wireImages();wireVotes()}
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',run)}else{run()}
   // Expose for post-swap rewiring after the activity feed completes a research.
   window.__rewire=run;
@@ -233,7 +255,7 @@ export function chatScript(slug) {
       fetch('/api/research',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({query:query,clarifications:refinements||{},fresh:true})
+        body:JSON.stringify({query:query,clarifications:refinements||{}})
       }).then(function(r){return r.json()}).then(function(d){
         if(d.error){if(status)status.textContent=d.error;return;}
         if(d.slug){window.location.href='/research/'+d.slug;return;}

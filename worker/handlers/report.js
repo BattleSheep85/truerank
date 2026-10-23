@@ -1,7 +1,7 @@
 /**
  * Report API handlers.
  * GET /api/report/:id: serve cached report
- * POST /api/feedback: store user feedback
+ * POST /api/feedback: store a reader's vote; enough "No" votes start a re-run
  */
 
 import { getResearchById, getResearchBySlug, getProductsByResearchId, insertFeedback } from '../lib/db.js';
@@ -9,6 +9,8 @@ import { parseJsonSafe, safeUserFacingError } from '../lib/utils.js';
 import { apiStatus } from '../lib/status.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
+import { hashIp } from '../lib/ip-hash.js';
+import { maybeStartDisagreementRerun } from '../lib/disagreement.js';
 
 // Saved sources keep a ~200-character snippet each (CP-408), about 20 KB or
 // more per report. Only the eval's groundedness check reads them, so the API
@@ -72,9 +74,16 @@ function sourcesForApi(sources, includeSnippets) {
 
 /**
  * Handle POST /api/feedback
- * Stores user feedback on a report.
+ * Stores a reader's vote on a report (one per visitor: a second vote replaces
+ * the first). Enough "No" votes start one fresh run (worker/lib/disagreement.js).
+ * Response: { success: true, rerun: boolean }.
  */
 export async function handleFeedback(request, env) {
+    // A vote can start a paid run, so a cross-site page must not cast votes
+    // through its visitors' browsers. Non-browser callers send neither header.
+    if (isCrossSiteBrowser(request)) {
+        return jsonResponse({ error: 'Cross-site requests are not accepted' }, 403);
+    }
     const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
     // Salted IP hash: the key is stored in D1 (CP-808).
     const rateKey = await ipRateKey('feedback', clientIp, env);
@@ -109,19 +118,43 @@ export async function handleFeedback(request, env) {
         return jsonResponse({ error: 'rating must be between 1 and 5' }, 400);
     }
 
-    // Verify report exists
-    const report = await getResearchById(env.DB, reportId);
-    if (!report) {
+    const report = typeof reportId === 'string' ? await getResearchById(env.DB, reportId) : null;
+    if (!report || report.retired_at != null) {
         return jsonResponse({ error: 'Report not found' }, 404);
     }
 
     await insertFeedback(env.DB, {
         reportId,
         rating: ratingNum,
-        comment: (comment || '').slice(0, 1000),
+        comment: typeof comment === 'string' ? comment.slice(0, 1000) : '',
+        voterHash: await voterHashFor(clientIp, env),
     });
 
-    return jsonResponse({ success: true });
+    // The vote is saved either way: a re-run failure only costs the re-run.
+    let rerun = false;
+    try {
+        rerun = await maybeStartDisagreementRerun(env, report);
+    } catch (err) {
+        console.error(`[feedback] disagreement re-run check failed for ${reportId}:`, err instanceof Error ? err.message : String(err));
+    }
+    return jsonResponse({ success: true, rerun });
+}
+
+// Without a salt the vote is still saved, but it cannot count toward a re-run.
+async function voterHashFor(ip, env) {
+    if (ip === 'unknown') return null;
+    try {
+        return await hashIp(ip, env);
+    } catch (err) {
+        console.error('[feedback] voter hash unavailable:', err instanceof Error ? err.message : String(err));
+        return null;
+    }
+}
+
+function isCrossSiteBrowser(request) {
+    if (request.headers.get('Sec-Fetch-Site') === 'cross-site') return true;
+    const origin = request.headers.get('Origin');
+    return Boolean(origin) && origin !== new URL(request.url).origin;
 }
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
