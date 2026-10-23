@@ -251,7 +251,7 @@
                 <h2 class="mb-2 font-mono text-xs font-semibold uppercase tracking-widest text-trust-low">Research failed</h2>
                 <p id="error-message" class="text-body-sm text-ink-2"></p>
                 <a id="error-signup-cta" href="/account" class="mt-4 hidden items-center justify-center gap-2 bg-accent-strong px-4 py-2.5 font-mono text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-accent-hover">Create a free account</a>
-                <button onclick="resetUI()" class="mt-4 border border-line bg-surface-1 px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wide text-ink transition-colors hover:bg-surface-2">Try again</button>
+                <button id="error-retry-btn" type="button" class="mt-4 border border-line bg-surface-1 px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wide text-ink transition-colors hover:bg-surface-2">Try again</button>
             </div>
         </section>
 
@@ -460,7 +460,7 @@
             </section>
 
             <!-- Final CTA -->
-            <section class="grid-bg">
+            <section class="grid-bg border-b border-line">
             <div class="mx-auto max-w-5xl px-6 py-14 text-center md:py-20">
                 <h2 class="mx-auto max-w-2xl font-serif text-h1 font-semibold text-ink">Paste a product link. See what holds up.</h2>
                 <form id="verify-cta-form" action="/verify" method="get" class="mx-auto mt-8 flex w-full max-w-2xl flex-col border border-line bg-surface-1 text-left transition-colors focus-within:border-line-strong sm:flex-row">
@@ -472,6 +472,18 @@
                 </form>
                 <p id="verify-cta-status" role="status" aria-live="polite" class="mx-auto mt-2 min-h-[1em] max-w-2xl text-left font-mono text-[11px] text-ink-3"></p>
             </div>
+            </section>
+
+            <!-- Email capture -->
+            <section class="mx-auto max-w-5xl px-6 py-10">
+                <div class="notify-footer">
+                    <form id="notify-form" class="m-0 flex flex-wrap items-center gap-2">
+                        <label for="notify-email" class="min-w-[14rem] flex-1 text-body-sm text-ink-2">Get notified when we publish new research and buying guides</label>
+                        <input id="notify-email" type="email" name="email" required placeholder="you@example.com" autocomplete="email" maxlength="254" class="min-w-[12rem] flex-1 border border-line bg-bg px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-3">
+                        <button type="submit" class="inline-flex items-center justify-center gap-2 bg-accent-strong px-4 py-2.5 font-mono text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-accent-hover whitespace-nowrap">Notify me</button>
+                    </form>
+                    <p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>
+                </div>
             </section>
 
         </div>

@@ -2,8 +2,22 @@
 // every "LLM returned JSON, maybe fenced, maybe prose-wrapped" call site.
 import { parseFencedJson } from '../../worker/lib/llm-json.js';
 
+// Lines the parser logs while `fn` runs (console.warn), and fn's result.
+function warnLines(fn) {
+  const lines = [];
+  const saved = console.warn;
+  console.warn = (...args) => lines.push(args.join(' '));
+  try { return { value: fn(), lines }; } finally { console.warn = saved; }
+}
+
 export function runLlmJsonTests() {
   const report = { passed: 0, failed: 0, failures: [] };
+  const saved = console.warn;
+  console.warn = () => {};
+  try { return runCases(report); } finally { console.warn = saved; }
+}
+
+function runCases(report) {
   const eq = (name, a, e) => {
     const A = JSON.stringify(a), E = JSON.stringify(e);
     if (A === E) report.passed++; else { report.failed++; report.failures.push(`${name}: expected ${E}, got ${A}`); }
@@ -67,6 +81,26 @@ export function runLlmJsonTests() {
     threw = true;
   }
   ok('never throws on hostile input', !threw);
+
+  // CP-819: a reply the parser drops is logged once, here, for every caller.
+  // The line is short and holds no model text.
+  {
+    const bad = warnLines(() => parseFencedJson('secret model words, not json', 'recall-supplement'));
+    eq('log: bad reply still null', bad.value, null);
+    eq('log: one line for a bad reply', bad.lines.length, 1);
+    ok('log: line names the parser and the caller', bad.lines[0]?.includes('[llm-json]') && bad.lines[0]?.includes('recall-supplement'));
+    ok('log: line gives the reply length', bad.lines[0]?.includes('28 chars'));
+    ok('log: no model text in the line', !bad.lines[0]?.includes('secret'));
+    const scan = warnLines(() => parseFencedJson('prefix {"a":1} middle {"b":2} suffix'));
+    eq('log: a failed brace scan logs one line, default caller', scan.lines.length, 1);
+    ok('log: default caller is "model"', scan.lines[0]?.includes('model reply'));
+    const empty = warnLines(() => parseFencedJson(undefined, 'classifier'));
+    eq('log: a missing reply logs one line', empty.lines.length, 1);
+    ok('log: a missing reply says so', empty.lines[0]?.includes('no reply'));
+    eq('log: a good reply logs nothing', warnLines(() => parseFencedJson('{"a":1}', 'x')).lines.length, 0);
+    eq('log: a prose-wrapped reply logs nothing', warnLines(() => parseFencedJson('Sure: {"a":1}', 'x')).lines.length, 0);
+    eq('log: an object logs nothing', warnLines(() => parseFencedJson({ a: 1 }, 'x')).lines.length, 0);
+  }
 
   return report;
 }

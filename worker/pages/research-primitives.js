@@ -126,29 +126,6 @@ export function renderItemImage(imageUrl, name, productId) {
 ${hiddenFallback}`;
 }
 
-// Categories where "Buy on Amazon" is nonsensical — services, local professionals,
-// regional food, real estate, etc. These get a "Visit site" / "Search online" CTA
-// instead of the Amazon-search fallback so the page doesn't look idiotic.
-const NON_PRODUCT_CATEGORY_HINTS = [
-  'real estate', 'realtor', 'realty', 'broker',
-  'service', 'services', 'professional', 'professionals',
-  'agent', 'agents', 'contractor', 'contractors',
-  'plumber', 'plumbing', 'electrician', 'hvac',
-  'attorney', 'lawyer', 'legal', 'law firm',
-  'insurance', 'accountant', 'cpa', 'tax',
-  'therapist', 'therapy', 'counselor', 'counseling',
-  'doctor', 'dentist', 'clinic', 'hospital',
-  'restaurant', 'bakery', 'cafe', 'food',
-  'local', 'regional',
-  'consultant', 'consulting', 'agency',
-];
-
-export function isNonProductCategory(category) {
-  if (!category) return false;
-  const c = category.toLowerCase();
-  return NON_PRODUCT_CATEGORY_HINTS.some((h) => c.includes(h));
-}
-
 // User-generated content hosts get rel="ugc"; everything else gets plain nofollow.
 // All outbound source links stay nofollow so we don't hand PageRank to competitors.
 const UGC_HOSTS = ['reddit.com', 'stackoverflow.com', 'stackexchange.com', 'quora.com', 'news.ycombinator.com', 'medium.com', 'substack.com'];

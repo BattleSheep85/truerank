@@ -65,14 +65,14 @@ export function analyze(query, notes, sources, facets = {}, topicalCategory = ''
   // payload (many distinct Title-Case strings) from exploding CPU. Keep the best-supported
   // candidates (most source mentions) — real products are corroborated, noise is one-off.
   const MAX_CANDIDATES = 250;
-  let harvested = resolveCandidates(harvestCandidates(cleanSources, cleanNotes, { physical, extraNames }));
+  const apparel = qCluster === 'APPAREL_FOOTWEAR'; // CP-397 garment-noun name rules
+  let harvested = resolveCandidates(harvestCandidates(cleanSources, cleanNotes, { physical, extraNames, apparel }));
   if (harvested.length > MAX_CANDIDATES) {
     harvested = harvested.slice().sort((a, b) => ((b.srcIdx?.size || 0) - (a.srcIdx?.size || 0)) || ((b.sents?.length || 0) - (a.sents?.length || 0))).slice(0, MAX_CANDIDATES);
   }
   const allMatch = harvested.map((c) => ({ c, m: aliasMatchers(c) }));
   const seen = new Set(); // a given clause is used as a pro/con for at most ONE product
   const products = [];
-  let _zeroPC = 0, _corrob = 0;
   for (const c of harvested) {
     const others = allMatch.filter((x) => x.c !== c).flatMap((x) => x.m).filter((m) => m.length > 2);
     const a = analyzeProduct(c, cleanSources, others, seen);
@@ -81,27 +81,27 @@ export function analyze(query, notes, sources, facets = {}, topicalCategory = ''
     // (≥2 credible sources, OR a strong hands-on/expert source plus ≥2 real pros/cons).
     // Real pages flood the harvester with one-off brand mentions; corroboration prunes them.
     const credible = a.support.filter((s) => s.score >= MIN_CREDIBLE_SCORE && !s.tags.every((t) => NONCREDIBLE_GENRES.has(t)));
-    if (a.pros.length === 0 && a.cons.length === 0) { _zeroPC++; continue; }
+    if (a.pros.length === 0 && a.cons.length === 0) continue;
     // CATEGORY GATE: the product must be discussed in the query's category. A laptop /
     // running shoe / vacuum that leaked from a mixed listicle into a keyboard query never
     // mentions a keyboard term → dropped. (No-op when no category terms were derivable.)
-    if (!inCategory(c, a.support, catTerms)) { _corrob++; continue; }
+    if (!inCategory(c, a.support, catTerms)) continue;
     // foreign-category noun in the name (not a query term) → it's another category's product
-    if (c.name.toLowerCase().split(/\s+/).some((w) => FOREIGN_CATEGORY.has(w) && !catTerms.has(w))) { _corrob++; continue; }
+    if (c.name.toLowerCase().split(/\s+/).some((w) => FOREIGN_CATEGORY.has(w) && !catTerms.has(w))) continue;
     // BRAND-CLUSTER gate: when the query maps to a cluster and the product's brand is known
     // to belong ONLY to other clusters (ASICS=APPAREL_FOOTWEAR in a TECH keyboard query),
     // drop it. Catches omni-listicle leaks the title gate misses. Fail-open when either side
     // is unknown (unmapped query, or a brand not in the gazetteer) to protect recall.
     if (qCluster && c.brand) {
       const bc = BRAND_TO_CLUSTERS.get(String(c.brand).toLowerCase());
-      if (bc && bc.size && !bc.has(qCluster)) { _corrob++; continue; }
+      if (bc && bc.size && !bc.has(qCluster)) continue;
     }
     // INCLUSION: require ≥1 CREDIBLE source (non-listicle/affiliate/manufacturer) — this
     // is the fabricated-trap suppressor (a trap has only promotional support → 0 credible
     // → dropped). We deliberately DO NOT require extra corroboration anymore: the goal is
     // COMPREHENSIVE honest coverage (show every real, credibly-mentioned product), not a
     // curated top-few. Thin products are surfaced with their evidence + honest caveats.
-    if (credible.length < 1) { _corrob++; continue; }
+    if (credible.length < 1) continue;
     const rating = rate(a.pros, a.cons, credible.length);
     const weight = credible.reduce((s, x) => s + x.score, 0); // credible evidence mass for ranking
     products.push({
@@ -117,9 +117,6 @@ export function analyze(query, notes, sources, facets = {}, topicalCategory = ''
   // score), then credible-evidence mass as the tiebreaker. Ranking by mention-count
   // alone wrongly floats the "cheap alternative" above the actual top pick.
   const sortedProducts = [...products].sort((a, b) => b.rating - a.rating || b._weight - a._weight);
-  if (typeof process !== 'undefined' && process.env && process.env.DEBUG_FUNNEL) {
-    console.error(`[funnel] harvested=${harvested.length} dropZeroProCon=${_zeroPC} dropCredible=${_corrob} passed=${products.length} → shown=${Math.min(sortedProducts.length, 40)}`);
-  }
   // Comprehensive but pipeline-safe: each shown product costs downstream ASIN + image +
   // con-selector work, so an unbounded list times out the queue consumer. 24 is ~2.5x the
   // old 10 (the "see them all" win) while staying within the per-run subrequest/time budget.
