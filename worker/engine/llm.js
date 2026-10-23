@@ -292,6 +292,19 @@ function buildCallBody(model, messages, opts) {
   };
 }
 
+// opts.onTiming (optional) gets { headersMs, totalMs } of a successful call:
+// the time to the response headers (a Worker fetch past its ~6 open
+// connections waits in that time) and the time to the full body. A logging
+// error there never breaks the call.
+function reportTiming(onTiming, timing) {
+  if (typeof onTiming !== 'function') return;
+  try {
+    onTiming(timing);
+  } catch (err) {
+    console.warn(`[llm] onTiming failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function callOnce(route, model, messages, opts) {
   const { tools, reasoning, models, hardMsOverride } = opts;
   const req = requestFor(route, model, buildCallBody(model, messages, opts));
@@ -303,11 +316,14 @@ async function callOnce(route, model, messages, opts) {
 
   const chain = route.kind === 'openrouter' && Array.isArray(models) && models.length ? models.join('>') : req.model;
   console.log(`[llm] calling model=${chain} effort=${reasoningEffortOf(reasoning) ?? 'none'} tools=${tools?.length ?? 0}${routeLogSuffix(route)}`);
+  const startedAt = Date.now();
   try {
     const response = await postChat(route, req, controller.signal);
+    const headersMs = Date.now() - startedAt;
     if (!response.ok) await throwHttpError(route, response, '[llm]', req.model);
     // Read body as text first (avoids hanging on slow streaming responses)
     const data = JSON.parse(await response.text());
+    reportTiming(opts.onTiming, { headersMs, totalMs: Date.now() - startedAt });
     return route.kind === 'litellm' && data?.usage
       ? { ...data, usage: usageWithCost(route, req.model, data.usage) }
       : data;

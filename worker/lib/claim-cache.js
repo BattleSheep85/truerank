@@ -18,8 +18,8 @@ export const CLAIM_CACHE_TTL_SECONDS = 30 * 86400;
  */
 export const CLAIM_CACHE_WEAK_TTL_SECONDS = 86400;
 const KEY_PREFIX = `verify-claims:${CLAIM_CACHE_VERSION}:`;
-const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
-const MAX_CLAIM_CHARS = 400;
+export const CLAIM_TYPES = Object.freeze(['spec', 'marketing', 'warranty', 'support']);
+export const MAX_CLAIM_CHARS = 400;
 const MAX_CACHED_CLAIMS = 12;
 
 // The query that identifies the product, as product-link keeps it: '' for a
@@ -49,11 +49,21 @@ function pageKeyOf(productUrl) {
  * handler's reuseKey rule), and each pasted page keeps its own claims.
  */
 export function claimCacheKey(product, productUrl = null) {
+  const subject = productCacheSubject(product, productUrl);
+  return subject ? KEY_PREFIX + subject : null;
+}
+
+/**
+ * The product part of a saved-set key (claimCacheKey without its prefix):
+ * the name key, plus `|page:<page>` with a pasted page. null when the name
+ * has no key or the pasted page does not parse. Shared with page-cache.js.
+ */
+export function productCacheSubject(product, productUrl = null) {
   const nameKey = productNameKey(String(product ?? '').trim());
   if (!nameKey) return null;
   const page = pageKeyOf(productUrl);
   if (productUrl && !page) return null;
-  return KEY_PREFIX + nameKey + (page ? `|page:${page}` : '');
+  return nameKey + (page ? `|page:${page}` : '');
 }
 
 function validClaim(c) {

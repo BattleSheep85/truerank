@@ -704,3 +704,40 @@ describe('re-review fixes: saved-verdict key binds the page and the name', () =>
     expect(sent[0].productUrl).toBe('https://www.amazon.com/dp/B0DTESTPRT');
   });
 });
+
+describe('handleStartVerify: internal forceFresh (CP-789)', () => {
+  const SECRET = 'cp789-test-secret';
+  const internalPost = (body, ip, secret = SECRET) => new Request('https://chrisputer.tech/api/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip, 'X-Worker-Secret': secret },
+    body: JSON.stringify(body),
+  });
+
+  it('with the worker secret: skips the saved verdict and the queue message carries forceFresh', async () => {
+    await seedVerification({ key: 'verify:name:force fresh gadget', ageDays: 1, query: 'Force Fresh Gadget' });
+    const { env: capEnv, sent } = capturingEnv({ WORKER_SECRET: SECRET });
+    const res = await handleStartVerify(internalPost({ product: 'Force Fresh Gadget', forceFresh: true }, '203.0.113.120'), capEnv);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('pending');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].forceFresh).toBe(true);
+  });
+
+  it('without the worker secret: forceFresh is ignored and the saved verdict answers', async () => {
+    const seeded = await seedVerification({ key: 'verify:name:fresh gadget public', ageDays: 1, query: 'Public Fresh Gadget' });
+    const { env: capEnv, sent } = capturingEnv({ WORKER_SECRET: SECRET });
+    const res = await handleStartVerify(internalPost({ product: 'Public Fresh Gadget', forceFresh: true }, '203.0.113.121', 'wrong'), capEnv);
+    const data = await res.json();
+    expect(data.reused).toBe(true);
+    expect(data.id).toBe(seeded.id);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a normal new submission carries no forceFresh', async () => {
+    const { env: capEnv, sent } = capturingEnv({ WORKER_SECRET: SECRET });
+    await handleStartVerify(post({ product: 'Plain Intake Gadget', forceFresh: true }, '203.0.113.122'), capEnv);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].forceFresh).toBeUndefined();
+  });
+});

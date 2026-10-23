@@ -555,5 +555,18 @@ export async function runVerifySpeedTests({ eq, ok, report }) {
     const noCap = [];
     await quiet(() => verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', callLLM: async (_k, _m, _msgs, opts) => { noCap.push('hardMsOverride' in opts); return supportReply; } }));
     eq('classifyStance: no cap unless hardMs is set', noCap, [false]);
+
+    // Judge call timing (CP-789 QA): each stance call logs how long it waited
+    // for the response headers and how many judge calls were open when it began.
+    const logged = [];
+    const log = console.log;
+    console.log = (...a) => { logged.push(a.join(' ')); };
+    try {
+      await verifyModule.classifyStance({ claim, evidence: scored, apiKey: 'k', model: 'm', callLLM: async (_k, _m, _msgs, opts) => { opts.onTiming({ headersMs: 4200, totalMs: 9100 }); return supportReply; } });
+    } finally {
+      console.log = log;
+    }
+    const timing = logged.find((l) => l.includes('judge call'));
+    ok('classifyStance: logs the judge call timing', Boolean(timing) && timing.includes('headers after 4200 ms') && timing.includes('9100 ms total') && /\d+ judge calls open/.test(timing));
   });
 }

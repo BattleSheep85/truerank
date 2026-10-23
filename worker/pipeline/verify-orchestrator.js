@@ -44,7 +44,7 @@ const VERIFICATION_CONFIG = Object.freeze({
     measurementSeedQueries: true,
 });
 
-export async function runVerificationPipeline(env, reportId, { product, productUrl }, opts = {}) {
+export async function runVerificationPipeline(env, reportId, { product, productUrl, forceFresh = false }, opts = {}) {
     const verify = opts.verify || runVerification;
     const config = VERIFICATION_CONFIG;
 
@@ -63,6 +63,8 @@ export async function runVerificationPipeline(env, reportId, { product, productU
             env,
             onEvent: opts.onProgress || (() => {}),
             callLLM,
+            // Internal benchmark runs only (handlers/verify.js): skip the saved pages.
+            forceFresh: forceFresh === true,
         });
 
         if (result.status === 'needs_url') {
