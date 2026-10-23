@@ -48,6 +48,25 @@ function sanitizeMetadata(val) {
   return out;
 }
 
+// CP-399: verbatim 1-2★ review quotes ({quote, stars, sourceUrl, sourceTitle}) shown in the
+// "rated it low" block. Only https sources, low stars, short quotes; anything else is dropped.
+const CAP_CRITICAL_REVIEWS = 2;
+const CAP_CRITICAL_TITLE = 120;
+function sanitizeCriticalReviews(val) {
+  if (!Array.isArray(val)) return [];
+  return val
+    .filter((r) => r && typeof r === 'object' && typeof r.quote === 'string' && r.quote.trim())
+    .filter((r) => typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 2)
+    .filter((r) => typeof r.sourceUrl === 'string' && /^https:\/\/[^\s]+$/i.test(r.sourceUrl) && r.sourceUrl.length <= 2000)
+    .slice(0, CAP_CRITICAL_REVIEWS)
+    .map((r) => ({
+      quote: r.quote.trim().slice(0, CAP_PRO_CON),
+      stars: r.stars,
+      sourceUrl: r.sourceUrl,
+      sourceTitle: (typeof r.sourceTitle === 'string' ? r.sourceTitle.trim() : '').slice(0, CAP_CRITICAL_TITLE),
+    }));
+}
+
 // Accept any flat object whose values can be coerced to strings. The synthesis
 // LLM sometimes returns mixed-type specs like `{weight: 2.5, color: "black"}` —
 // dropping the entire specs map because one value is numeric loses useful data.
@@ -79,6 +98,9 @@ function extractBuyersGuide(val) {
 // the synth rated 3.4 or below — including Coofandy-style no-names — does not.
 // Raised from 3.0 → 3.5 per the "go aggressive" directive (2026-06-18).
 export const MIN_RATING = 3.5;
+// CP-400: the step down when fewer than MIN_SURVIVORS clear MIN_RATING (the old 3.0 floor).
+export const FALLBACK_MIN_RATING = 3.0;
+const MIN_SURVIVORS = 3;
 
 /**
  * Quality gate. Two layers, then a renumber:
@@ -104,9 +126,12 @@ export function applyQualityGate(products) {
   const notChurn = products.filter((p) => !isChurnBrand(p.brand));
 
   // Layer 2 — editorial-rating floor, with a ≥3-survivors guard so a thin
-  // category keeps its best available options instead of collapsing.
-  const strong = notChurn.filter((p) => p.rating === null || p.rating >= MIN_RATING);
-  const kept = strong.length >= 3 ? strong : notChurn;
+  // category keeps its best available options instead of collapsing. CP-400: the
+  // guard steps down to the 3.0 floor first, so a thin page still sheds 2★ junk.
+  const atLeast = (floor) => notChurn.filter((p) => p.rating === null || p.rating >= floor);
+  const strong = atLeast(MIN_RATING);
+  const fair = strong.length >= MIN_SURVIVORS ? strong : atLeast(FALLBACK_MIN_RATING);
+  const kept = fair.length >= MIN_SURVIVORS ? fair : notChurn;
 
   // Renumber 1..n following the synth's own rank field (robust to an array that
   // isn't already rank-ordered); stable on ties so the original order wins.
@@ -151,7 +176,7 @@ export function validateResearchResult(data, ctx = {}) {
   const products = rawProducts.slice(0, CAP_PRODUCTS_COUNT).map((p, i) => {
     // Drop items the LLM left under-specified — honest cards need pros AND cons.
     if (!p || typeof p !== 'object') {
-      return { name: `Item ${i + 1}`, brand: '', price: null, rating: null, productUrl: '', manufacturerUrl: '', imageUrl: '', pros: [], cons: [], specs: {}, metadata: {}, verdict: '', rank: i + 1, bestFor: '' };
+      return { name: `Item ${i + 1}`, brand: '', price: null, rating: null, productUrl: '', manufacturerUrl: '', imageUrl: '', pros: [], cons: [], specs: {}, metadata: {}, verdict: '', rank: i + 1, bestFor: '', criticalReviews: [] };
     }
     const prod = p;
     const rawName = typeof prod.name === 'string' && prod.name ? prod.name : `Item ${i + 1}`;
@@ -181,6 +206,7 @@ export function validateResearchResult(data, ctx = {}) {
       verdict,
       rank: typeof prod.rank === 'number' ? prod.rank : i + 1,
       bestFor,
+      criticalReviews: sanitizeCriticalReviews(prod.criticalReviews),
     };
   });
 

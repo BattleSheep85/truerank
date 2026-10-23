@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Golden-query eval: scores the LIVE site's research output against
 // eval/golden-queries.json. This measures honesty at the OUTPUT layer —
-// pick correctness, disclosure presence, depth thresholds, freshness —
+// pick correctness, disclosure presence, depth thresholds, freshness, and
+// groundedness against the saved source snippets (free report API) —
 // complementing the model-selection benchmarks that picked the synth tiers.
 //
 //   node scripts/run-eval.mjs                # audit existing pages (free)
@@ -14,6 +15,7 @@
 // "missing" and only run when --spend is passed. Zero dependencies.
 
 import { readFileSync } from 'node:fs';
+import { scorePage, hardFailures, pickExistingSlug, suggestQuery, groundedness } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -21,7 +23,6 @@ const POLL_INTERVAL_MS = 5000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 const config = JSON.parse(readFileSync(new URL('../eval/golden-queries.json', import.meta.url), 'utf8'));
-const { min_products, min_sources, max_age_days } = config.checks;
 
 async function getJson(path, init) {
   const res = await fetch(`${BASE}${path}`, init);
@@ -29,16 +30,11 @@ async function getJson(path, init) {
 }
 
 // Find an existing research page for a query without spending: suggest
-// endpoint does LIKE matching over public (non-thin) pages.
+// endpoint does LIKE matching over public (non-thin) pages. pickExistingSlug
+// prefers the page in the query's own cache cluster and skips test runs.
 async function findExisting(query) {
-  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(query)}`);
-  if (!Array.isArray(body)) return null;
-  const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  for (const cand of body) {
-    const c = (cand.query || '').toLowerCase();
-    if (qTokens.every((t) => c.includes(t))) return cand.slug;
-  }
-  return null;
+  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(suggestQuery(query))}`);
+  return pickExistingSlug(query, body);
 }
 
 async function runAndWait(query) {
@@ -59,40 +55,26 @@ async function runAndWait(query) {
   return { error: 'timeout' };
 }
 
-async function scoreSlug(slug, accepted) {
-  // Everything needed is in the SSR page itself — the Our-Pick box names the
-  // rank-1 product, product cards and source counts are countable, and the
-  // disclosure is literal text. No structured API needed, no auth, no spend.
-  const pageRes = await fetch(`${BASE}/research/${slug}`);
-  const html = await pageRes.text();
+// Everything needed is in the SSR page itself (Our-pick box, product cards,
+// source count, disclosure text, CTA links). No structured API, no auth, no
+// spend. Scoring lives in scripts/lib/eval-score.mjs so it is unit-tested.
+async function scoreSlug(slug, golden) {
+  const res = await fetch(`${BASE}/research/${slug}`);
+  if (!res.ok) return { error: `page answered HTTP ${res.status}` };
+  return { slug, ...scorePage(await res.text(), golden, config.checks), ...(await groundSlug(slug)) };
+}
 
-  const m = html.match(/class="ourpick-name">([^<]+)</);
-  const topPick = m ? m[1] : '';
-  const productCount = (html.match(/class="product" id="product-/g) || []).length;
-  const sourceCount = (() => {
-    const m = html.match(/Sources \((\d+)\)/);
-    return m ? parseInt(m[1], 10) : null;
-  })();
-  const ageDays = (() => {
-    const m = html.match(/datetime="(\d{4}-\d{2}-\d{2})"/g);
-    if (!m || m.length === 0) return null;
-    const newest = m.map((s) => Date.parse(s.slice(10, 20))).sort((a, b) => b - a)[0];
-    return Math.floor((Date.now() - newest) / 86400000);
-  })();
-
-  const topLower = topPick.toLowerCase();
-  return {
-    slug,
-    top_pick: topPick,
-    pick_correct: accepted.some((w) => topLower.includes(w.toLowerCase())),
-    disclosure_present: /may earn a commission/i.test(html),
-    product_count: productCount,
-    products_ok: productCount >= min_products,
-    source_count: sourceCount,
-    sources_ok: sourceCount == null ? null : sourceCount >= min_sources,
-    age_days: ageDays,
-    fresh_ok: ageDays == null ? null : ageDays <= max_age_days,
-  };
+// CP-807: the saved source snippets come from the public report API (a free
+// GET). A failed read leaves groundedness unjudged; it never fails the page.
+async function groundSlug(slug) {
+  const { status, body, error } = await getJson(`/api/report/${encodeURIComponent(slug)}?snippets=1`)
+    .catch((err) => ({ status: 0, body: null, error: err instanceof Error ? err.message : String(err) }));
+  if (status !== 200 || !body) {
+    const why = error ? `report API read failed: ${error}` : `report API answered HTTP ${status}`;
+    process.stderr.write(`groundedness: ${why} for ${slug}\n`);
+    return { ...groundedness(null, config.checks), grounded_error: why };
+  }
+  return groundedness(body, config.checks);
 }
 
 const results = [];
@@ -108,22 +90,41 @@ for (const g of config.queries) {
     results.push({ query: g.query, status: 'missing', note: 'no live page; re-run with --spend' });
     continue;
   }
-  const score = await scoreSlug(slug, g.accepted_winners);
-  results.push({ query: g.query, status: 'scored', ...score });
+  const score = await scoreSlug(slug, g);
+  if (score.error) { results.push({ query: g.query, status: 'failed', slug, error: score.error }); continue; }
+  results.push({ query: g.query, status: 'scored', ...score, hard_failures: hardFailures(score) });
 }
 
 const scored = results.filter((r) => r.status === 'scored');
+// "passed/judged" over the pages where the check applies (null = not judged).
+const ratio = (rows, key) => {
+  const judged = rows.filter((r) => r[key] != null);
+  return judged.length ? `${judged.filter((r) => r[key]).length}/${judged.length}` : 'n/a';
+};
+// "found/checked" summed over the scored pages.
+const sumPair = (rows, found, checked) => {
+  const total = rows.reduce((n, r) => n + (r[checked] || 0), 0);
+  return total ? `${rows.reduce((n, r) => n + (r[found] || 0), 0)}/${total}` : 'n/a';
+};
 const summary = {
   base: BASE,
   scored: scored.length,
   missing: results.filter((r) => r.status === 'missing').length,
   failed: results.filter((r) => r.status === 'failed').length,
-  pick_accuracy: scored.length ? `${scored.filter((r) => r.pick_correct).length}/${scored.length}` : 'n/a',
-  disclosure: scored.length ? `${scored.filter((r) => r.disclosure_present).length}/${scored.length}` : 'n/a',
-  depth_ok: scored.length ? `${scored.filter((r) => r.products_ok).length}/${scored.length}` : 'n/a',
-  fresh_ok: scored.length ? `${scored.filter((r) => r.fresh_ok !== false).length}/${scored.length}` : 'n/a',
+  pick_accuracy: ratio(scored, 'pick_correct'),
+  disclosure: ratio(scored, 'disclosure_present'),
+  depth_ok: ratio(scored, 'products_ok'),
+  fresh_ok: ratio(scored, 'fresh_ok'),
+  // CP-415: non-product pages (service, local, experience).
+  amazon_free: ratio(scored, 'amazon_free'),
+  service_layout: ratio(scored, 'service_layout'),
+  location_ok: ratio(scored, 'location_ok'),
+  // CP-807: soft, not judged for reports saved before the snippets (null).
+  grounded_ok: ratio(scored, 'grounded_ok'),
+  grounded_names: sumPair(scored, 'names_grounded', 'names_checked'),
+  grounded_numbers: sumPair(scored, 'numbers_grounded', 'numbers_checked'),
 };
 
 console.log(JSON.stringify({ summary, results }, null, 2));
-const hardFails = scored.filter((r) => !r.pick_correct || !r.disclosure_present).length;
+const hardFails = scored.filter((r) => r.hard_failures.length > 0).length;
 process.exit(hardFails > 0 ? 1 : 0);

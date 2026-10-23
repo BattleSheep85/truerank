@@ -10,6 +10,7 @@
 // Zero dependencies.
 
 import { readFileSync } from 'node:fs';
+import { productNames, pickExistingSlug, suggestQuery } from './lib/eval-score.mjs';
 
 const BASE = process.env.BASE_URL || 'https://chrisputer.tech';
 const SPEND = process.argv.includes('--spend');
@@ -38,14 +39,8 @@ async function getJson(path, init) {
 }
 
 async function findExisting(query) {
-  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(query)}`);
-  if (!Array.isArray(body)) return null;
-  const qTokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  for (const cand of body) {
-    const c = (cand.query || '').toLowerCase();
-    if (qTokens.every((t) => c.includes(t))) return cand.slug;
-  }
-  return null;
+  const { body } = await getJson(`/api/search/suggest?q=${encodeURIComponent(suggestQuery(query))}`);
+  return pickExistingSlug(query, body);
 }
 
 async function runAndWait(query) {
@@ -66,21 +61,11 @@ async function runAndWait(query) {
   return { error: 'timeout' };
 }
 
-function parseProductNames(html) {
-  const names = [];
-  const re = /class="product" id="product-[^"]*"[^>]*>[\s\S]*?class="product-name[^"]*"[^>]*>([^<]+)</g;
-  let m;
-  while ((m = re.exec(html)) !== null) names.push(m[1].trim());
-  if (names.length) return names;
-  const our = html.match(/class="ourpick-name">([^<]+)</);
-  if (our) names.push(our[1].trim());
-  return names;
-}
-
 async function scoreSlug(slug, entry) {
   const pageRes = await fetch(`${BASE}/research/${slug}`);
   const html = await pageRes.text();
-  const products = parseProductNames(html);
+  // The golden eval's card parser (CP-812: the old selectors read 0 products).
+  const products = productNames(html);
   const topPick = products[0] || '';
   const topLower = topPick.toLowerCase();
   const accepted = entry.accepted_winners || [];
@@ -101,7 +86,7 @@ async function scoreSlug(slug, entry) {
     products.some((n) => n.toLowerCase().includes(p.toLowerCase())),
   );
 
-  const productCount = (html.match(/class="product" id="product-/g) || []).length || products.length;
+  const productCount = products.length;
   const sourceCount = (() => {
     const m = html.match(/Sources \((\d+)\)/);
     return m ? parseInt(m[1], 10) : null;

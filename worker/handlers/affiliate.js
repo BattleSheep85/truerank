@@ -7,7 +7,7 @@ import { logAffiliateClick, logGuideClick } from '../lib/db.js';
 import { buildAmazonSearchFallback } from '../lib/affiliate-links.js';
 import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { hashIp } from '../lib/ip-hash.js';
-import { isAffiliateFloodActive } from '../lib/affiliate-gate.js';
+import { isAffiliateFloodActive, isAffiliateHourlyCapHit } from '../lib/affiliate-gate.js';
 
 // Bot/scraper defense for the affiliate redirect surface. /api/ is disallowed
 // in robots.txt, so any traffic hitting these routes is already non-compliant
@@ -24,7 +24,7 @@ const BOT_UA_PATTERN = /bot|crawl|spider|scraper|curl|wget|python-requests|pytho
 const PER_IP_CLICK_LIMIT = 30;
 const PER_IP_WINDOW_SECONDS = 3600;
 
-// Three layers, cheapest first, and each one on its own is enough to flag a
+// Four layers, cheapest first, and each one on its own is enough to flag a
 // request. UA runs before the site-wide gate on purpose: a self-identifying bot
 // must not eat the shared budget and push real visitors over it.
 async function isSuspiciousRequest(request, env, ip) {
@@ -38,10 +38,14 @@ async function isSuspiciousRequest(request, env, ip) {
     try {
         const rateKey = await ipRateKey('go', ip, env);
         const rate = await checkRateLimit(env.KV, rateKey, PER_IP_CLICK_LIMIT, PER_IP_WINDOW_SECONDS);
-        return !rate.allowed;
+        if (!rate.allowed) return true;
     } catch {
         return false;
     }
+    // Layer 4 (CP-353): site-wide clicks per HOUR, for a slow, wide source
+    // that stays under the per-minute gate. Last, so only clicks every other
+    // layer let through spend the shared hourly budget.
+    return isAffiliateHourlyCapHit(env);
 }
 
 // Strip Amazon's tag/ascsubtag query params so a flagged request still reaches

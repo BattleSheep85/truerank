@@ -6,11 +6,13 @@ import { getResearchBySlug, getProductsByResearchId, getClusterWinnerSlug } from
 import { searchBar } from '../lib/search-bar.js';
 import { RESEARCH_ETA } from '../lib/engine-config.js';
 import { jsonEmbed, productLayoutBoot } from '../lib/list-layout-boot.js';
-import { BTN_PRIMARY, isNonProductCategory, sourceRel, sourceLabel } from './research-primitives.js';
+import { BTN_PRIMARY, sourceRel, sourceLabel } from './research-primitives.js';
+import { pageKind } from '../lib/page-kind.js';
 import { renderComparisonTable, renderProduct, renderOurPick, renderTrustPanel } from './research-cards.js';
 import { pageBehaviorScript, activityFeedScript, subscribeScript, chatScript } from './research-scripts.js';
 import { buildResearchSeo } from './research-jsonld.js';
 import { recordView } from '../lib/view-counter.js';
+import { mailConfigured } from '../lib/mailer.js';
 
 // Find up to 5 sibling research pages that share canonical tokens. Used to build
 // the "Related research" block — internal links Google rewards for topical depth,
@@ -87,6 +89,10 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     isComplete ? recordView(env.DB, entry) : Promise.resolve(),
   ]);
 
+  const resultData = parseJsonSafe(entry.result, {});
+  // CP-399: verbatim low-star quotes live in research.result, not the products table.
+  const criticalByName = criticalReviewsFromResult(resultData);
+
   // Parse each product's JSON columns ONCE here, so renderProduct and the
   // JSON-LD builder both consume already-parsed values (no double JSON.parse).
   const products = (productRows.results ?? []).map((p) => ({
@@ -95,32 +101,31 @@ export async function renderResearchResult(slug, env, fromQuery = null, cleanLin
     cons: parseJsonSafe(p.cons, []),
     specs: parseJsonSafe(p.specs, {}),
     metadata: parseJsonSafe(p.metadata, {}),
+    critical_reviews: criticalByName.get(String(p.name || '').toLowerCase()) || [],
   }));
 
   const hasProducts = products.length > 0;
   const isProcessing = entry.status === 'pending' || entry.status === 'processing';
   const isLiveReport = entry.status === 'complete' || (isProcessing && hasProducts);
+  // The email offer shows only when mail can actually go out (same signal as
+  // the signup answer, worker/handlers/subscribe.js, CP-812/CP-819).
+  const mailOn = mailConfigured(env);
   const showProcessingHero = isProcessing && !hasProducts;
   const isFailed = entry.status === 'failed';
 
-  const resultData = parseJsonSafe(entry.result, {});
   // Only surface a stored failure reason if it's a clean, short, user-facing
   // message (e.g. "No reliable products found for this query."). Raw provider /
   // HTTP / JSON errors (e.g. an OpenRouter 403) must never leak to users.
   const failReason = safeUserFacingError(resultData.error, '');
   const buyersGuide = resultData.buyersGuide;
   const hasBuyersGuide = !!(buyersGuide && (buyersGuide.howToChoose || (buyersGuide.pitfalls?.length ?? 0) > 0 || (buyersGuide.marketingToIgnore?.length ?? 0) > 0));
-  // Classifier verdict: this category isn't sold on Amazon (lumber, vehicles,
-  // local venues, ...). Suppresses every Amazon link on the page; CTAs hand
-  // off to Google via /find instead. Legacy rows without the facet default to
-  // Amazon-viable.
+  // Classifier verdict: webOnly = a product Amazon doesn't sell (lumber, vehicles);
+  // isService = a service, local place or experience (CP-803: "coffee shops in Brooklyn"
+  // is is_experience + needs_location, not is_service). Either one suppresses every
+  // Amazon link on the page; CTAs hand off to Google via /find instead. Mirrors the
+  // orchestrator's ASIN-resolution gate. Legacy rows without facets default to products.
   const rowFacets = parseJsonSafe(entry.facets, {}) || {};
-  const webOnly = rowFacets.sold_on_amazon === false;
-  // Service detection must mirror the orchestrator's ASIN-resolution gate
-  // (is_service facet) — the category-string heuristic alone misses services
-  // whose category label isn't in the hints list (e.g. "wedding photographer"),
-  // which would render Amazon CTAs for a hire-a-professional page.
-  const isService = isNonProductCategory(entry.category) || rowFacets.is_service === true;
+  const { isService, webOnly } = pageKind(entry.category, rowFacets);
   // sources persist as either plain URL strings (legacy) or {url, credibility}
   // objects (engine port). Normalize to the URL string for rendering.
   const sourceList = parseJsonSafe(entry.sources, [])
@@ -262,12 +267,12 @@ ${showProcessingHero ? `<div id="processing" class="my-8 border border-accent/30
 </div>
 <div id="activity-feed" class="activity-feed"></div>
 <div class="notify-box mt-5 border border-accent/25 bg-accent-quiet p-4">
-<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
+${mailOn ? `<label for="notify-email" class="mb-2 block text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Want an email when it&rsquo;s ready?</label>
 <form id="notify-form" class="m-0 flex flex-wrap gap-2">
 <input id="notify-email" type="email" name="email" required placeholder="you@example.com" autocomplete="email" maxlength="254" class="min-w-[12rem] flex-1 border border-line bg-bg px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-3">
 <button type="submit" class="${BTN_PRIMARY} whitespace-nowrap">Notify me</button>
 </form>
-<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>
+<p id="notify-msg" role="status" aria-live="polite" class="mt-2 min-h-[1em] font-mono text-xs text-ink-3"></p>` : `<p class="m-0 text-body-sm text-ink-2">This usually takes ${RESEARCH_ETA}. Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready.</p>`}
 </div>
 </div>` : ''}
 
@@ -406,4 +411,15 @@ ${isLiveReport ? `<div class="notify-footer mt-8 border-t border-line pt-6">
     : displayTitle;
   const htmlOut = layout(seoTitle, entry.summary ?? 'AI-powered product research', body, amazonHint + noindex + structuredData + turnstileScript + extra, layoutMeta);
   return { html: htmlOut, lastModified: lastModifiedTs, status: entry.status, viewCount: entry.view_count ?? 0 };
+}
+
+/** Product name (lowercase) → its criticalReviews list, from a parsed research.result. */
+export function criticalReviewsFromResult(resultData) {
+  const map = new Map();
+  const list = Array.isArray(resultData?.products) ? resultData.products : [];
+  for (const p of list) {
+    if (!p || typeof p.name !== 'string' || !Array.isArray(p.criticalReviews) || !p.criticalReviews.length) continue;
+    map.set(p.name.toLowerCase(), p.criticalReviews);
+  }
+  return map;
 }

@@ -9,7 +9,7 @@
  * in the HTML a crawler actually fetches (no client JS required).
  */
 
-import { escapeHtml, displayQuery, timeAgo, parseJsonSafe } from '../lib/utils.js';
+import { escapeHtml, displayQuery, timeAgo, parseJsonSafe, publicNameFilter } from '../lib/utils.js';
 import { listableRowsSql } from '../lib/listable.js';
 import { overallVerdict } from '../lib/verdict.js';
 import { isTestableClaim } from '../engine/verify.js';
@@ -24,7 +24,7 @@ const RECENT_VERDICTS_LIMIT = 6;
 const VERDICT_CANDIDATES = 24;
 const MIN_VERDICT_CLAIMS = 3;
 const RECENT_VERDICTS_SQL = `SELECT slug, query, result, completed_at FROM research
- WHERE kind = 'verification' AND status = 'complete' AND retired_at IS NULL
+ WHERE kind = 'verification' AND status = 'complete' AND ${publicNameFilter('research')}
  ORDER BY completed_at DESC, id DESC LIMIT ?1`;
 
 // Fetches the newest completed, public reports for the homepage/best-index

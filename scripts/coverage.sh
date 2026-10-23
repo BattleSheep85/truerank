@@ -35,12 +35,17 @@ INCLUDES=(
   worker/lib/affiliate-gate.js
   worker/lib/llm-json.js
   worker/lib/pool.js
+  worker/engine/stance-votes.js
+  worker/lib/connection-gate.js
   worker/lib/mime.js
   worker/lib/smtp.js
   worker/lib/email-templates.js
   worker/lib/subscribe-flow.js
   worker/lib/listable.js
   worker/engine/validate.js
+  worker/engine/extract/critical-excerpts.js
+  worker/lib/safety.js
+  worker/lib/page-kind.js
   worker/engine/prompts.js
   benchmarks/lib/grounding-check.mjs
   benchmarks/lib/outlet-lexicon.mjs
