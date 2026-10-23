@@ -2817,7 +2817,7 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 - [x] CRITICAL: Stored XSS via unescaped quotes + no URL-scheme allowlist. (Fixed: attribute-safe `escapeHtml` + `safeHref` in render.js.)
 - [x] LOW: No Content-Security-Policy. (Fixed: the Worker injects a per-request nonce into HTML and sets a `nonce + strict-dynamic` CSP plus X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy. Matches the production policy. Verified scripts run under it via headless chromium.)
-- [ ] LOW (by design): CORS is wildcard (*) on the API. Intentional for a public tool. Tighten to the production origin or an allowlist if cross-origin abuse appears. Needs the real domain.
+- [x] LOW (by design): CORS is wildcard (*) on the API. Intentional for a public tool. Tighten to the production origin or an allowlist if cross-origin abuse appears. Needs the real domain. Fixed 2026-10-23 (CP-431): the site and the API share one origin, so `worker/index.js`, `worker/handlers/research.js`, `worker/handlers/verify.js`, and `worker/handlers/report.js` no longer send `Access-Control-Allow-Origin: *`. A preflight gets 204 with no CORS headers.
 - [ ] LOW (inherent): LLM prompt-injection surface via user queries. Inherent to LLM systems; mitigated by output escaping and not executing model output.
 
 ## Bugs

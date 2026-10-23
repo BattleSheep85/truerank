@@ -27,9 +27,31 @@ beforeAll(async () => {
 });
 
 describe('index.js routing', () => {
-  it('OPTIONS → CORS preflight', async () => {
-    const res = await SELF.fetch(`${BASE}/api/research`, { method: 'OPTIONS' });
-    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  // CP-431: the site and the API share one origin, so no route grants
+  // cross-origin reads. A preflight from another site gets no CORS headers.
+  it('OPTIONS → 204 with no CORS grant (CP-431)', async () => {
+    const res = await SELF.fetch(`${BASE}/api/research`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST' },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Allow')).toContain('POST');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(res.headers.get('Access-Control-Allow-Methods')).toBeNull();
+  });
+
+  it('API JSON replies carry no wildcard CORS header (CP-431)', async () => {
+    const headers = { Origin: 'https://evil.example' };
+    const urls = [
+      `${BASE}/api/report/${completeId}`,
+      `${BASE}/api/report/nope`,
+      `${BASE}/api/research/best-budget-nas/events`,
+      `${BASE}/api/research/nope/events`,
+    ];
+    for (const u of urls) {
+      const res = await SELF.fetch(u, { headers });
+      expect(res.headers.get('Access-Control-Allow-Origin'), u).toBeNull();
+    }
   });
 
   it('GET /find?q=… → 302 to a Google search', async () => {
