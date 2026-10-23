@@ -33,10 +33,6 @@ export default defineConfig({
   ],
   test: {
     include: ['test/integration/**/*.spec.js'],
-    // Vitest 5 turns this on by default, but @cloudflare/vitest-plugin 1.4.2
-    // cannot read the cached modules inside workerd (every spec fails with
-    // "no such file or directory, readAll node_modules/.vitest-cache/...").
-    fsModuleCache: false,
     coverage: {
       provider: 'istanbul', // v8 coverage doesn't work inside workerd; istanbul does
       reporter: ['text', 'text-summary'],

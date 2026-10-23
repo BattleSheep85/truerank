@@ -1,5 +1,6 @@
 // Opening book — deterministic template searches at start of research.
 import { runSearch } from './tools.js';
+import { urlKey } from './searxng.js';
 
 // The list is a NAMED export so tests can pin it; changing it changes cross-run corpus overlap.
 export const OPENING_BOOK_TEMPLATES = [
@@ -63,11 +64,12 @@ export async function runOpeningBook(opts = {}) {
     }
   }
 
-  const seenUrls = new Set();
+  const seenKeys = new Set();
   const sources = [];
   for (const s of collected) {
-    if (s && s.url && !seenUrls.has(s.url)) {
-      seenUrls.add(s.url);
+    const key = urlKey(s?.url);
+    if (key !== null && !seenKeys.has(key)) {
+      seenKeys.add(key);
       sources.push(s);
     }
   }

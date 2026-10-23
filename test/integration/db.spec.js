@@ -13,6 +13,7 @@ import verification from '../../schema/011_verification.sql?raw';
 import squashedQuery from '../../schema/014_squashed_query.sql?raw';
 import processingStarted from '../../schema/015_processing_started.sql?raw';
 import retireSeoRows from '../../schema/017_retire_seo_rows.sql?raw';
+import feedbackVotes from '../../schema/024_feedback_votes.sql?raw';
 import * as db from '../../worker/lib/db.js';
 import { completeResearch, insertProductV2 } from './_helpers.js';
 
@@ -36,6 +37,7 @@ beforeAll(async () => {
   await applySql(squashedQuery);
   await applySql(processingStarted);
   await applySql(retireSeoRows);
+  await applySql(feedbackVotes);
 });
 
 describe('db.js', () => {

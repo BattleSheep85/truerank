@@ -8,14 +8,14 @@
 import {
     handleStartResearch, handleResearchStatus, handleResearchStream, handleResearchEvents,
 } from './handlers/research.js';
-import { handleStartVerify, handleVerifyStatus } from './handlers/verify.js';
+import { handleStartVerify, handleVerifyStatus, handleVerifyForm } from './handlers/verify.js';
 import { renderVerifyEntryPage, renderVerifyResultPage } from './pages/verify-page.js';
 import { handleGetReport, handleFeedback } from './handlers/report.js';
 import { handleAffiliateClick, handleAffiliateSearch } from './handlers/affiliate.js';
 import { handleProductImage } from './handlers/image.js';
 import { classifyQuery, userFacingRejection, defaultQuestionsForQuery } from './lib/classifier.js';
 import { screenQuery, rejectionMessage } from './lib/safety.js';
-import { checkRateLimit } from './lib/rate-limit.js';
+import { checkRateLimit, ipRateKey } from './lib/rate-limit.js';
 import { checkBurstGate } from './lib/burst-gate.js';
 import { canonicalizeQuery } from './lib/utils.js';
 import { renderBrowse } from './pages/browse.js';
@@ -79,16 +79,11 @@ export default {
         const path = url.pathname;
         const method = request.method;
 
-        // CORS preflight
+        // The site and the API share one origin, so no route grants
+        // cross-origin access (CP-431). A preflight from another site gets no
+        // CORS headers, and the browser refuses the real request.
         if (method === 'OPTIONS') {
-            return new Response(null, {
-                headers: {
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                    'Access-Control-Max-Age': '86400',
-                },
-            });
+            return new Response(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } });
         }
 
         // Dev-only password wall (no-op in production — see requireDevAuth).
@@ -105,6 +100,18 @@ export default {
             // separate handler/pipeline from the ranking flow above.
             if (path === '/api/verify' && method === 'POST') {
                 return handleStartVerify(request, env);
+            }
+
+            // The /verify entry form posts here when JavaScript is off (CP-804).
+            if ((path === '/verify' || path === '/verify/') && method === 'POST') {
+                const out = await handleVerifyForm(request, env);
+                if (out.slug) {
+                    return new Response(null, { status: 303, headers: { Location: `/verify/${out.slug}`, 'Cache-Control': 'no-store' } });
+                }
+                const page = renderVerifyEntryPage(out.product, { error: out.error, signupRequired: out.signupRequired });
+                const res = htmlPageResponse(page, env, { status: out.status, cacheControl: 'no-store', request });
+                if (out.retryAfter) res.headers.set('Retry-After', out.retryAfter);
+                return res;
             }
 
             const verifyPollMatch = path.match(/^\/api\/verify\/([a-z0-9-]+)$/);
@@ -132,10 +139,11 @@ export default {
                 // the search box UX is never blocked — the throttle protects spend while the
                 // fail-open shape protects UX.
                 const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-                const rateKey = `classify:${clientIp}`;
+                // Salted IP hash: the key is stored in D1 (CP-808).
+                const rateKey = await ipRateKey('classify', clientIp, env);
                 const burst = await checkBurstGate(env.RL_BURST, rateKey);
                 const velocity = burst.allowed
-                    ? await checkRateLimit(env.KV, rateKey, 60, 3600)
+                    ? await checkRateLimit(env.KV, rateKey, 60, 3600, env.DB)
                     : burst;
                 if (!velocity.allowed) {
                     return jres({ accept: true, clarifying_questions: defaultQuestionsForQuery(cq) });
@@ -167,7 +175,7 @@ export default {
 
             const reportMatch = path.match(/^\/api\/report\/([a-z0-9-]+)$/);
             if (reportMatch && method === 'GET') {
-                return handleGetReport(reportMatch[1], env);
+                return handleGetReport(reportMatch[1], env, { includeSnippets: url.searchParams.get('snippets') === '1' });
             }
 
             if (path === '/api/feedback' && method === 'POST') {
@@ -430,7 +438,6 @@ export default {
                 status: 500,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
                 },
             });
         }

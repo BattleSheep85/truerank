@@ -218,6 +218,103 @@ describe('collectClaimsAndEvidence stage overlap', () => {
     expect(res.scoredEvidence.find((s) => s.url === SHARED_URL)?.content).toBe(REVIEW_TEXT);
   });
 
+  it('keeps the buyer reviews of a retailer claim page whose shared read won (CP-778)', async () => {
+    mocks.runSearch.mockImplementation(routedSearch([]));
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url.includes('acme.com') || source.url.includes('amazon.com') ? SPEC_PAGE : REVIEW_TEXT;
+      return source;
+    });
+    const reviews = [
+      '[Buyer review] I took the Acme Flip 7 camping for a week and the battery lasted about 13 hours at half volume.',
+      '[Buyer review] Dropped my Acme Flip 7 in the lake, it floated and kept playing after I dried it off.',
+    ].join('\n');
+    const focusedUrls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      focusedUrls.push(String(url));
+      return new Response(String(url).includes('amazon.com') ? `${SPEC_PAGE}\n# Customer reviews\n${reviews}` : '', { status: 200 });
+    }));
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 });
+    expect(res.status).toBe('ok');
+    // The claim page keeps the shared read: claim extraction text is unchanged.
+    expect(res.claimSources.find((s) => s.url.includes('amazon.com'))?.content).toBe(SPEC_PAGE);
+    const buyer = res.scoredEvidence.filter((s) => s.url.endsWith('#buyer-reviews'));
+    expect(buyer.map((s) => s.url)).toEqual(['https://www.amazon.com/dp/B0FLIP7#buyer-reviews']);
+    expect(buyer[0].content.match(/\[Buyer review\]/g)).toHaveLength(2);
+    // The maker page is not a retailer page: no buyer review read for it.
+    expect(focusedUrls.filter((u) => u.includes('acme.com')).length).toBeLessThanOrEqual(1);
+  });
+
+  it('gives every search and page read of one check the same connection gate (CP-718 round 3)', async () => {
+    mocks.runSearch.mockImplementation(routedSearch([]));
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url.includes('acme.com') || source.url.includes('amazon.com') ? SPEC_PAGE : REVIEW_TEXT;
+      return source;
+    });
+    const env = { JINA_API_KEY: '' };
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 }, { env });
+    expect(res.status).toBe('ok');
+    expect(env).toEqual({ JINA_API_KEY: '' }); // the caller's env is not changed
+    const gates = new Set([
+      ...mocks.runSearch.mock.calls.map((c) => c[2]?.connectionGate),
+      ...mocks.readPageInto.mock.calls.map((c) => c[1]?.connectionGate),
+    ]);
+    expect(gates.size).toBe(1);
+    const [gate] = gates;
+    expect(typeof gate?.run).toBe('function');
+    expect(gate.active()).toBe(0);
+  });
+
+  it('takes the model number from the pasted page title when the link name has none (CP-807)', async () => {
+    const PASTED = 'https://www.amazon.com/dp/B0FLIP7';
+    const searches = [];
+    mocks.runSearch.mockImplementation(async (query, ...rest) => {
+      searches.push(query);
+      return routedSearch([])(query, ...rest);
+    });
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url === PASTED
+        ? `Title: Amazon.com: Acme Flip 7 Portable Waterproof Speaker, Black : Electronics\n\n${SPEC_PAGE}`
+        : (source.url.includes('acme.com') ? SPEC_PAGE : REVIEW_TEXT);
+      return source;
+    });
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 }, { product: 'Acme Portable', productUrl: PASTED });
+    expect(res.status).toBe('ok');
+    expect(res.product).toBe(PRODUCT);
+    expect(searches[0]).toBe(PRODUCT);
+    expect(searches.some((q) => q.startsWith('Acme Portable'))).toBe(false);
+    expect(mocks.readPageInto.mock.calls.filter((c) => c[0].url === PASTED)).toHaveLength(1);
+  });
+
+  it('keeps the link name when the title name is blocked, and reads a bot-check page again (CP-807)', async () => {
+    const PASTED = 'https://www.amazon.com/dp/B0FLIP7';
+    const searches = [];
+    mocks.runSearch.mockImplementation(async (query, ...rest) => {
+      searches.push(query);
+      return routedSearch([])(query, ...rest);
+    });
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url === PASTED
+        ? 'Title: Amazon.com: Acme 7 kill myself : Electronics\n\nRobot check'
+        : (source.url.includes('acme.com') ? SPEC_PAGE : REVIEW_TEXT);
+      return source;
+    });
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 }, { product: 'Acme Portable', productUrl: PASTED });
+    expect(res.product).toBe('Acme Portable');
+    expect(searches.every((q) => !q.includes('myself'))).toBe(true);
+    expect(mocks.readPageInto.mock.calls.filter((c) => c[0].url === PASTED).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps a link name that already has a model number and reads no page first (CP-807)', async () => {
+    mocks.runSearch.mockImplementation(routedSearch([]));
+    mocks.readPageInto.mockImplementation(async (source) => {
+      source.content = source.url.includes('acme.com') || source.url.includes('amazon.com') ? SPEC_PAGE : REVIEW_TEXT;
+      return source;
+    });
+    const res = await runCheck({ ...ENGINE_CONFIG, maxSearches: 10 }, { productUrl: 'https://www.amazon.com/dp/B0FLIP7' });
+    expect(res.status).toBe('ok');
+    expect(res.product).toBe(PRODUCT);
+  });
+
   it('needs_url spends no gather search', async () => {
     const searches = [];
     mocks.runSearch.mockImplementation(async (query) => {
