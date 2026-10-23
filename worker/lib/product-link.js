@@ -47,7 +47,7 @@ const UNIT_FOLLOW_WORDS = new Set([
 
 // Common retail SEO slug descriptor words that start the keyword tail after Brand + Series (+ Variant).
 const SLUG_DESCRIPTOR_WORDS = new Set([
-  'dual', 'chamber', 'compatible', 'full', 'mid', 'tower', 'atx', 'eatx', 'matx', 'itx',
+  'chamber', 'compatible', 'full', 'mid', 'tower', 'atx', 'eatx', 'matx', 'itx',
   'pc', 'computer', 'gaming', 'case', 'chassis', 'tempered', 'glass', 'front', 'panel',
   'all', 'season', 'radial', 'tire', 'tires', 'touring', 'passenger', 'suvs', 'truck',
   'wireless', 'bluetooth', 'noise', 'cancelling', 'canceling', 'active', 'over', 'ear',
@@ -55,11 +55,67 @@ const SLUG_DESCRIPTOR_WORDS = new Set([
   'unlocked', 'cell', 'phone', 'smartphone', 'android', 'mobile',
   'electric', 'pressure', 'cooker', 'slow', 'multi', 'multicooker', 'steamer', 'warmer',
   'professional', 'grade', 'blender', 'mixer', 'stand', 'tilt', 'head', 'kitchen', 'appliance',
-  'cordless', 'brushless', 'compact', 'drill', 'driver', 'impact', 'hammer', 'tool', 'kit',
+  'cordless', 'brushless', 'drill', 'driver', 'impact', 'hammer', 'tool', 'kit',
   'mens', 'womens', 'unisex', 'neutral', 'running', 'walking', 'trail', 'shoe', 'shoes', 'sneakers', 'footwear',
   'waterproof', 'portable', 'rechargeable', 'stainless', 'steel', 'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red',
   'with', 'for', 'and',
 ]);
+
+// Product-type words a buyer adds after the name ("Fractal Design North
+// case", "Ninja Creami ice cream maker"). They change the searches, so the
+// two names read different pages and check different claims (CP-777).
+// Longest first. Names where the type word is part of the product line
+// (Laptop, TV, Headphones, Earbuds, Watch, Speaker) are left out on purpose.
+const PRODUCT_TYPE_TAILS = Object.freeze([
+  'ice cream maker', 'espresso machine', 'coffee maker', 'vacuum cleaner',
+  'robot vacuum', 'stick vacuum', 'impact driver', 'drill driver', 'hammer drill',
+  'cordless drill', 'power supply', 'computer case', 'pc case', 'cell phone', 'air fryer',
+  'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires', 'vacuum', 'drill',
+].map((phrase) => phrase.split(' ')));
+// The tails a saved-verdict key drops (CP-807): words that name the kind of
+// thing, never which product of a line it is. "drill", "impact driver" and
+// "robot vacuum" stay in keys ("M18 Fuel hammer drill" vs "impact driver").
+const KEY_TYPE_TAILS = Object.freeze([
+  'ice cream maker', 'espresso machine', 'coffee maker', 'power supply', 'computer case',
+  'pc case', 'cell phone', 'air fryer', 'case', 'chassis', 'phone', 'smartphone', 'tire', 'tires',
+].map((phrase) => phrase.split(' ')));
+// "case" after one of these is an accessory, not a PC case ("iPhone 16 case").
+const CASE_WORDS = Object.freeze(['case', 'chassis']);
+const DEVICE_WORDS = Object.freeze([
+  'iphone', 'ipad', 'airpods', 'galaxy', 'pixel', 'switch', 'kindle', 'macbook',
+  'airtag', 'gopro', 'steam', 'playstation', 'ps5', 'xbox', 'watch', 'phone', 'tablet', 'laptop',
+]);
+// "phone" leaves only after a model number ("Pixel 9 Pro phone"), so a line
+// name such as "Asus ROG Phone" keeps it.
+const PHONE_WORDS = Object.freeze(['phone', 'smartphone']);
+// trimProductType never leaves fewer words than this.
+const TYPE_TRIM_MIN_WORDS = 2;
+// A trailing number with a one-letter suffix is usually the model, not a spec
+// ("MX Master 3S", "iPhone 5c", "Pixel 4a 5G"). Volts and watts are the
+// exceptions ("DCD791 20V", "Nano 65W").
+const ONE_LETTER_SUFFIX_RE = /^\d+[a-uxyz]$/;
+// A trailing one-digit V or W word stays in the name when no other word is a
+// model ("Foo Bar 2V"); a rating has two digits or follows a model ("DCD791
+// 9V"). Only trimming uses this: hasModelNumber still reads a lone "9W" as a
+// rating ("Hue Bulb 9W"), so the page title can still supply the model (CP-812).
+const SHORT_VOLT_WATT_RE = /^\d[vw]$/;
+
+// "Dual" and "compact" name a variant ("Torrent Compact") unless the next word
+// is the thing they describe ("Dual Chamber", "Compact Drill", "Dual Tower"):
+// a PAIRED_VARIANT_NOUNS word, or any descriptor word but a color or a filler
+// word (CP-781).
+const PAIRED_VARIANT_WORDS = new Set(['dual', 'compact']);
+const PAIRED_VARIANT_NOUNS = new Set([
+  'band', 'zone', 'motor', 'fuel', 'sim', 'port', 'usb', 'fan', 'fans', 'size',
+  'monitor', 'screen', 'display', 'charger', 'mini', 'micro', 'basket', 'burner',
+]);
+const NOT_DESCRIBED_WORDS = new Set([
+  'black', 'white', 'silver', 'gray', 'grey', 'blue', 'red', 'tempered', 'with', 'for', 'and',
+]);
+// A number, a hyphen, and a unit ("65-Inch", "2-Pack") reads as one spec. A
+// range ("18-55mm") stays a model token (CP-783).
+const HYPHEN_SPEC_RE = /^\d+[-_][a-z]+$/;
+const SPEC_JOIN_RE = /[-_]/g;
 
 const LINK_RE = /https?:\/\/\S+/i;
 const ALL_LINKS_RE = /https?:\/\/\S+/gi;
@@ -75,7 +131,10 @@ const AMAZON_DOMAINS = Object.freeze(new Set([
 ]));
 const AMAZON_SUBDOMAINS = Object.freeze(new Set(['www', 'smile', 'm']));
 // Query parameters that track the visit and never identify the product.
-const TRACKING_PARAM_RE = /^(?:utm_.*|ref|fbclid|gclid)$/i;
+const TRACKING_PARAM_RE = /^(?:utm_.*|fbclid|gclid)$/i;
+// "ref" is usually tracking, but some shops use it as the product id, so it
+// stays when it is the only parameter left (CP-812).
+const REF_PARAM_RE = /^ref$/i;
 const SHORT_LINK_HOSTS = new Set(['a.co', 'amzn.to', 'amzn.eu', 'amzn.asia']);
 const ASIN_RE = /\/(?:dp|gp\/product|gp\/aw\/d)\/([a-z0-9]{10})(?=[/?#]|$)/i;
 // One word: a run of letters, numbers, and their marks (Devanagari vowel
@@ -87,6 +146,15 @@ const TWO_LETTERS_RE = /\p{L}{2}/u;
 const HEX_WORD_RE = /^[0-9a-f]+$/i;
 const DIGIT_RE = /\d/;
 const FILE_EXT_RE = /\.[a-z0-9]{1,5}$/i;
+// A "+" right after a word names a model ("Galaxy S24+", "DS224+"), so a key
+// reads it as the word "plus" (CP-812).
+const PLUS_SUFFIX_RE = /([\p{L}\p{N}])\+(?![\p{L}\p{N}])/gu;
+// Path words that name a page type, never a product ("product_info.php",
+// "product-detail"). A segment made only of these is not a name (CP-812).
+const GENERIC_PATH_WORDS = new Set([
+  'product', 'products', 'prod', 'item', 'items', 'info', 'detail', 'details',
+  'view', 'show', 'page', 'catalog', 'shop', 'store', 'goods', 'index', 'p',
+]);
 
 const EMPTY_URL_RESULT = Object.freeze({ kind: 'url', name: null, url: null, key: null });
 
@@ -114,16 +182,19 @@ export function isNameKey(key) {
 
 // The sorted unique lowercase words of name (NFKC first, so full-width
 // letters fold) joined by ' '. null when there is no word or more than
-// NAME_KEY_MAX_TOKENS.
+// NAME_KEY_MAX_TOKENS. Trailing KEY_TYPE_TAILS words go first
+// (trimProductType), so "X" and "X case", which the engine checks the same
+// way, share one key (CP-807). Spec words and years stay.
 function nameTokens(name) {
   if (typeof name !== 'string') return null;
-  const words = name.normalize('NFKC').toLowerCase().match(NAME_TOKEN_RE) || [];
+  const trimmed = trimProductType(name.normalize('NFKC'), { specs: false, tails: KEY_TYPE_TAILS });
+  const words = trimmed.replace(PLUS_SUFFIX_RE, '$1 plus').toLowerCase().match(NAME_TOKEN_RE) || [];
   const tokens = [...new Set(words)].sort();
   if (tokens.length === 0 || tokens.length > NAME_KEY_MAX_TOKENS) return null;
   return tokens.join(' ');
 }
 
-/** 'verify:name:' + the sorted unique lowercase words of name joined by ' '. null when no word or more than 20. */
+/** 'verify:name:' + the sorted unique lowercase words of name, less a trailing type word such as "case", joined by ' '. null when no word or more than 20. */
 export function productNameKey(name) {
   const tokens = nameTokens(name);
   return tokens ? NAME_KEY_PREFIX + tokens : null;
@@ -143,7 +214,8 @@ function isIdLike(words) {
 }
 
 function isSlugSpecToken(lower, i) {
-  const w = lower[i] ?? '';
+  const raw = lower[i] ?? '';
+  const w = HYPHEN_SPEC_RE.test(raw) ? raw.replace(SPEC_JOIN_RE, '') : raw;
   if (!DIGIT_RE.test(w)) return false;
   if (ORDINAL_TOKEN_RE.test(w) || YEAR_TOKEN_RE.test(w) || SPEC_UNIT_TOKEN_RE.test(w) || TIRE_SIZE_RE.test(w) || MULTI_IN_ONE_RE.test(w)) {
     return true;
@@ -157,17 +229,34 @@ function isSlugSpecToken(lower, i) {
   return false;
 }
 
+function isPairedVariantAt(lower, i) {
+  if (!PAIRED_VARIANT_WORDS.has(lower[i])) return false;
+  const next = lower[i + 1] ?? '';
+  if (PAIRED_VARIANT_NOUNS.has(next)) return false;
+  return !SLUG_DESCRIPTOR_WORDS.has(next) || NOT_DESCRIBED_WORDS.has(next);
+}
+
+function isVariantAt(lower, i) {
+  return MODEL_VARIANT_WORDS.has(lower[i]) || isPairedVariantAt(lower, i);
+}
+
+// A paired word ("dual") that describes the next word is a descriptor too.
+function isDescriptorAt(lower, i) {
+  if (PAIRED_VARIANT_WORDS.has(lower[i])) return !isPairedVariantAt(lower, i);
+  return SLUG_DESCRIPTOR_WORDS.has(lower[i]);
+}
+
 // Distills 6+ word retail SEO slugs into Brand + Series + Model + Variant.
 function distillSlugWords(words) {
   const capped = words.slice(0, SLUG_NAME_MAX_WORDS);
   if (words.length < SLUG_DISTILL_MIN_WORDS) return capped;
-  const lower = words.map((w) => w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ''));
+  const lower = words.map(lowerWord);
 
   // 1. Model number token in positions 1..4 (Brand + Series + Model [+ Variant]).
   for (let i = 1; i <= Math.min(4, words.length - 1); i += 1) {
     if (DIGIT_RE.test(lower[i]) && !isSlugSpecToken(lower, i)) {
       let end = i + 1;
-      while (end < words.length && MODEL_VARIANT_WORDS.has(lower[end])) end += 1;
+      while (end < words.length && isVariantAt(lower, end)) end += 1;
       return words.slice(0, end);
     }
   }
@@ -177,7 +266,7 @@ function distillSlugWords(words) {
     const w = lower[i];
     if (w.length >= 5 && DIGIT_RE.test(w) && /[a-z]/.test(w) && !isSlugSpecToken(lower, i)) {
       let prefixEnd = 1;
-      while (prefixEnd < Math.min(4, i) && !SLUG_DESCRIPTOR_WORDS.has(lower[prefixEnd])) {
+      while (prefixEnd < Math.min(4, i) && !isDescriptorAt(lower, prefixEnd)) {
         prefixEnd += 1;
       }
       return [...words.slice(0, prefixEnd), words[i]];
@@ -186,7 +275,7 @@ function distillSlugWords(words) {
 
   // 3. No model number: stop before the first spec or SEO descriptor word (at index >= 2).
   for (let i = 2; i < words.length; i += 1) {
-    if (isSlugSpecToken(lower, i) || SLUG_DESCRIPTOR_WORDS.has(lower[i])) {
+    if (isSlugSpecToken(lower, i) || isDescriptorAt(lower, i)) {
       return words.slice(0, Math.min(i, 4));
     }
   }
@@ -194,16 +283,118 @@ function distillSlugWords(words) {
   return capped;
 }
 
+function lowerWord(word) {
+  return word.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+// Length of the longest `tails` phrase that ends `lower`, or 0.
+function typeTailLength(lower, tails = PRODUCT_TYPE_TAILS) {
+  const tail = tails.find((phrase) => phrase.length <= lower.length
+    && phrase.every((w, i) => lower[lower.length - phrase.length + i] === w));
+  if (!tail || !isGenericTail(tail, lower.slice(0, -tail.length))) return 0;
+  return tail.length;
+}
+
+// False when the tail word is part of what the product is: an accessory
+// case, or "Phone" in a line name.
+function isGenericTail(tail, rest) {
+  const word = tail.at(-1);
+  if (CASE_WORDS.includes(word) && tail.length === 1) {
+    return !rest.some((w) => DEVICE_WORDS.includes(w));
+  }
+  if (PHONE_WORDS.includes(word)) return rest.some((w) => DIGIT_RE.test(w));
+  return true;
+}
+
+// A digit word that is not a spec, or a number with a one-letter suffix.
+function isModelWord(lower, i) {
+  const w = lower[i];
+  return DIGIT_RE.test(w) && (!isSlugSpecToken(lower, i) || ONE_LETTER_SUFFIX_RE.test(w));
+}
+
+// A one-digit V or W word when no other word is a model ("Foo Bar 2V").
+function isLoneVoltWattModel(lower, i) {
+  return SHORT_VOLT_WATT_RE.test(lower[i]) && !lower.some((_, j) => j !== i && isModelWord(lower, j));
+}
+
+// True when the last word is a spec (128GB, 20V), not a model suffix (3S) or a lone model (2V).
+function isTrailingSpec(lower) {
+  const last = lower.length - 1;
+  return isSlugSpecToken(lower, last) && !isModelWord(lower, last) && !isLoneVoltWattModel(lower, last);
+}
+
+/**
+ * The product name without trailing product-type words and trailing spec
+ * words ("DeWalt DCD791 20V drill" -> "DeWalt DCD791", "Antec C8 PC case"
+ * -> "Antec C8"), so "X" and "X case" search the same way (CP-777). Never
+ * leaves fewer than TYPE_TRIM_MIN_WORDS words: "OtterBox case" stays.
+ * `specs: false` keeps trailing spec words (keys: "MacBook Air 2024" and
+ * "2022" are two products); `tails` replaces the type phrases.
+ */
+export function trimProductType(product, { specs = true, tails = PRODUCT_TYPE_TAILS } = {}) {
+  const words = String(product ?? '').trim().split(/\s+/).filter(Boolean);
+  let lower = words.map(lowerWord);
+  for (;;) {
+    const cut = typeTailLength(lower, tails) || (specs && isTrailingSpec(lower) ? 1 : 0);
+    if (cut === 0 || lower.length - cut < TYPE_TRIM_MIN_WORDS) break;
+    lower = lower.slice(0, -cut);
+  }
+  return words.slice(0, lower.length).join(' ');
+}
+
 /**
  * Distills a 6+ word SEO product name or slug into concise Brand + Series +
- * Model + Variant words for search queries. Shorter names stay unchanged.
+ * Model + Variant words for search queries. Shorter names only lose trailing
+ * product-type and spec words (trimProductType).
  */
 export function distillProductName(product) {
   const raw = String(product ?? '').trim();
   if (!raw) return '';
   const words = raw.split(/\s+/).filter(Boolean);
-  if (words.length < SLUG_DISTILL_MIN_WORDS) return raw;
+  if (words.length < SLUG_DISTILL_MIN_WORDS) return trimProductType(raw);
   return distillSlugWords(words).join(' ');
+}
+
+// A Jina read starts with "Title: ..."; a page title from a search is a
+// field. Amazon wraps it as "Amazon.com: <name> : <Department>".
+const READ_TITLE_RE = /^Title:[ \t]*(.+)$/m;
+const STORE_PREFIX_RE = /^amazon\.[a-z.]+\s*:\s*/i;
+const DEPARTMENT_SUFFIX_RE = /\s+:\s+[^:]*$/;
+// The name part of a title ends at the first comma, bar, or dash between words.
+const TITLE_CUT_RE = /\s*(?:[,|]|\s[-–—]\s)/;
+
+/**
+ * True when one word of the name is a model number: a digit that is not a
+ * spec, or a number with a one-letter suffix ("MX Master 3S", "iPhone 5c").
+ */
+export function hasModelNumber(name) {
+  const lower = String(name ?? '').split(/\s+/).filter(Boolean).map(lowerWord);
+  return lower.some((_, i) => isModelWord(lower, i));
+}
+
+function pageTitle(page) {
+  const fromRead = String(page?.content ?? '').match(READ_TITLE_RE)?.[1];
+  const field = typeof page?.title === 'string' && page.title !== page?.url ? page.title : '';
+  return (fromRead || field).trim();
+}
+
+/**
+ * The product name with its model number taken from the pasted page's title,
+ * when the name has none (an Amazon slug such as
+ * "Antec-Chamber-Compatible-Full-Tower" drops "C8"). The title name must
+ * start with the name's first word (the brand) and hold a model number;
+ * otherwise the name stays. `page` is { url, title, content } (a page read).
+ * Pure. Never throws.
+ */
+export function modelNameFromPage(name, page) {
+  const current = String(name ?? '').trim();
+  if (!current || hasModelNumber(current)) return current;
+  const title = pageTitle(page).replace(STORE_PREFIX_RE, '').replace(DEPARTMENT_SUFFIX_RE, '');
+  const candidate = distillProductName(title.split(TITLE_CUT_RE)[0] ?? '');
+  const brand = lowerWord(current.split(/\s+/)[0]);
+  const sameBrand = lowerWord(candidate.split(/\s+/)[0] ?? '') === brand;
+  if (!sameBrand || !hasModelNumber(candidate)) return current;
+  return capName(candidate) ?? current;
 }
 
 // Turn one path segment into a name, or null. sep splits the words.
@@ -211,6 +402,7 @@ function slugToName(segment, sep) {
   const text = safeDecode(segment).replace(FILE_EXT_RE, '');
   const words = text.split(sep).filter(Boolean);
   if (words.length < SLUG_NAME_MIN_WORDS || !LETTER_RE.test(text)) return null;
+  if (words.every((w) => GENERIC_PATH_WORDS.has(w.toLowerCase()))) return null;
   return distillSlugWords(words).join(' ');
 }
 
@@ -243,9 +435,11 @@ function isAmazonHost(host) {
 }
 
 // '?' + the non-tracking params sorted by name, or '' when none are left.
+// "ref" goes too unless nothing else is left.
 function productQuery(searchParams) {
-  const kept = [...searchParams]
-    .filter(([name]) => !TRACKING_PARAM_RE.test(name))
+  const untracked = [...searchParams].filter(([name]) => !TRACKING_PARAM_RE.test(name));
+  const withoutRef = untracked.filter(([name]) => !REF_PARAM_RE.test(name));
+  const kept = (withoutRef.length > 0 ? withoutRef : untracked)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return kept.length > 0 ? `?${new URLSearchParams(kept)}` : '';
 }

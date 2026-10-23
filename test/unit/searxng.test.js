@@ -153,7 +153,7 @@ function testRankFiltering(m, t) {
   t.ok('rank: unblocked dictionary-like page dropped as off-topic', !urls.some((u) => u.includes('example-dict.com')));
   t.ok('rank: non-http url dropped', !urls.some((u) => u.startsWith('ftp:')));
   t.ok('rank: lookalike host notpinterest.com kept', urls.includes('https://notpinterest.com/robot-vacuum'));
-  t.ok('rank: relevant expert page kept', urls.includes('https://rtings.com/vacuum/reviews/best/robot'));
+  t.ok('rank: relevant expert page kept with its original url', urls.includes('https://www.rtings.com/vacuum/reviews/best/robot'));
   const hp = m.rankResults([
     { url: 'https://x.example/sony-xm4', title: 'Sony WH-1000XM4 review', content: 'XM4', engines: ['google'] },
     { url: 'https://y.example/sony-xm5', title: 'Sony WH-1000XM5 review', content: 'XM5', engines: ['google'] },
@@ -168,9 +168,23 @@ function testRankDedupe(m, t) {
     vacuumResult('https://www.reddit.com/r/RobotVacuums/comments/a1/best_robot_vacuum?utm_source=x', { engines: ['bing', 'google'], content: longer }),
   ], VACUUM_QUERY, NOW_MS);
   t.eq('dedupe: old and www reddit merge to one', merged.length, 1);
-  t.eq('dedupe: merged url is normalized', merged[0]?.url, 'https://reddit.com/r/RobotVacuums/comments/a1/best_robot_vacuum');
+  t.eq('dedupe: merged url is the first original url', merged[0]?.url, 'https://old.reddit.com/r/RobotVacuums/comments/a1/best_robot_vacuum/');
   t.eq('dedupe: engines unioned', sortedCopy(merged[0]?.engines ?? []), ['bing', 'google']);
   t.eq('dedupe: longest content kept', merged[0]?.content, longer);
+}
+
+// CP-712: the normalized URL is only the merge key; results keep the URL the
+// engine gave, minus credentials, tracking params, and the fragment.
+function testOriginalUrlKept(m, t) {
+  const one = (url) => m.rankResults([vacuumResult(url)], VACUUM_QUERY, NOW_MS)[0]?.url;
+  // https stays forced: read_page and Jina accept only https URLs.
+  t.eq('original: www and trailing slash kept, http upgraded', one('http://www.oldsite.example/robot-vacuum/'), 'https://www.oldsite.example/robot-vacuum/');
+  t.eq('original: tracking params and fragment dropped',
+    one('https://www.x.example/robot-vacuum?utm_source=a&id=7#top'), 'https://www.x.example/robot-vacuum?id=7');
+  t.eq('original: userinfo dropped', one('https://rtings.com@evil.example/robot-vacuum'), 'https://evil.example/robot-vacuum');
+  t.eq('urlKey: www, http, and trailing slash share one key', m.urlKey('http://www.x.example/a/'), m.urlKey('https://x.example/a'));
+  t.eq('urlKey: unparseable url is its own key', m.urlKey('not a url'), 'not a url');
+  t.eq('urlKey: missing url has no key', m.urlKey(undefined), null);
 }
 
 // Score of one result ranked alone, so every compared pair shares input position 0.
@@ -197,7 +211,7 @@ function testRankOrdering(m, t) {
     vacuumResult('https://randomblog-xyz.net/best-robot-vacuum'),
     vacuumResult('https://www.rtings.com/vacuum/reviews/best/robot', { engines: ['google', 'bing', 'mojeek'] }),
   ], VACUUM_QUERY, NOW_MS);
-  t.eq('order: output sorted by score desc', pair.map((r) => r.url)[0], 'https://rtings.com/vacuum/reviews/best/robot');
+  t.eq('order: output sorted by score desc', pair.map((r) => r.url)[0], 'https://www.rtings.com/vacuum/reviews/best/robot');
 }
 
 function testRankShapeAndCap(m, t) {
@@ -237,7 +251,8 @@ async function testSearchRequest(m, t) {
   });
   await withFakeFetch(() => jsonResponse({ results: USABLE_FOUR }), async (calls) => {
     await m.searxngSearch(VACUUM_QUERY, BASE_URL, { topic: 'news' });
-    t.eq('request: categories=news for topic news', new URL(calls[0]?.url ?? 'https://invalid.test/').searchParams.get('categories'), 'news');
+    // CP-711: no engine on the instance serves category news, so news uses the general engines.
+    t.eq('request: no categories param for topic news', new URL(calls[0]?.url ?? 'https://invalid.test/').searchParams.has('categories'), false);
     t.eq('request: no gate header without token', gateHeader(calls[0]), null);
   });
   await withFakeFetch(() => jsonResponse({ results: USABLE_FOUR }), async (calls) => {
@@ -280,7 +295,7 @@ async function testSearchSuccess(m, t) {
   t.ok('success: sourceLabel applied', labeled?.every((r) => r.source === 'searxng'));
   t.ok('success: default source is web', plain?.every((r) => r.source === 'web'));
   t.eq('success: result keys', Object.keys(labeled?.[0] ?? {}).sort(), ['content', 'publishedAt', 'source', 'title', 'url']);
-  t.ok('success: urls normalized', labeled?.some((r) => r.url === 'https://reddit.com/r/RobotVacuums/comments/a1/best_robot_vacuum'));
+  t.ok('success: original urls kept', labeled?.some((r) => r.url === 'https://old.reddit.com/r/RobotVacuums/comments/a1/best_robot_vacuum/'));
   t.ok('success: junk removed', !labeled?.some((r) => /merriam-webster|pinterest|^ftp:/.test(r.url)));
   t.ok('logs: gate token never printed', !printed.includes(GATE_TOKEN));
 }
@@ -371,7 +386,7 @@ async function testSiteSearch(m, t) {
 
 const SYNC_GROUPS = [
   testConstants, testNormalizeResultUrl, testQueryTokens, testIsRelevant,
-  testRankFiltering, testRankDedupe, testRankOrdering, testRankShapeAndCap, testRankImmutability,
+  testRankFiltering, testRankDedupe, testOriginalUrlKept, testRankOrdering, testRankShapeAndCap, testRankImmutability,
   // Every group is awaited, so the async regression group can sit here.
   testRelevanceRegressions, testUrlRegressions, testGateControlChars,
   testSiteSearch,

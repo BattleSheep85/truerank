@@ -98,3 +98,27 @@ describe('getRetiredVerification', () => {
     expect(await getRetiredVerification(throwingDb, RETIRED_SLUG)).toBeNull();
   });
 });
+
+// CP-784: the poll API must not leak a retired row. It answers exactly like a
+// missing row (same status, same body), so a caller cannot tell them apart.
+describe('GET /api/verify/:id for a retired row', () => {
+  async function idOf(slug) {
+    const row = await env.DB.prepare('SELECT id FROM research WHERE slug = ?1').bind(slug).first();
+    return row.id;
+  }
+
+  it('answers the same 404 as a missing row', async () => {
+    const retired = await SELF.fetch(`${BASE}/api/verify/${await idOf(RETIRED_SLUG)}`);
+    const missing = await SELF.fetch(`${BASE}/api/verify/no-such-verify-id`);
+    expect(retired.status).toBe(404);
+    expect(retired.status).toBe(missing.status);
+    expect(await retired.text()).toBe(await missing.text());
+  });
+
+  it('still serves a live row', async () => {
+    const res = await SELF.fetch(`${BASE}/api/verify/${await idOf(LIVE_SLUG)}`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('completed');
+  });
+});

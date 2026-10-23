@@ -46,7 +46,29 @@ export function pageBehaviorScript() {
       });
     });
   }
-  function run(){wireCopy();wireNativeShare();wireImages()}
+  // Report vote (CP-352): "No" = rating 1, "Yes" = rating 5.
+  function wireVotes(){
+    document.querySelectorAll('[data-report-id] .js-vote').forEach(function(btn){
+      if(btn.__wired)return;btn.__wired=true;
+      btn.addEventListener('click',function(){
+        var box=btn.closest('[data-report-id]');
+        var msg=box.querySelector('.js-vote-msg');
+        var buttons=box.querySelectorAll('.js-vote');
+        function setDisabled(v){buttons.forEach(function(b){b.disabled=v})}
+        function say(t){if(msg)msg.textContent=t}
+        setDisabled(true);
+        fetch('/api/feedback',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({reportId:box.dataset.reportId,rating:Number(btn.dataset.rating)})
+        }).then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d}})}).then(function(res){
+          if(!res.ok){setDisabled(false);say((res.d&&res.d.error)||'Could not save your answer. Try again later.');return;}
+          say(btn.dataset.rating==='1'?'Thanks. When enough readers disagree, Frank researches this again.':'Thanks for telling us.');
+        }).catch(function(){setDisabled(false);say('Network error. Try again.')});
+      });
+    });
+  }
+  function run(){wireCopy();wireNativeShare();wireImages();wireVotes()}
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',run)}else{run()}
   // Expose for post-swap rewiring after the activity feed completes a research.
   window.__rewire=run;
@@ -151,7 +173,7 @@ document.addEventListener('DOMContentLoaded',function(){
 // Email capture: wires whichever #notify-form is on the page (the compact box
 // on processing pages, or the footer form on completed pages) to POST
 // /api/subscribe. researchId is the report id so we can notify on re-research.
-export function subscribeScript(researchId) {
+export function subscribeScript(researchId = null) {
   return `<script nonce="__CSP_NONCE__">
 (function(){
   function wire(){
@@ -171,7 +193,7 @@ export function subscribeScript(researchId) {
         body:JSON.stringify({email:email,researchId:researchId})
       }).then(function(r){var ct=r.headers.get('content-type')||'';if(ct.indexOf('application/json')===-1){throw new Error('non-json')}return r.json()}).then(function(d){
         if(d&&d.ok){
-          if(msg)msg.textContent='Check your inbox and click the link to confirm.';
+          if(msg)msg.textContent=d.mail==='off'?'Email is not switched on yet, so we cannot send you anything. Please try again later.':'Check your inbox and click the link to confirm.';
           form.style.display='none';
         }else{
           if(msg)msg.textContent='That email looks off. Try again?';
@@ -233,9 +255,10 @@ export function chatScript(slug) {
       fetch('/api/research',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({query:query,clarifications:refinements||{},fresh:true})
+        body:JSON.stringify({query:query,clarifications:refinements||{}})
       }).then(function(r){return r.json()}).then(function(d){
         if(d.error){if(status)status.textContent=d.error;return;}
+        if(d.cached&&d.slug&&location.pathname==='/research/'+d.slug){if(status)status.textContent='Frank already has a recent report for that question: this page.';return;}
         if(d.slug){window.location.href='/research/'+d.slug;return;}
         if(d.id){window.location.href='/research/'+d.id;return;}
         if(status)status.textContent='Something went wrong. Try again.';

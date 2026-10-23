@@ -17,7 +17,8 @@
 // (schema/005) that may not be applied yet. Their queries are wrapped in
 // try/catch and degrade to zero/empty results if the table is missing.
 
-import { monthKey, monthlyBudgetUsd } from '../pipeline/orchestrator.js';
+import { monthlyBudgetUsd, monthlyLedgerUsd } from '../lib/budget.js';
+import { monthKey } from '../lib/utils.js';
 import { jsonResponse as sharedJsonResponse } from '../lib/http-response.js';
 import {
   ingestGsc,
@@ -55,12 +56,14 @@ function countMap(rows, keyField) {
 
 async function getMonthSpend(env, nowSeconds) {
   const month = monthKey(new Date(nowSeconds * 1000));
-  let spent = 0;
+  let cached = 0;
   try {
-    spent = Number(await env.KV.get(`cost:${month}`)) || 0;
+    cached = Number(await env.KV.get(`cost:${month}`)) || 0;
   } catch {
-    spent = 0;
+    cached = 0;
   }
+  // The D1 ledger is the race-free total; KV is a cache that can lag it.
+  const spent = Math.max(cached, await monthlyLedgerUsd(env, month));
   const budget = monthlyBudgetUsd(env);
   return {
     month,

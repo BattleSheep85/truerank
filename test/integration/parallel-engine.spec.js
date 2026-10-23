@@ -79,6 +79,54 @@ describe('runParallelEngine', () => {
     expect(events.some((m) => m.includes('Report complete'))).toBe(true);
   });
 
+  it('gives the planner the non-product classifier facets, like engine.js (CP-819)', async () => {
+    const plannerUser = () => {
+      const call = mocks.callLLM.mock.calls.find(([, , msgs]) => (msgs?.[0]?.content || '').includes('research aspects'));
+      return call?.[2]?.[1]?.content || '';
+    };
+    await runParallelEngine('plumber near austin', CONFIG, 'key', {}, () => {}, { recency_sensitive: false, is_buyable: false, needs_location: true, is_service: true }, 'Plumbing', {});
+    expect(plannerUser()).toContain('LOCATION-AWARE focus');
+    expect(plannerUser()).toContain('SERVICE/PROFESSIONAL focus');
+    expect(plannerUser()).not.toContain('BUYABLE PRODUCT focus');
+
+    mocks.callLLM.mockClear();
+    await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, null, 'NAS', {});
+    expect(plannerUser()).toContain('Query: "best home nas"');
+    expect(plannerUser()).not.toContain('focus:');
+
+    // A plain product (every verify gather) keeps the plain planner prompt.
+    mocks.callLLM.mockClear();
+    await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, { is_buyable: true, sold_on_amazon: true, recency_sensitive: true }, 'NAS', {});
+    expect(plannerUser()).not.toContain('focus:');
+  });
+
+  it('keeps the cost of a notes call whose reply is not JSON (CP-819)', async () => {
+    const facets = { recency_sensitive: false, is_buyable: true };
+    const good = await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, facets, 'NAS', {});
+    const base = mocks.callLLM.getMockImplementation();
+    mocks.callLLM.mockImplementation(async (key, model, messages) => {
+      const sys = messages?.[0]?.content || '';
+      if (model !== CONFIG.synthModel && sys.includes('extract factual research findings')) {
+        return { choices: [{ message: { content: 'not json at all' } }], usage: { cost: 0.001 } };
+      }
+      return base(key, model, messages);
+    });
+    const bad = await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, facets, 'NAS', {});
+    expect(bad.totalCostUsd).toBeCloseTo(good.totalCostUsd, 6);
+  });
+
+  it('merges url variants of one page from different providers (CP-710)', async () => {
+    let call = 0;
+    mocks.runSearch.mockImplementation(async () => {
+      call++;
+      const url = call % 2 ? 'https://rtings.com/nas' : 'http://www.rtings.com/nas/';
+      return [{ url, title: 'NAS Review', source: 'web', credibility: { score: 80, tags: ['expert-domain'] } }];
+    });
+    const res = await runParallelEngine('best home nas', CONFIG, 'key', {}, () => {}, { recency_sensitive: false }, 'NAS', {});
+    expect(call).toBeGreaterThan(1);
+    expect(res.sources.map((s) => s.url)).toEqual(['https://rtings.com/nas']);
+  });
+
   it('zero sources → honest non-result (empty products, no synth call)', async () => {
     mocks.runSearch.mockImplementation(async () => []);
     const res = await runParallelEngine('obscure query xyz', CONFIG, 'key', {}, () => {}, { recency_sensitive: true }, 'Misc', {});

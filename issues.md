@@ -1,6 +1,40 @@
 # Issues
 
-Last updated: 2026-10-16
+Last updated: 2026-10-23
+
+## 2026-10-18: CP-800, eval checks (legit_recall, link_correctness, non-product golden queries)
+
+- [x] HIGH (UX, affiliate): local and experience pages show "Search Amazon" buttons. Live 2026-10-18, found by the new golden-query check: "best coffee shops in brooklyn" (11 buttons), "best day hikes near denver colorado", "best national parks to visit in winter". The page treats a row as a service only when the category matches NON_PRODUCT_CATEGORY_HINTS or facets.is_service is true; "coffee shops in Brooklyn", "day hikes near Denver" and "winter national parks" match neither, and sold_on_amazon is not false. Likely fix: also treat needs_location and is_experience facets as web-only. worker/pages/research-page.js isService/webOnly, worker/pages/research-primitives.js NON_PRODUCT_CATEGORY_HINTS. Fixed 2026-10-19 (CP-803): worker/lib/page-kind.js pageKind treats an is_experience or needs_location row that is not is_buyable as a service page (Google hand-off, no Amazon); the research page, the reviews cards and the orchestrator's ASIN gate (isAmazonViable) share it. Tests: test/unit/page-kind.test.js, test/integration/cp803-boundaries.spec.js. Live pages change after the deploy and the page cache refresh. Merged in cf55705 (PR #17), deployed 2026-10-19. Live check: a fresh render of best-coffee-shops-in-brooklyn shows 0 Amazon buttons and 17 "Find on Google".
+- [ ] MEDIUM (Product, quality): 4 of 11 golden product queries have a #1 pick outside the accepted set (live 2026-10-18): budget mechanical keyboard (Logitech 75% Mechanical), electric pressure cooker (Cuisinart), password manager (NordPass), robot vacuum for pet hair (TP-Link Tapo RV30 Max Plus). The eval could not see this before: its HTML patterns were stale and read every pick as empty (fixed in CP-800). Check each with a source before changing the accepted lists. eval/golden-queries.json. Checked 2026-10-19 (CP-803): robot vacuum was an eval error, the eval read a public test run ("... diagnostic 20260621", most viewed in autocomplete); the real page picks iRobot Roomba Combo 10 (accepted). Fixed: scripts/lib/eval-score.mjs pickExistingSlug reads the page in the query's own cache cluster and skips test runs; schema/020 retired the two public test runs. Free eval now 8/11. The other three pages (keyboard, pressure cooker, password manager) were made 2026-06-12 to 2026-06-13 by the old LLM synth, before the extraction engine shipped (2026-06-17): their saved pros show misattribution (Cuisinart's pro is a sentence about the Instant Pot Rio), a coupon line as praise ("Save 58% on NordPass Premium"), and a 4.5 rating on 2 sources over Bitwarden's 8. Whether today's engine picks right needs a paid rerun; left open.
+- [x] LOW (Security, data): a SQL-injection probe became a public research page: "Best Tax Software for Self Employed) and Extractvalue(6920,concat(0x5c,...". Queries are parameterized, so nothing ran, but the probe text is published and listed in search suggestions. Consider rejecting queries with SQL syntax at the boundary and retiring that row. worker/handlers/research.js. Fixed 2026-10-19 (CP-803): the exact probe was already rejected on main (special characters and the long run); worker/lib/safety.js now also rejects EXTRACTVALUE(, UPDATEXML(, LOAD_FILE(, "and 1=1" / "' or 'a'='a" tautologies and a quote followed by -- or /*. schema/019 retired the 5 probe rows (live, they answer 410). Merged in cf55705 (PR #17), deployed 2026-10-19. Live: "best laptop and 1=1" answers 422 (probe).
+- [x] HIGH (UX, safety): normal searches blocked by the safety screen: "fentanyl test strips" (illegal), and "buy a tv", "sony a 7 iv", "canon r 6", "a v receiver", "i 9 laptop", "nikon z 5", "tv stand", "iphone 16", "pixel 9" (probe: fewer than 2 tokens of 3+ letters). Found by QA in batch 8. Fixed 2026-10-19 (CP-803): worker/lib/safety.js needs one real word plus any second token; drug-checking kits pass the hard-drug patterns (any other mention of the drug still blocks); the classifier prompt allows them too. CP-394 bypasses stay blocked. Tests: test/unit/safety.test.js sections 10 and 11. Merged in cf55705 (PR #17), deployed 2026-10-19.
+- [x] MEDIUM (Testing): run-eval.mjs read every live page as empty: the Our-pick and product-card patterns no longer matched the page markup (class lists grew), so pick accuracy was 0 and product counts 0. Fixed in CP-800: scoring moved to scripts/lib/eval-score.mjs with unit tests against the current markup (test/unit/eval-score.test.js).
+
+## 2026-10-18: CP-789, judge verdict and repeat runs
+
+- [ ] HIGH (Product, verify): repeat-run spread is still above target after the race fix. Live 2026-10-18 (16 runs, race fix deployed, before stance votes): Fractal Design North 70 vs 50, DeWalt DCD791 50 vs 50, Galaxy S25 Ultra 50 vs 70, Ninja Creami 63 vs 67, Pixel 9 Pro 30 vs 50, Dyson V15 Detect 59 vs 59, CrossClimate 2 50 vs 50 (4 of 7 within 15). Two causes: (1) each run gathers different pages (no page cache), (2) the judges are not repeatable. Next step needs an owner decision: save the gathered pages per product for 30 days like the claims, or bench a judge that does not think before it answers. worker/engine/verify.js. Owner said yes on 2026-10-22: saved pages shipped in c385282 and 3991707 (CP-789, worker/lib/page-cache.js): a scored check keeps its pages and claims in KV for 30 days, and a re-check judges the same pages. Live 2026-10-23 (13:53 to 14:56 UTC, 24 runs, $0.87, normal path), runs 1, 2 and 3: Fractal Design North 50, 67, 70; DeWalt DCD791 50, 50, 50; Galaxy S25 Ultra 63, 60, 50; Ninja Creami 60, 50, 50; Pixel 9 Pro no score, 29, 25; Dyson V15 Detect 61, 61, 61; CrossClimate 2 no score, no score, no score. First pair (run 1 vs run 2): 5 of 7 within 15 (CrossClimate counted as the same verdict). Fractal 50 vs 67 judged the same saved pages, so that miss is judge noise. Pixel run 1 ended with no score, so it saved no pages and run 2 gathered again. Every pair that judged the same pages is within 15 points except Fractal 50 vs 67. Runs 2 vs 3: 7 of 7. Still open: (1) judge noise on the same pages (Fractal), (2) a check with no score saves no pages, so CrossClimate 2 gathers again each run and never gets a score (it scored 50 and 30 before). worker/engine/verify.js, worker/lib/page-cache.js.
+- [x] HIGH (Product, verify): Antec C8 by name: 50 in one run, "Not enough independent evidence" in the next (2026-10-18). 6 of 8 claims had no deciding source in both runs. worker/engine/verify.js, worker/engine/verify-resolve.js. Fixed 2026-10-23 (CP-789, saved pages): live by name 50, 50, 50 in three runs; runs 2 and 3 judged the 207 pages saved by run 1.
+- [x] MEDIUM (Product, verify): the stance judge is not repeatable on the same pages. mimo-v2.6-flash thinks before it answers, so temperature 0 does not fix its answer: in 4 replays of the same Galaxy S25 Ultra pages, 2 of 8 claims changed verdict. OpenRouter serves mimo from 8 hosts and minimax-m3 from 14, but pinning one host did not help (4 of 8 claims stable). Thinking off: 7 of 8 stable but it changed a correct verdict. Fixed in part (CP-789): mimo answers 3 times and the majority stance per source counts (stanceVotes, about $0.004 more per check); replays went from 5 or 4 of 8 stable to 6 of 8. Votes for minimax too (3 of 3 and 5 of 3) cost about $0.05 more per check and did not do better. worker/engine/stance-votes.js.
+- [x] LOW (Product, verify): when the hedge starts minimax early and mimo then decides, the minimax cost is counted only if minimax already finished. worker/engine/verify.js judgeClaim. Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): when the primary decides while the early fallback still runs, judgeClaim returns lateCostUsd (a promise of that call's cost); runVerification sums them (lateJudgeCost) and the verify orchestrator adds the amount to research.cost_usd and the month once the call finishes, after the report is saved, so the verdict is not delayed. worker/engine/verify.js, worker/pipeline/verify-orchestrator.js. Tests: test/unit/verify-speed.test.js, test/unit/verify.test.js, test/integration/verify.spec.js.
+
+## 2026-10-17: CP-718 round 3, page-read timeouts
+
+- [x] HIGH (Product, verify): page reads queued behind the Worker's ~6 open connections while their 8 s timer ran (the check started up to 24 searches and 16 reads at once). Fixed in 13cf1ef: each check has a connection gate with 5 slots; searches and reads (Jina, direct fallback, focused read) start their timer only when they hold a slot. Live 2026-10-17 (18:50 to 19:20 UTC, 16 runs, $0.53): test pages 5 to 8 of 8 filled in every run (was 2 to 8), gather reads 38 to 49 of 50 with text, every run of the 7 products got a score. worker/lib/connection-gate.js, worker/lib/jina.js, worker/engine/tools.js.
+- [x] HIGH (Product, verify): repeat-run spread is now 5 of 7 within 15 points (target 7 of 7). Same claims and nearly the same pages in both runs; the judges decide differently. Pairs: Fractal Design North 50 vs 38, DeWalt DCD791 50 vs 63, Galaxy S25 Ultra 44 vs 39, Ninja Creami 50 vs 75, Pixel 9 Pro 33 vs 29, Dyson V15 Detect 50 vs 61, CrossClimate 2 30 vs 50. The primary judge (mimo-v2.6-flash) missed its 10 s hedge on almost every claim, so minimax-m3 ran too and the first decided verdict won, which is a race. worker/engine/verify.js judgeClaims. Fixed in a37e827 (CP-789): the hedge only starts minimax early; a decided mimo verdict always wins, else a decided minimax verdict, whichever answers first.
+- [x] HIGH (Product, verify): Antec C8 by Amazon link now scores 50 live. By name it ended at "Not enough independent evidence" (1 of 8 claims decided) with the same saved claims and 6 of 8 test pages read; round 2 scored it 50. Judge variance again. worker/engine/verify.js. The race part is fixed in a37e827 (CP-789); the rest is in the CP-789 items above.
+- [ ] LOW (Product, verify): about 11 real Jina timeouts per run remain (8 s, slow pages on cnet, techpowerup, amazon, tomshardware); most fall back to a direct fetch. worker/lib/jina.js JINA_TIMEOUT_MS.
+
+## 2026-10-16: CP-718 round 2, stable claims and Antec C8 evidence
+
+- [x] HIGH (Product, verify): two runs of one product checked different claims (Dyson V15 Detect: charge time, bin size and weight in one run, sensor features in the other; 13 vs 80). Fixed in 29978aa and aed9596: the first run's claims are saved in KV for 30 days under the product's name key (plus the pasted page, if any), and later runs reuse them. Live check 2026-10-16: every second run logged "reused 8 saved claims". worker/lib/claim-cache.js, worker/engine/verify.js.
+- [x] HIGH (Product, verify): one page could contradict a claim alone (a listicle about other cases contradicted "fits GPUs up to 440 mm" on Antec C8; one spec list contradicted its front I/O). Fixed in 29978aa: a contradiction needs two independent voices (each Reddit/YouTube page is one author, all buyer reviews together are one) or one expert test with credibility 85+. worker/lib/verdict.js.
+- [x] HIGH (Product, verify): close figures were contradictions (230 vs 240 AW, 175 vs 181 mm, "up to 5 hours" vs 4.5 hours). Fixed in 29978aa: tolerance 10%, 20% below an "up to" claim; air watts, litres, rpm, psi and fractional inches parse. worker/lib/quantity.js.
+- [x] MEDIUM (Product, verify): charge times, dust bin sizes, tire pressure, tread depth, tire diameter/width and speed ratings were checked claims. Fixed in 29978aa (isTestableClaim and the extraction prompt). worker/engine/verify.js.
+- [x] HIGH (Product, verify): the GamersNexus ("Antec C8 ARGB") and KitGuru ("Antec Constellation C8") reviews were never read or used: ARGB counted as another model, and a series word between brand and model broke the name match. TechPowerUp's 10 review pages also took every test-page read. Fixed in 29978aa: lighting words are not a model, a "Brand Series Model" title names "Brand Model", at most 2 reads per site, no Reddit reads (always blocked; snippets stay), and a direct fetch when a site refuses Jina. worker/engine/verify-resolve.js, worker/lib/jina.js.
+- [x] MEDIUM (Product, verify): a stance reply cut off at the token limit ("0 of 15 sources judged") left a claim unjudged in one run and judged in the next. Fixed in 839cc50: the unjudged sources go again in two smaller calls. worker/engine/verify.js.
+- [x] HIGH (Product, verify): production page reads time out at random (fixed in 13cf1ef, see 2026-10-17 above; 127 Jina timeouts of 8 s in 7 live runs; test pages "2 of 8 filled" in some runs, "8 of 8" in others). A Worker keeps about 6 connections open, so reads wait in a queue while their 8 s timer runs. The same claims then get different evidence, and repeat runs still swing. Live pairs on 2026-10-16 (22:36 to 23:00 UTC, same claims in both runs): Fractal Design North 70 vs 75, Dyson V15 Detect 50 vs 50, DeWalt DCD791 no score vs 50, Galaxy S25 Ultra no score (1 claim extracted) vs 36, Ninja Creami 40 vs 75, Pixel 9 Pro no score vs no score, CrossClimate 2 50 vs no score (2 of 7 within 15 points, 3 counting Pixel). After 839cc50: Fractal 25 (Tom's Hardware read this time: thumbscrew side panels, wood veneer), DeWalt 50, S25 39, Creami 70. Antec C8 by name 50; by Amazon link "Not enough independent evidence" in production (0 of 8), 50 in a local run that read GamersNexus and KitGuru. worker/lib/jina.js, worker/engine/verify-resolve.js.
+- [x] MEDIUM (Product, verify): an Amazon link whose slug has no model number (".../Antec-Chamber-Compatible-Full-Tower/dp/...") checks a name without the model, and almost no evidence matches. The page title is not used to fix the name. worker/lib/product-link.js. Fixed 2026-10-19 (CP-807): when the link name has no model number, the check reads the pasted page first (at most verifyPastedNameReadMs, 10 s) and takes the model from its title (modelNameFromPage: same brand word, holds a model number, passes the safety screen), so ".../Antec-Chamber-Compatible-Full-Tower/dp/B0CP3MZXVH" checks "Antec C8" (the live Amazon title, read 2026-10-19). The read page is reused as the claim page. worker/engine/verify.js nameFromPastedPage. Tests: test/unit/product-link.test.js, test/integration/verify-speed.spec.js. Merged in 79da27b (PR #19), deployed 2026-10-19.
+- [x] LOW (Product, verify): a first run with weak claims keeps them for 30 days; only bumping CLAIM_CACHE_VERSION clears every saved set. worker/lib/claim-cache.js. Fixed 2026-10-19 (CP-819): a check that ends with no score ("Not enough independent evidence") re-saves its claim set with a 1-day TTL (CLAIM_CACHE_WEAK_TTL_SECONDS) and marks it short, so the next run after that day extracts again. A set already marked short is not re-saved, so checks that reuse it within the day do not push its expiry out (code review finding). A scored check keeps the 30-day set. Rule chosen from the code: "no score" is the one outcome a reused set can never improve on its own; a count rule would also cut sets that score fine. CLAIM_CACHE_VERSION stays v1. worker/lib/claim-cache.js (shortenCachedClaims), worker/engine/verify.js (keepClaimsByOutcome). Tests: test/unit/claim-cache.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## 2026-10-16: Stage 3 cross-model verification of the 200-buyer-review audit (CP-723)
 
@@ -12,21 +46,44 @@ Last updated: 2026-10-16
 
 - [x] HIGH (Product, verify): the probe screen rejected the Antec C8 Amazon link in production. CP-720 distills the link to "Antec C8", and rule 7 of isProbeQuery needed two words of 3+ characters. Fixed in b4aab10: a token with a letter and a digit (C8, A7) counts as a word. worker/lib/safety.js.
 
-- [ ] HIGH (Product, verify): repeat-run score spread is still above the 15-point target. Live pairs on 2026-10-16: Fractal Design North 50 vs 0, DeWalt DCD791 64 vs 25, Galaxy S25 Ultra 73 vs 41, Dyson V15 Detect 38 vs 63, Pixel 9 Pro 38 vs 25, CrossClimate 2 43 vs 50, Ninja Creami 41 vs 50 (3 of 7 within 15). worker/engine/verify.js, worker/engine/verify-resolve.js.
+- [x] HIGH (Product, verify): repeat-run score spread is still above the 15-point target. Live pairs on 2026-10-16: Fractal Design North 50 vs 0, DeWalt DCD791 64 vs 25, Galaxy S25 Ultra 73 vs 41, Dyson V15 Detect 38 vs 63, Pixel 9 Pro 38 vs 25, CrossClimate 2 43 vs 50, Ninja Creami 41 vs 50 (3 of 7 within 15). worker/engine/verify.js, worker/engine/verify-resolve.js. Cause: each pair was one product under two names ("Fractal Design North" vs "Fractal Design North case", "DeWalt DCD791 drill" vs "DeWalt DCD791 20V drill"). The type words changed the searches, so the two runs read different pages and checked different claims. Also, four pages of one blog, or four regional mirrors of one review (pcmag.com, au.pcmag.com, me.pcmag.com), counted as four votes. Fixed on agent/dev/cp-777 (CP-777): runVerification checks the name without trailing type and spec words (trimProductType; a model suffix such as "3S" or "5c" stays), and under the verification policy each site adds only its strongest page and counts as one corroborator. Blogs on shared hosts (blogspot.com, substack.com) stay separate, sites under country suffixes (zol.com.cn, which.org.uk) stay apart, Reddit and YouTube threads still add up page by page, and an accessory case ("iPhone 16 case") or a line name ("Asus ROG Phone") keeps its last word. Needs a live repeat-run check after deploy. worker/engine/verify.js, worker/lib/product-link.js, worker/lib/verdict.js.
 
-- [ ] HIGH (Product, verify): Antec C8 still ends at "Not enough independent evidence" (link and name runs, 0 and 1 of 8 claims corroborated), although the 8 extracted spec claims are now real (GPU 440 mm, cooler 175 mm, 360 mm radiators). No Amazon buyer-review source appears in the report, and TechPowerUp is scored cred 50. Named runs of other products also show no buyer-review evidence. "Not enough independent evidence" rate: 4 of 27 fresh runs (15%), target 10%. worker/engine/verify-resolve.js, worker/lib/credibility.js.
+- [ ] HIGH (Product, verify): repeat-run spread after the CP-777 to CP-780 deploy (live, 2026-10-16 22:00 UTC, fresh rows): Fractal Design North 50 vs 50, DeWalt DCD791 25 vs 25, Galaxy S25 Ultra 50 vs 61, Ninja Creami 42 vs 38 are within 15; Dyson V15 Detect 13 vs 80, Pixel 9 Pro 17 vs 33, CrossClimate 2 33 vs no score are not (4 of 7, target 7 of 7). The two Dyson runs extracted different claim sets (one got charge time, bin volume and weight, and 240 AW, 4.5 h and 0.77 L came back contradicted; the other got sensor and cleaner-head features, 3 verified). Claim extraction still varies with the gathered pages, and exact spec numbers get contradicted by near figures. worker/engine/verify.js, worker/engine/verify-resolve.js.
 
-- [ ] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js.
+- [x] MEDIUM (Product, verify): (fixed in 29978aa, see CP-718 round 2) tire claims still include catalog trivia that nobody tests (max inflation 51 psi, tread depth 10/32 inch, overall diameter 27.1 inches, speed rating H) in both CrossClimate 2 runs on 2026-10-16. isTestableClaim does not drop them. worker/engine/verify.js.
 
-- [ ] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js.
+- [x] MEDIUM (Product, verify): the "X" and "X case" names still get separate verification rows and pages (productNameKey uses every word of the raw name), although both now check the same product the same way. worker/lib/product-link.js. Fixed 2026-10-19 (CP-807): productNameKey drops a trailing type word that names the kind of thing (case, chassis, PC case, phone, tires, ice cream maker, espresso machine, coffee maker, air fryer, power supply), so "Fractal Design North case" and "Fractal Design North" share one key, one saved row and one page. Tool and vacuum types (drill, impact driver, robot vacuum) and trailing specs or years stay in the key, so different products never merge. Old pages keep their slugs and still answer. Tests: test/unit/product-link.test.js (CP-807). Merged in 79da27b (PR #19), deployed 2026-10-19.
 
-- [ ] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js.
+- [ ] LOW (Product, verify): the site key does not use a public-suffix list. Blogs on regional shared hosts (alice.blogspot.co.uk) and authors on path-based hosts (medium.com/@a) merge into one site, and one label under two top-level domains (example.com, example.org) is one site. worker/lib/verdict.js.
 
-- [ ] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js.
+- [x] LOW (Product, verify): a last word with a V or W suffix is cut as volts or watts even when it is the model ("Foo Bar 2V"). worker/lib/product-link.js. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): a trailing one-digit V or W word stays in the name when no other word is a model, so trimProductType keeps "Foo Bar 2V". hasModelNumber still reads a lone "9W" as a rating ("Philips Hue Bulb 9W"), so a pasted page title can still give the model. A two-digit rating ("Anker Nano 65W") or a rating after a model ("DCD791 9V") still goes. worker/lib/product-link.js. Tests: test/unit/product-link.test.js (CP-812 section).
 
-- [ ] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js.
+- [ ] HIGH (Product, verify): Antec C8 still ends at "Not enough independent evidence" (link and name runs, 0 and 1 of 8 claims corroborated), although the 8 extracted spec claims are now real (GPU 440 mm, cooler 175 mm, 360 mm radiators). No Amazon buyer-review source appears in the report, and TechPowerUp is scored cred 50. Named runs of other products also show no buyer-review evidence. "Not enough independent evidence" rate: 4 of 27 fresh runs (15%), target 10%. worker/engine/verify-resolve.js, worker/lib/credibility.js. Partly fixed in ae40da8 (CP-778): retailer claim pages are read again for their buyer reviews (the shared read won and stopped the focused read, so the reviews were lost), and TechPowerUp, Gamers Nexus, TechSpot, Hardware Canucks, TweakTown, Overclock3D, eTeknix and ServeTheHome are expert domains (cred 65). Live run after the fix (2026-10-16): an Amazon buyer-review source now backs 1 claim, but the check still has 1 of 8 claims decided (needs 2), because only 10 of 162 evidence sources have page text. The remaining causes are listed below. Live recheck 2026-10-16 22:00 UTC after the CP-778 deploy: the name run ("Antec C8") now gets a score, 17 (3 of 8 claims have evidence: 1 partly verified, 2 contradicted, among them "GPU up to 440 mm", which needs a look), while the Amazon link run still ends at "Not enough independent evidence" (0 of 8).
 
-- [ ] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js.
+- [ ] HIGH (Product, verify): TechPowerUp answers every page reader (Jina, keyed or not) with an "Automated bot check" page, so its Antec C8 review (11 pages) is snippet-only. Only a different reader (for example a headless browser) can fix this. worker/engine/verify-resolve.js.
+
+- [ ] HIGH (Product, verify): Reddit blocks every unsigned read ("You've been blocked by network security", www and old.reddit, Jina and the .json API), so community threads are snippet-only (12 Antec C8 threads in one run). A fix needs a Reddit API app and its OAuth credentials (owner action). worker/lib/jina.js.
+
+- [ ] LOW (Product, verify): the Gamers Nexus Antec C8 review covers the "C8 ARGB" (same chassis, fans added), and namesOtherModel treats "argb" as another model, so it is never read. Decide whether lighting-only variants (rgb, argb) share chassis specs. worker/lib/product-link.js.
+
+- [x] MEDIUM (Product, verify): the stance judge marks a near-spec measurement as contradict (AirPods Pro 2: SoundGuys 5 h 43 min vs "up to 6 hours", score 10). Low-quality sites (thegadgetdigest.com, soundmali.com) get cred 75. The AirPods report still lists an exact-dimensions claim. worker/engine/verify.js, worker/lib/credibility.js. Fixed in d74b046 (CP-779): a contradiction whose figures sit within 3% of the claim, or within 10% below an "up to" claim, becomes neutral (worker/lib/quantity.js); "we tested" on a host with no domain prior earns +10, not +25 (score 60, below an expert outlet's plain 65); exact H x W x D dimension sets are banned in the extraction prompt and dropped by isTestableClaim. Existing reports keep their old scores until they run again. QA follow-up: a span figure equal to the claim's figure is the spec quoted back, so it no longer counts as agreement ("Apple says 6 hours; ours managed three" stays contradict).
+
+- [x] LOW (Testing): scripts/run-real-world-eval.mjs finds 0 products on every live page (2026-10-17), so its pick and recall scores are all false. The page markup it scrapes has likely changed. scripts/run-real-world-eval.mjs Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): the card name moved into an h3. The script now uses productNames, a new shared card parser in scripts/lib/eval-score.mjs (next to the CP-800 golden-eval parser). Live run 2026-10-19 (free, no --spend): 9 of 18 queries have a page; picks 5/9, top-5 recall 9/9, disclosure 9/9, depth 9/9, 0 anti-pattern hits. The 4 wrong picks (keyboard, standing desk, smart bulb, password manager) are real ranking results, not parser misses. Tests: test/unit/eval-score.test.js.
+
+- [ ] LOW (cleanup): "tv" in FOREIGN_CATEGORY never fires (the gate checks words of 4+ letters). A name-only check was tried in CP-380 and dropped Apple TV and Fire TV from streaming pages, so it stays off. worker/lib/category-gate.js
+
+- [x] LOW (Product, verify): the "5G" in a phone claim parses as 5 grams in worker/lib/quantity.js. It can only turn a contradiction to neutral when both sides say "5G", so the effect is small. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): an upper-case "2G" to "6G" right after the digit is a network, never grams; a lower-case "5g" is a network when the text names networks (LTE, modem, carrier, signal...). "5g of protein", "5 g" and "50G" stay grams. worker/lib/quantity.js. Tests: test/unit/verify.test.js (close figures).
+
+- [x] MEDIUM (Product, verify): spanShowsFirstHand still passes spec-sheet lines such as "Tool-less drive bays" and "Achieved IP68 certification". worker/engine/verify.js. Fixed (CP-780): the bare "achieved" and "tool-less" words are gone from `SPAN_OBSERVATION`. Spans that pair them with test or use language ("achieved 41 dB in our test", "snapped into place") still count. A regression test covers both defects.
+
+- [x] LOW (Product, verify): "dual" and "compact" are dropped as slug descriptors, so "Torrent" and "Torrent Compact" share a key (red-team #3 listed "dual" as a variant word). worker/lib/product-link.js. Fixed 2026-10-17 (CP-781): they stay as variant words unless the next word is what they describe ("Dual Chamber", "Compact Drill").
+
+- [x] LOW (Product, verify): one "not sponsored" review tags the whole buyer-review host sponsored-content. worker/lib/credibility.js. Fixed 2026-10-17 (CP-782, e8fefd7 and c755080): a denial ("this is not a sponsored post", "not sponsored by") no longer counts as a marker, and a buyer review with a real marker (#ad) is dropped on its own (recorded in droppedIncentivized), so it cannot tag the host's aggregated source. worker/engine/verify-resolve.js.
+
+- [x] LOW (Product, verify): distillProductName does not treat hyphenated sizes as spec tokens ("SAMSUNG 65-Inch Class OLED S90D" becomes "SAMSUNG 65-Inch"). worker/lib/product-link.js. Fixed 2026-10-17 (CP-783): spec checks ignore the hyphen ("65-Inch" reads as "65Inch").
+
+- [x] LOW (API, verify): /api/verify/:id still returns scores for retired rows. worker/handlers/verify.js. Fixed in 04ffec9 (CP-784): a retired row gets the same 404 and body as a missing row.
+- [x] MEDIUM (API, verify, spend): POST resubmit (`handleResubmit`) checks only that the row exists, so a retired verification row in `failed` or `needs_input` state can be resubmitted. That queues a paid run and brings the retired row back to pending. Found in the CP-791 review. worker/handlers/verify.js. Fixed 2026-10-19 (CP-804): a retired row gets the same 404 as a missing row, and the UPDATE also requires retired_at IS NULL. Test: test/integration/cp804-batch10.spec.js. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
 
 ## 2026-10-16: buyer-relevant claims, third-person/buyer-review stance matching, homepage verdict filter, and old verification report refresh (CP-722)
 
@@ -36,7 +93,7 @@ Last updated: 2026-10-16
 
 - [x] HIGH (Product, verify): the 29 verification rows retired in production D1 still served their broken pages at `/verify/:slug` (for example, the Antec C8 page answered 200 with "0 of 2 claims"), because that route never read `retired_at`. The KV purge had no effect, because verify pages are not KV-cached. worker/index.js, worker/lib/retired.js. Fixed in 6cb2fc9: a retired verification answers 410 Gone, with a "Check this product again" link.
 
-- [ ] LOW (Ops): the backup of the 29 retired rows was in a temporary Gemini folder. A copy is now at `backups/d1/cp-722-retired-verification-backup.json` in this project (gitignored, same checksum). Move it to long-term storage if it must outlive this machine.
+- [ ] LOW (Ops): the backup of the 29 retired rows was in a temporary Gemini folder. A copy is now at `backups/d1/cp-722-retired-verification-backup.json` in this project (gitignored, same checksum). Move it to long-term storage if it must outlive this machine. Status 2026-10-19 (CP-774): still only on agentbox. The agentbox git sync carries only git data, and agentbox has no backup, so gitignored files in `~/projects` exist nowhere else. agentbox cannot reach either long-term store: the agent BWS token cannot read the Wasabi keys (`WASABI_ACCESS_KEY_ID` and the rest), SSH to BlackBox is refused, and R2 is not enabled in the Cloudflare account. Fix: give the agentbox BWS machine account read access to `WASABI_ENDPOINT`, `WASABI_BUCKET`, `WASABI_ACCESS_KEY_ID`, `WASABI_SECRET_ACCESS_KEY`, and `CHRISPUTER_PROJECTS_RESTIC_PASSWORD`; then a restic snapshot of `backups/d1` with host `agentbox` and tag `cp-774` goes to the `chrisputer-projects` Wasabi repo (the projects-backup prune touches only its own host and tag, so the snapshot is kept).
 
 ## 2026-10-16: full-page retailer parser and 200-buyer-review harvester in verify (CP-721)
 
@@ -49,7 +106,7 @@ Last updated: 2026-10-16
 ## 2026-10-15: product images do not resolve (CP-709)
 
 - [x] HIGH (Product, images): the product-image resolver used only Serper or Brave, and production has neither key, so product photos did not resolve. Fixed in e8211e4: the resolver uses the SearXNG image category when SEARXNG_URL is set, with Brave as a per-query backup. The Blackbox SearXNG loads bing images and startpage images for this (blackbox repo 48c317e). worker/lib/image-resolver.js, worker/engine/searxng.js.
-- [ ] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs.
+- [x] LOW (Product, images): reports saved while images did not resolve still have no product photo. `scripts/backfill-images.mjs` can fill them, but it still calls Serper only. scripts/backfill-images.mjs. Fixed 2026-10-17 (CP-715): the script uses the resolver's chain (`imageCandidateSearch`: SearXNG images, Brave backup). The backfill itself has not been run yet.
 
 ## 2026-10-15: store and listing clutter shown as product claims (CP-705)
 
@@ -65,7 +122,7 @@ Last updated: 2026-10-16
 - [x] MEDIUM (Testing): the new plugin has no per-test storage isolation (the old isolatedStorage is gone), so D1 and KV state leaked between tests and 7 tests failed. test/integration/email-flows.spec.js, handlers.spec.js, internal.spec.js. Fixed 2026-10-15: each file clears the tables and KV keys it writes in a beforeEach. New specs that write D1 or KV must reset their own state.
 - [x] MEDIUM (Testing, cost): index.spec.js "POST /api/classify" sent a real request to the LLM classifier with the live dev keys and timed out in about 2 of 5 runs. test/integration/index.spec.js. Fixed 2026-10-15: the test stubs the OpenRouter reply, as classifier.spec.js does.
 - [x] MEDIUM (Testing): 5 affiliate integration tests failed on any checkout without the gitignored .dev.vars, because worker/lib/ip-hash.js needs a salt and fails closed, so no click row was written. test/integration/affiliate.spec.js, affiliate-global-gate.spec.js, vitest.config.js. Fixed 2026-10-15 (CP-694): vitest.config.js sets a fixed test IP_HASH_SALT.
-- [ ] LOW (Testing): vitest 5 turns on fsModuleCache by default, and @cloudflare/vitest-plugin 1.4.2 cannot read that cache inside workerd. vitest.config.js sets `fsModuleCache: false`. Remove it when a plugin release fixes this.
+- [x] LOW (Testing): vitest 5 turns on fsModuleCache by default, and @cloudflare/vitest-plugin 1.4.2 cannot read that cache inside workerd. vitest.config.js sets `fsModuleCache: false`. Remove it when a plugin release fixes this. Fixed 2026-10-19 (CP-693): plugin 1.4.5 reads the cache; the workaround is gone and all 50 spec files pass twice in a row with the cache on (1.4.2 still fails with "readAll node_modules/.vitest-cache"). vitest.config.js, package.json, package-lock.json.
 
 ## 2026-10-06: refocus run (spec docs/refocus-2026-10/spec.md, plan docs/refocus-2026-10/plan.md)
 
@@ -80,23 +137,23 @@ Last updated: 2026-10-16
 - [x] LOW (Product, verify): the stance judge sometimes returns contradict from a source about a different model (Sony WH-1000XM6: goldtested.com and nanonotice.com cited the XM5 processor). The backstops never check contradict rows. worker/engine/verify.js applyStanceBackstops. Resolved 2026-10-16 (CP-722): `spanNamesOtherModel` and `applyStanceBackstops` now check both `support` and `contradict` rows against off-model references, echoed text, empty spans, second-hand citations, and `ai-injection`.
 
 ### Data Integrity
-- [ ] MEDIUM (Data Integrity): retired reports are still served at /research/<slug>/og.svg, /api/report/<id>, /api/chat, and the user history list.
-- [ ] LOW (Data Integrity): migration 017 can still retire an anonymous person's report that has no clarifications, no subscriber, and no search-history link, when a keyword with the same text clustered onto it. The undo statement is in the file header.
+- [x] MEDIUM (Data Integrity): retired reports are still served at /research/<slug>/og.svg, /api/report/<id>, /api/chat, and the user history list. Fixed 2026-10-19 (CP-804): og.svg serves the generic site card; /api/report, /api/chat, and (found in review) /api/research/:id, its /events and /stream answer not found; getUserSearches keeps the search but drops the slug, so /api/history and the account page do not link it. worker/lib/sitemap.js, worker/handlers/report.js, chat.js, research.js, worker/lib/auth.js. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
+- [x] LOW (Data Integrity): migration 017 can still retire an anonymous person's report that has no clarifications, no subscriber, and no search-history link, when a keyword with the same text clustered onto it. The undo statement is in the file header. Fixed 2026-10-20 (CP-341): the flywheel inserts rows only from the */10 cron, so 361 of the 362 retired rows were created 1 to 68 seconds after a 10-minute mark. schema/023_unretire_person_rows.sql brings back 'seo-flywheel' rows created 120 seconds or more after a mark; in production that is one person's page, best-espresso-machine-under-500-0u5d4e3k (81 views), now live again (applied to production 2026-10-20). A person's row created inside the window would stay retired (about 1 in 5 chance per row). Test: test/integration/cp341-unretire.spec.js.
 
 ### SEO
-- [ ] MEDIUM (SEO): retiring rows does not change getLatestResearchLastmod, so sitemap, feed, and browse keep answering 304 with retired URLs until a new public report completes.
+- [x] MEDIUM (SEO): retiring rows does not change getLatestResearchLastmod, so sitemap, feed, and browse keep answering 304 with retired URLs until a new public report completes. Fixed 2026-10-19 (CP-804): getLatestResearchLastmod takes the later of the newest public completion and the newest retired_at, so retiring a row moves Last-Modified and the XML cache key. worker/lib/sitemap.js. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
 
 ### UX
-- [ ] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check.
-- [ ] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request.
-- [ ] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)".
+- [x] MEDIUM (UX): the /verify entry form (worker/pages/verify-page.js renderVerifyEntryPage) has no action or method, so with JavaScript off it reloads the same page and never starts a check. Fixed 2026-10-19 (CP-804): the form posts to /verify; handleVerifyForm (worker/handlers/verify.js) runs the same intake as /api/verify, refuses cross-site posts (Origin / Sec-Fetch-Site), and answers 303 to /verify/<slug> or the form with the error. A queued check reloads itself every 5 s with JavaScript off (noscript refresh); a failed one says so and stops. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
+- [x] MEDIUM (UX): recentVerdictsSection (worker/pages/home.js) has no public filter, so test or junk product names can reach the homepage. It parses up to 24 result blobs per homepage request. Fixed 2026-10-19 (CP-804): it uses publicNameFilter (worker/lib/utils.js), the name rule publicResearchFilter now shares (no 'test ' or 'verify ' runs, no retired rows). The 24-blob parse is unchanged. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
+- [x] LOW (UX): readBodyProductUrl in worker/handlers/verify.js rejects http links with a message that still says "http(s)". Fixed 2026-10-19 (CP-804): the message is now "productUrl must be a public https:// link". Merged in 70d27f6 (PR #18), deployed 2026-10-19.
 
 ### API
-- [ ] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge.
-- [ ] LOW (API): name keys ignore symbols, so "Galaxy S24+" and "Galaxy S24" share a key. Non-Amazon short links (bit.ly) get URL keys although the owner can retarget them.
+- [x] LOW (API): product-link.js treats a generic multi-word path segment (product_info.php, product-detail) as a product name and drops the identifying query. TRACKING_PARAM_RE also strips 'ref', which some shops use as the product id. Keys then miss or, rarely, merge. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): a path segment made only of page-type words (product, info, detail, view, item...) is not a name, so the identifying query stays in the URL and key. "ref" stays when it is the only parameter left (some shops use it as the id) and goes when another parameter names the product. A path with a real name slug still drops its query. The KV claim cache key (worker/lib/claim-cache.js pageKeyOf) now keeps the same identifying query, so two products on one generic path never share claims. worker/lib/product-link.js, worker/lib/claim-cache.js. Tests: test/unit/product-link.test.js, test/unit/lib-pure.test.js, test/unit/claim-cache.test.js.
+- [x] LOW (API): name keys ignore symbols, so "Galaxy S24+" and "Galaxy S24" share a key. Non-Amazon short links (bit.ly) get URL keys although the owner can retarget them. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): a "+" right after a word reads as "plus" in keys, so "Galaxy S24+" and "Galaxy S24" differ and "S24+" and "S24 Plus" share one key. A "+" between words ("AirPods + case") is ignored as before. One saved verdict was stored under the old key ("iRobot Roomba j7+", id 6x525e1n0d3q3739); schema/022_rekey_plus_names.sql moves it to the new key and must be applied by hand right after this deploy. Left: the bit.ly half (non-Amazon short links keep URL keys). worker/lib/product-link.js. Tests: test/unit/product-link.test.js.
 
 ### Reliability
-- [ ] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line.
+- [x] LOW (Reliability): normalizeClaim and evidenceList in worker/pages/verify-page.js drop malformed evidence with no log line. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): the result page logs one "[verify-page] dropped malformed evidence {slug, dropped}" warning per render when stored evidence holds bad items. worker/pages/verify-page.js. Tests: test/unit/silent-drops.test.js.
 
 
 ## 2026-09-18: traffic-scaling pass (site-wide spend gate + sampled view counter)
@@ -236,7 +293,7 @@ Improvements to query canonicalization, search gathering stability, and research
 - [x] MEDIUM: the recall supplement ran only after gathering, so its grounding gate dropped every leader it was meant to recover (worker/engine/recall-gather.js, 8 reserved searches in worker/engine/engine.js `runEngine`).
 - [x] LOW: repeat runs of the same query gathered disjoint corpora, so top ranks moved between runs (worker/engine/opening-book.js deterministic template searches).
 - [x] LOW: no way for a benchmark harness to force a fresh run (internal-only `forceFresh` on POST /api/research, gated by X-Worker-Secret, worker/lib/worker-auth.js).
-- [ ] LOW: the public `fresh` flag on POST /api/research still bypasses the 14-day cluster cache with no authentication (worker/handlers/research.js). It is behind the burst gate, the 20 per hour per IP velocity cap, and the monthly budget governor, so it is a spend-amplifier rather than an open drain, but a public caller can still force paid runs for queries that already have a cached report. Decide whether to keep it for the re-run button or restrict it.
+- [x] LOW: the public `fresh` flag on POST /api/research still bypasses the 14-day cluster cache with no authentication (worker/handlers/research.js). It is behind the burst gate, the 20 per hour per IP velocity cap, and the monthly budget governor, so it is a spend-amplifier rather than an open drain, but a public caller can still force paid runs for queries that already have a cached report. Decide whether to keep it for the re-run button or restrict it. Fixed 2026-10-23 (CP-352, owner decision: a re-run starts by itself when readers disagree): `fresh` is honored only with X-Worker-Secret (worker/handlers/research.js); the "Re-run fresh" and "Re-research with fresh data" buttons are gone; "Try again" and the refine chat no longer send `fresh`. The report page asks "Does this match what you found?"; 3 "No" votes from different networks (IPv4 /24, IPv6 /64) inside 14 days start one fresh run, at most 6 a day site-wide, (worker/lib/disagreement.js, schema/024_feedback_votes.sql, applied by hand). Tests: test/integration/cp352-disagreement.spec.js.
 
 ## 2026-08-15: IP-rotating affiliate click fraud, site-wide gate added
 
@@ -294,14 +351,57 @@ looked at total volume.
   possible commission beats losing the Associates account.
 
 ### Open
-- [ ] MEDIUM (security): a native binding only supports a 10 s or 60 s window,
+- [x] MEDIUM (security): a native binding only supports a 10 s or 60 s window,
       so it can express a rate ceiling but not "700 an hour is abnormal". A
       slow, wide attacker under 6 a minute still passes. If the trip log shows
       that shape, add a global hourly counter with the existing KV limiter
       (`checkRateLimit(env.KV, 'go:global', N, 3600)`), which has no window
       restriction.
-- [ ] LOW (data): the incident's 1,232 rows are still in `affiliate_clicks` and
+      Fixed 2026-10-19 (CP-822): the trip lines are not kept (no Workers Logs
+      in wrangler.toml), so the check used production D1 affiliate_clicks
+      (read-only). It shows the slow, wide shape: from 2026-09-05 on, 74 to
+      2,897 logged clicks a day, almost all one click per address, on 48 to
+      874 pages a day, against a pre-incident median of 4 a day and near-zero
+      search traffic. On quiet days every hour has clicks, 1 to 11 an hour,
+      far below the 360 an hour the per-minute gate allows. Added the hourly
+      counter: isAffiliateHourlyCapHit in worker/lib/affiliate-gate.js,
+      checkRateLimit(env.KV, 'go:global', N, 3600, env.DB), N from [vars]
+      AFFILIATE_GLOBAL_HOURLY_LIMIT = "30" (above the busiest real hour on
+      record, 24). It runs last, so only clicks every other layer passed
+      spend it. Over the cap a click still redirects, untagged and unlogged.
+      Replayed on the 2026-09-05 to 2026-10-19 clicks it would have held back
+      9,164 of 20,642 (in 174 of 1,027 hours). It does not stop the trickle
+      under 30 an hour; no volume limit can tell that apart from real
+      visitors. env.DB is passed (ASSUMED, code review): one key written
+      from every location is where the KV window undercounts, and the D1
+      window (CP-808) is one exact count; KV stays the fallback. Guide-page
+      clicks (/api/go/search) share the budget, as they share the per-minute
+      gate: Amazon sees both. Known consequence, same as the per-minute gate:
+      once an attack fills the hour, real clicks that hour lose the tag.
+      Fails open on a storage error. Tests:
+      test/unit/affiliate-gate.test.js,
+      test/integration/affiliate-global-gate.spec.js.
+- [ ] MEDIUM (security): one address put 174 clicks through in two minutes
+      on 2026-10-12 13:50 UTC (all logged, so neither the 6-a-minute global
+      gate nor the 30-an-hour per-IP cap flagged them). Likely causes: the
+      native binding counts per Cloudflare location, and the per-IP KV
+      window is read-then-write, so a parallel burst passes. Moving the
+      per-IP cap to the atomic D1 window (pass env.DB) would close the
+      second. Could also be an internal check run; not confirmed.
+      worker/handlers/affiliate.js.
+- [x] LOW (data): the incident's 1,232 rows are still in `affiliate_clicks` and
       inflate click reporting for 2026-08-14/15. Not deleted, kept as evidence.
+      Fixed 2026-10-23 (CP-354, owner chose backup and delete): 1,232 rows
+      (ids 5412 to 6643, 2026-08-14 21:15:52 to 2026-08-15 00:43:58 UTC)
+      deleted from production D1. Window count is now 0. Backup (not in git,
+      holds `ip_hash`): agentbox `~/projects/web/frank/backups/d1/`
+      `cp-354-affiliate-clicks-2026-08-14-incident.json`. D1 Time Travel
+      bookmark before the delete: `0000849f-00000028-0000510d-e054a467406833507f01de54a405a3a7`
+      (D1 keeps it about 30 days).
+- [ ] LOW (ops): the BWS value `FRANK_METRICS_TOKEN` does not match the
+      Worker secret `METRICS_TOKEN`: `GET /metrics` returns 401 with it
+      (checked 2026-10-23, CP-354). Put one value in both places.
+      docs/metrics-api.md.
 
 ## 2026-08-03: Research archive pagination, one definition of "listable"
 
@@ -397,8 +497,8 @@ worker. The same code delivered real mail through `npx wrangler dev`.
       the owner authorizes creating an account with such a provider (Resend,
       Postmark, Brevo, or MailerSend). No such signup was authorized in this
       session, so no transport was built.
-- [ ] MEDIUM (UX): while mail is off, the signup form still tells the visitor to
-      check an inbox. Consider softening that copy until a transport works.
+- [x] MEDIUM (UX): while mail is off, the signup form still tells the visitor to
+      check an inbox. Consider softening that copy until a transport works. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): POST /api/subscribe adds mail:'off' when mailConfigured(env) is false (MAIL_ENABLED not "true" or no SMTP secrets). It is the same for every address, so it reveals nothing about one. The form then says "Email is not switched on yet, so we cannot send you anything. Please try again later." (not "saved": double opt-in means nothing is confirmed while mail is off; a skipped send stamps nothing, so a later submit sends the mail). With mail on, the answer and the "Check your inbox" copy are unchanged. worker/handlers/subscribe.js, worker/pages/research-scripts.js. Tests: test/integration/cp812-signup-copy.spec.js.
 
 ### Related defect, fixed
 
@@ -712,32 +812,36 @@ They stay as they are. This section does not repeat their detail.
   facets. See the new LOW item below.
 
 ### New findings this session
-- [ ] LOW (architecture): monthKey lives in worker/pipeline/orchestrator.js,
+- [x] LOW (architecture): monthKey lives in worker/pipeline/orchestrator.js,
       but worker/lib/keywords.js now imports it. This points a lib module at
       a pipeline module. It is not a cycle (orchestrator.js does not import
       keywords.js). monthKey belongs in worker/lib/utils.js. Move it when
       convenient.
-- [ ] LOW (observability): worker/engine/extract/recall-supplement.js no
+      Fixed 2026-10-18 (CP-358): monthKey now lives in worker/lib/utils.js;
+      orchestrator.js, keywords.js, pages/metrics.js and the specs import it
+      from there. keywords.js still imports budgetExhausted from the
+      orchestrator (see the new item below).
+- [x] LOW (observability): worker/engine/extract/recall-supplement.js no
       longer logs its "skipped" diagnostic when the model returns JSON it
       cannot parse. The shared parser now returns null instead of throwing,
       so the catch block that used to log the message never runs. The value
-      returned to the caller is unchanged.
-- [ ] LOW (docs): the trailing "Secrets" comment block in wrangler.toml
+      returned to the caller is unchanged. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): a null parse logs "[recall-supplement] skipped: model JSON could not be parsed", and JSON with no "missing" list logs its own "skipped" line; both return []. worker/engine/extract/recall-supplement.js. Tests: test/unit/silent-drops.test.js.
+- [x] LOW (docs): the trailing "Secrets" comment block in wrangler.toml
       lists 3 of the 7 secrets set on the deployed worker. Missing from the
       comment: BRAVE_API_KEY, JINA_API_KEY, GSC_SA_KEY, METRICS_TOKEN,
-      WORKER_SECRET.
-- [ ] LOW (cleanup): worker/routes/pages.js still carries a comment above
+      WORKER_SECRET. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): the block lists all 13 names from `wrangler secret list` (2026-10-19) plus the optional ones the code reads (SERPER, BRAVE, TAVILY, IP_HASH_SALT, AMAZON_ASSOCIATE_TAG). Names only. wrangler.toml.
+- [x] LOW (cleanup): worker/routes/pages.js still carries a comment above
       the clarifying-questions interstitial that predates the tier removal
       ("Tier: default 'full'. Only 'full' submissions get the
       clarifying-questions grill below; instant (if ever wired) skips it
       for speed."). The code line it once described is gone. worker/index.js
-      carries no such comment. Its split already removed it.
-- [ ] LOW (quality): worker/engine/parallel-engine.js decompose() still does
+      carries no such comment. Its split already removed it. Fixed 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): comment removed, and "Full-tier" dropped from the next comment. worker/routes/pages.js.
+- [x] LOW (quality): worker/engine/parallel-engine.js decompose() still does
       not receive classifier facets. This path now only runs for /verify
       claim extraction, not for ranking (the ranking path moved to
       worker/engine/engine.js when the blackbox worker retired 2026-07-22,
       and that path does thread facets through). A location/service/
-      experience VERIFY run could still get a product-shaped plan.
+      experience VERIFY run could still get a product-shaped plan. Fixed 2026-10-19 (CP-819): decompose() takes the classifier facets; when they name a location, service, experience, content or comparison query it adds the same facetFocusBlocks text engine.js gives the agent loop (plannerFocusBlock). A plain product and a row with no facets keep the plain prompt. Note: the live caller, the verify gather, always passes VERIFY_FACETS (a buyable product), so live verify plans are unchanged; the fix matters for the stopped research-worker.mjs path, which passes real classifier facets. The fixed fallback aspects ("best budget X") are still product-shaped. worker/engine/parallel-engine.js, worker/engine/prompts.js. Tests: test/integration/parallel-engine.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 - [ ] MEDIUM (unvalidated, carried forward): the planner role
       (google/gemini-2.5-flash) is still the one model role never measured
       on an in-house gold bench. It was deferred as the hardest to
@@ -746,12 +850,12 @@ They stay as they are. This section does not repeat their detail.
 
 ## 2026-07-28: worker/lib duplication consolidated (llm-json.js, pool.js)
 
-- [ ] LOW (infra): new shared modules `worker/lib/llm-json.js` (`parseFencedJson`) and
+- [x] LOW (infra): new shared modules `worker/lib/llm-json.js` (`parseFencedJson`) and
       `worker/lib/pool.js` (`runPool`) replace eight duplicated fenced-JSON parsers and
       three duplicated concurrency-pool copies across the engine. The homelab rollback
       copy (`research-worker.mjs`, stopped, `EXTERNAL_WORKER_ENABLED=false`) imports
       `worker/engine/parallel-engine.js`, so it now needs both new files synced before
-      it could be re-enabled.
+      it could be re-enabled. Stale 2026-10-19 (CP-819): the rollback copy is still in the repo (research-worker.mjs, deploy/truerank-research-worker.yml), but its documented deploy rsyncs the whole worker/ folder with --delete, so llm-json.js and pool.js go with it; there is nothing to sync by hand. `node` loads worker/engine/parallel-engine.js with both files (checked 2026-10-19). It is still stopped (EXTERNAL_WORKER_ENABLED = "false"). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## 2026-07-28: rate-limit atomicity closed (burst gate + consumer budget backstop)
 
@@ -1008,11 +1112,31 @@ User: "Grok 4.5 is out, use only this model" + "improve our searches via BaitBen
       no ECHO/FLIP). Baseline gpt-5.4-mini: 0/5 echo, 0/5 flip; synth actively DEBUNKS injected bait. Durable guard.
 - [x] SHIPPED: benchmarks/bait-detector-oracle.mjs — grok-4.5 as offline oracle vs our detectors: SPECIFICITY 100%
       (0 over-flags), RECALL 46%. Grok used offline only (zero live honesty/cost/latency risk).
-- [ ] FOLLOW-UP (Increment 3, NOT done — builder cut off by a session limit before editing; tree left clean):
+- [x] FOLLOW-UP (Increment 3, done 2026-10-19 CP-822 except (d) — builder cut off by a session limit before editing; tree left clean):
       close the measured recall gaps → (a) video-affiliate shortlinks (geni.us/lmg.gg) to AFFILIATE_HOPS,
       (b) video-hype listicle title patterns ("RANKED"/"N that matter") to isListicle, (c) marketplace domains
       (etsy/ebay) to MANUFACTURER_RETAILER_DOMAINS, (d) conservative thin-promo detector IF it holds 100%
       specificity. Then re-run bait-detector-oracle.mjs to confirm recall climbs + specificity stays ~100%.
+      Done 2026-10-19 (CP-822): (a) geni.us, lmg.gg and tidd.ly count as affiliate hops (own hostname list, AFFILIATE_SHORTLINK_HOSTS in credibility.js); (b) isListicle
+      catches "(RANKED)", all-caps RANKED, a title ending in "Ranked", and "N <things> that (actually)
+      matter" ("Top-ranked" and "ranked choice" stay clean); (c) etsy.com, ebay.com, ebay.co.uk added to
+      MANUFACTURER_RETAILER_DOMAINS (plus eBay de/fr/it/es/ca/com.au). Oracle (36 sources, grok-4.5, $0.128, verdicts saved in
+      benchmarks/results/bait-oracle-verdicts.json, re-score free with REPLAY=1): recall 46% -> 54%
+      (11 -> 13 of 24), specificity 100% -> 92% (12 -> 11 of 12). The one new over-flag is an Etsy
+      shirt listing that grok calls "a product listing, not a review": that is what the manufacturer
+      tag means, and Amazon listings already get it. ASSUMED kept; revert = drop the etsy line.
+      The shortlinks match on the hostname, not as a substring. Verify treats an Etsy page as a
+      retailer page, not the maker's (worker/engine/verify-resolve.js RETAILER_LABELS).
+      (d) not shipped: no signal in the gaps separates thin promo from clean pages (promo-code and
+      "% off" each hit one gap; 12 clean pages is too few to claim 100% specificity).
+      worker/lib/credibility.js. Tests: test/unit/credibility.test.js.
+- [ ] LOW (detector coverage): only the main eBay country sites are in the marketplace list, and
+      the "Ranked" title rule needs "Ranked" at the end or before a " | " / " - " suffix. Extend
+      both if the oracle shows misses. worker/lib/credibility.js
+- [ ] LOW (detector recall): 11 of 24 grok-bait sources still pass. Most are retailer-channel videos
+      (seattlecoffeegear, wholelattelove, letsrunmoore) whose links go to the channel's own shop, plus
+      expert-site "best of" roundups and "Top 10" video titles. A "links to its own store" detector
+      for video sources is the next candidate. benchmarks/bait-detector-oracle.mjs (REPLAY=1 is free).
 
 
 ## 2026-07-08 — UI/UX review board (14-persona, focus: improve UI/UX)
@@ -1160,7 +1284,7 @@ blackbox redeploy needed this pass.
 - [x] MED (security): rate-limit.js atomicity. RESOLVED 2026-07-28, and Durable Objects were NOT
       needed. Native `[[ratelimits]]` burst gate in front of the KV window; see the 2026-07-28
       section at the top and `docs/rate-limit-design.md`.
-- [ ] LOW (cleanup, blackbox-side): DEBUG_FUNNEL scaffolding, buildAgentTools(facets) ignored arg, and the
+- [ ] LOW (cleanup, blackbox-side): ~~DEBUG_FUNNEL scaffolding, buildAgentTools(facets) ignored arg~~ (both fixed 2026-10-17, CP-372, 0b77080), and the
       parseFencedJson (×5) + runPool (×2) dedups — batched for a future engine-cleanup pass + blackbox
       redeploy (avoid cosmetic drift). NOTE: "sanitizeUrl dead export" was a FALSE POSITIVE (used in orchestrator.js).
 - [ ] LOW: /api/internal has no rate limit — deliberately NOT added (would throttle the legit 15s off-CF
@@ -1255,8 +1379,13 @@ consent gaps, and stale docs — NOT in core logic.
       products found…"), leaving users without the reason/next step. STALE, closed 2026-07-08: failure
       pages now surface the real stored result.error (see the 2026-07-08 "Review-board backlog cleared"
       section, Fixed list).
-- [ ] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
+- [x] MED (correctness, mitigated): incrementMonthlyCost KV read-add-put is non-atomic; concurrent
       completions lose updates. Mitigated by the D1 SUM MAX-gate in budgetExhausted — make KV advisory.
+      Fixed in 67ee5c2 (CP-375): each cost is one atomic D1 upsert on `monthly_spend`
+      (schema/018_monthly_spend.sql); KV is a cache of that total. worker/pipeline/orchestrator.js.
+- [ ] HIGH (OPS): apply schema/018_monthly_spend.sql to dev and production D1 before or with the
+      deploy of 67ee5c2. Until then incrementMonthlyCost falls back to the old KV counter and logs
+      "D1 monthly spend add failed" on every run. worker/pipeline/orchestrator.js.
 
 ### Open, logged — LOW
 - [x] LOW (a11y): no skip-to-content link / no `<main id>` target (WCAG 2.4.1); primary header `<nav>` has
@@ -1405,14 +1534,16 @@ Shipped eval harness for repeatable pick-quality regression against sourced expe
       `anti_patterns`, and citation URLs.
 - [x] `scripts/run-real-world-eval.mjs` — deterministic scrape of live `/research/:slug` pages.
 - [x] Baseline (2026-07-03, 11/18 scored): pick 8/10, recall@5 7/10, disclosure 11/11, depth 11/11.
-- [ ] FOLLOW-UP — **Category contamination on live pages** caught by bench:
+- [x] FOLLOW-UP — **Category contamination on live pages** caught by bench:
       `rw-air-fryer` top pick = Shark BreatheClear (air purifier); `rw-smart-bulb` top pick =
       Logitech M720 mouse on a Home Assistant bulbs report. **Fix shipped (2026-07-03):**
       `worker/lib/category-gate.js` + validate.js applies the gate on LLM synth path (extract
       already had it). Existing pages need re-run to pick up the fix.
-- [ ] FOLLOW-UP — **7 missing pages** (mesh wifi, budget earbuds, budget espresso, home NAS,
+      Closed 2026-10-17 (CP-380, 3c858a5, f891d26, c755080): the live air-fryer and smart-bulb pages now show only fryers and bulbs. Three leaks the first gate missed are closed in worker/lib/category-gate.js: query use-clause words ("for a family of four") no longer admit a product, and a bare modifier ("smart", "wireless") is not enough when the category has a noun.
+- [x] FOLLOW-UP — **7 missing pages** (mesh wifi, budget earbuds, budget espresso, home NAS,
       budget gaming headset, upright vacuum pets, laptop 2026) — run `node scripts/run-real-world-eval.mjs --spend`
       when budget allows (~$0.70).
+      Closed 2026-10-20 (CP-381): all 18/18 benchmark pages are now live and scored (pick 11/17, recall@5 17/17, disclosure 18/18, depth 18/18, 0 anti-pattern hits). Three of the 7 (`budget earbuds`, `budget espresso`, `budget gaming headset`) were already in D1 (`best-wireless-earbuds-under-100-5a450514`, `best-espresso-machine-under-500-0u5d4e3k`, `best-gaming-headset-under-100-7036586o`) and were missed because `/api/search/suggest` strips `$`, turning `"under $100"` into `"under 100"` before `r.query LIKE`; `suggestQuery()` in `scripts/lib/eval-score.mjs` trims at `$` and `scripts/run-real-world-eval.mjs` now uses `pickExistingSlug()`. Ran the remaining 4 missing pages (`best-mesh-wifi-systems-2s1q4z18`, `best-home-nas-devices-125n0l17`, `best-vacuum-for-pet-hair-4w1o6j3y`, `best-laptop-2026-394i466q`) plus the 2 pages retired or filtered since 2026-07-03 (`best-portable-charger-for-iphone-6s206l5n`, `best-pho-in-wichita-5a1h5s2t`).
 
 ## 2026-07-01 — /dp/ link recall: retailer fallback added (Best Buy, Newegg)
 
@@ -1529,7 +1660,7 @@ underfed/undercapped growth flywheel. Fixed everything in my control; 3 items ne
   seeding with actual demand data. (memory: gsc-ingestion-built-dormant)
 
 ### Known, not fixed (pre-existing, out of scope for this pass)
-- [ ] LOW — 4 other integration test files (report.spec.js + others) reference stale db.js helpers
+- [x] LOW — 4 other integration test files (report.spec.js + others) reference stale db.js helpers Stale 2026-10-19 (CP-819): completeResearch and insertProductV2 now live in test/integration/_helpers.js and every spec that uses them imports them from there (grep, 2026-10-19). The full suite passes: npx vitest run, 50 files, 674 tests. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
   (`completeResearch`, `insertProductV2`) that don't exist — pre-existing breakage, unrelated to today's
   change, found while running the full `npx vitest run` suite. Needs its own pass.
 
@@ -1556,12 +1687,12 @@ underfed/undercapped growth flywheel. Fixed everything in my control; 3 items ne
 
 ### Infra
 - [x] HIGH — blackbox research-worker container: after the env-recreate dropped the original `--dns`, every external fetch (Serper/OpenRouter/Jina/RSS) hung ~5.0s on the AAAA/IPv6 lookup → mass "operation aborted due to timeout" + failed jobs (LAN SearXNG by literal IP unaffected — the tell). Fixed by recreating with `--dns 1.1.1.1/8.8.8.8/192.168.5.1` + `NODE_OPTIONS=--dns-result-order=ipv4first` (5.1s → 0.14s). Introduced AND fixed this session.
-- [ ] LOW — CF env `SYNTH_ENGINE="extract"` is vestigial: the blackbox path runs runParallelEngine (LLM synth) regardless. Clean up when convenient.
+- [x] LOW — CF env `SYNTH_ENGINE="extract"` is vestigial: the blackbox path runs runParallelEngine (LLM synth) regardless. Clean up when convenient. Stale 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): not vestigial, so it stays. worker/engine/engine.js:387 reads env.SYNTH_ENGINE === 'extract' to pick the deterministic synth, and production runs that Cloudflare path (EXTERNAL_WORKER_ENABLED = "false"). Removing it would switch live synthesis to the LLM synth.
 
 ### Blocked on credentials (surfaced fetching "top Google product searches")
 The ask was real Google search-term data; both proper sources were credential-blocked, so this session fell back to D1 `view_count` rankings + Google autocomplete harvest. Unblock either to get true Google query data:
 - [ ] MEDIUM — **GSC search-term data needs a GCP service-account key.** The Search Console→D1 ingestion (`worker/lib/gsc.js`, `gsc_metrics`, daily cron, `/metrics?gsc_ingest=1`) is BUILT + deployed but DORMANT until `GSC_SA_KEY` is set. Activation: create a Google Cloud service account → JSON key → add as a Restricted user on the verified GSC property → `wrangler secret put GSC_SA_KEY`. This is THE source for "what people search on Google → the site." (memory: gsc-ingestion-built-dormant)
-- [ ] LOW — **CF Analytics API token lacks `analytics.read` scope.** `CLOUDFLARE_API_TOKEN` (.cf-token) can deploy + query D1 but the GraphQL `httpRequestsAdaptiveGroups` (top pages / traffic) returns `authz: does not have permission 'com.cloudflare.api.account.zone.analytics.read'`. Add Analytics Read to the token (CF dash → My Profile → API Tokens) to pull traffic/top-pages programmatically; until then traffic ranking comes from D1 `view_count`.
+- [x] LOW — **CF Analytics API token lacks `analytics.read` scope.** `CLOUDFLARE_API_TOKEN` (.cf-token) can deploy + query D1 but the GraphQL `httpRequestsAdaptiveGroups` (top pages / traffic) returns `authz: does not have permission 'com.cloudflare.api.account.zone.analytics.read'`. Add Analytics Read to the token (CF dash → My Profile → API Tokens) to pull traffic/top-pages programmatically; until then traffic ranking comes from D1 `view_count`. **Resolved 2026-10-22 (CP-389):** Zone Analytics Read added to the Frank token (BWS `FRANK_CLOUDFLARE_API_TOKEN`, token value unchanged; Account Analytics Read was already on it). The `httpRequestsAdaptiveGroups` top-pages query on chrisputer.tech now returns rows.
 - [ ] LOW — Chrome-extension browser path (for the manual GSC dashboard CSV export) was unavailable this session — extension not connected. Either connect it or use the GSC_SA_KEY API path above.
 
 ## 2026-06-27 — 5-agent site audit + report comparison table (godmode R1)
@@ -1618,7 +1749,7 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       vs exact /dp/ "Buy on Amazon" — lift exact-ASIN coverage (asin-resolver.js).
 - [ ] MED (SEO): SSR the /reviews + /research browse grids (today JS-hydrated, empty
       for crawlers; sitemap 0.8). Pairs with the /reviews Buy-CTA fix.
-- [ ] QUICK WIN: email capture on home + /best hubs (backend built; research-page-only).
+- [x] QUICK WIN: email capture on home + /best hubs (backend built; research-page-only).
 
 ### USER ACTION required (gates big strategic value)
 
@@ -1739,9 +1870,10 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       + screened at EVERY entry (handleStartResearch 422, /api/classify, ensureClassified which now
       ENFORCES the LLM reject too → runResearchPipeline + claimNextPendingJob markRejected). Live:
       "best porn sites"→422, "how to make a bomb"→reject, "best mechanical keyboard"→200. (commit 87739717)
-- [ ] LOW (safety follow-up): red-team the denylist for obfuscation bypasses (leetspeak/spacing);
+- [x] LOW (safety follow-up): red-team the denylist for obfuscation bypasses (leetspeak/spacing);
       LLM classifier is the backstop. Firearms = LEGAL products, intentionally NOT blocked (only illegal
       weapon-making/acquisition).
+      Fixed 2026-10-18 (CP-394): worker/lib/safety.js denylistForms folds look-alike and accented letters, invisible characters, leetspeak (digits and symbols, read as letters or as punctuation), spaced letters (p o r n, p.o.r.n) and stretched letters before the denylist. Folding feeds only the denylist. No new blocks on 14,231 repo query strings. Tests: test/unit/safety.test.js section 9.
 - [x] HIGH (UI, user report): the letter-block fallback rendered OVER working product pictures —
       its inline display:flex overrode the [hidden] attribute's UA display:none. Hide via inline
       display:none; onerror restores display:flex. CACHE_VERSION tr8→tr9. Fixed + live. (commit b046a4b7)
@@ -1773,14 +1905,16 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       health 86%, empty 0, junk 0, products 1962. (2026-06-24)
 - [x] CLEANUP (delete candidates): 12 indexed GIBBERISH/test reviews deleted from D1 + de-indexed.
       Confirmed gone (D1 count = 0). (2026-06-24)
-- [ ] FOLLOW-UP (harvester merges): two adjacent products get harvested as ONE candidate ("Synology Photos
+- [x] FOLLOW-UP (harvester merges): two adjacent products get harvested as ONE candidate ("Synology Photos
       Immich", "Synology Filerun PhotoManagement"). The name-cleaner cleans a name but can't SPLIT one row
       into two, so the merged entry survives + a recall-seeded "Immich" starves of pros/cons (the `seen`
       clause-allocation gave them to the merged row first). Fix: split-aware harvesting OR let cleanup emit
       a split. Low-frequency; surfaced on self-hosted-photo. (engine.js brandTruncate handles SOME merges.)
-- [ ] FOLLOW-UP (linen-class gather gap): some queries return 0 products because the GATHER found no usable
+      Fixed 2026-10-18 (CP-395): worker/engine/extract/candidates.js splitMergedCandidates splits a code-free name when a prefix of 2+ words and the rest are both candidates with their own mentions; the merged row's sentences go to both, without duplicates. Tests: test/unit/extract-candidates.test.js.
+- [x] FOLLOW-UP (linen-class gather gap): some queries return 0 products because the GATHER found no usable
       sources (linen shirts). Recall-supplement can't help (nothing to ground against). Needs better
       apparel/retail source providers or a query-rewrite, not an engine change.
+      Fixed 2026-10-18 (CP-396): worker/engine/thin-corpus.js, wired in worker/engine/engine.js after the recall phase. When a preview of the extraction finds under 3 products, 3 rewritten searches (reddit, honest review, long-term review forum) run in parallel and up to 4 credible unread pages are read (video and social sites skipped), with a 30 s hard cap. Free replay of the saved linen corpus through the real SearXNG: 0 to 2-4 products (search variance). Live effect needs a paid run; not done. Tests: test/unit/thin-corpus.test.js.
 
 ## 2026-06-23 — Keyboard results were garbage (user report) + followups resolved
 
@@ -1883,9 +2017,10 @@ revenue leak. The "funnel freeze until real traffic data" is now satisfied.
       off-CF blackbox worker — it polls /api/internal/next-job independently and kept claiming jobs
       (first prod run came back synth_model=kimi-k2.6). Fixed: handleNextJob returns no job when the
       off-CF worker is disabled, so the CF-side consumer (honest engine) processes all. Test added.
-- [ ] LOW (follow-up): apparel/no-model-number categories produce rougher names (descriptive
+- [x] LOW (follow-up): apparel/no-model-number categories produce rougher names (descriptive
       fragments, a few gazetteer collisions like "getaway"); residual sentence-fragment stragglers.
       Rollback if needed: EXTERNAL_WORKER_ENABLED=true + redeploy (blackbox still running, idle).
+      Fixed 2026-10-18 (CP-397): worker/engine/extract/candidates.js. For apparel queries a code-free name ends at its last garment or footwear noun, the brand-led scan can reach that noun, and garment names may have 6 words; a name that is only brands after trimming is dropped (all categories). The "getaway" collision was already gone. Tests: test/unit/extract-candidates.test.js.
 
 ## 2026-06-22 — Dev-box work (on tr-dev only; NOT prod, NOT committed)
 
@@ -1913,9 +2048,10 @@ User testing of the password-protected dev box (tr-dev.chrisputer.tech, extracti
       it's a dealbreaker for you", with an honest note when no criticism was found. Shows on
       both product cards and the Our-pick box. Verified on dev. [DEPLOY TO PROD pending Serper +
       ship-gate.]
-- [ ] MEDIUM (DEEPEN): the critical block reuses extracted `cons`. A stronger version would
+- [x] MEDIUM (DEEPEN): the critical block reuses extracted `cons`. A stronger version would
       capture verbatim 1-2★ review excerpts with source/star attribution so buyers read real
       negative reviews, not summarized clauses. Follow-up after Serper restored.
+      Fixed 2026-10-18 (CP-399): worker/engine/extract/critical-excerpts.js picks up to 2 verbatim sentences per product that give it 1-2 stars, with star count and source; stored in research.result products[].criticalReviews (docs/research-result-schema.md, sanitized in worker/engine/validate.js), shown first in the block by worker/pages/research-cards.js. Dates, fractions, deductions, mixed ratings, rivals' quotes, manufacturer/sponsored and http sources are skipped. The saved corpora hold no real low-star sentences, so most current pages still fall back to cons; proof on live pages needs new runs.
 - [x] MEDIUM (UX): presumptive — the home search box bypassed the clarify step (app.js POSTed
       /api/research directly). Now classifies first via /api/classify and shows inline
       need-questions with a one-tap "Just search for it" skip.
@@ -2103,11 +2239,12 @@ score from ranking high.
           ("Immich review self-hosted", …) so their evidence is actually fetched. This
           was the decisive lever — prompt-only got self-hosted angles searched but didn't
           reliably reach one specific project.
-- [ ] LOW: knockoff floor (3.5) + synth variance can yield thin pages (a verification run
+- [x] LOW: knockoff floor (3.5) + synth variance can yield thin pages (a verification run
       collapsed to 1 product — engine produced 1 pre-gate, so NOT over-filtering, but
       watch for thin results; dial floor back to 3.0 if they become common).
-- [ ] LOW: GOOGLE_CSE_ID env var (wrangler.toml) is dead since the /find CSE removal — drop
-      on next wrangler.toml edit.
+      Fixed 2026-10-18 (CP-400): worker/engine/validate.js applyQualityGate steps down to a 3.0 floor (FALLBACK_MIN_RATING) before keeping everything when fewer than 3 clear 3.5. The ≥3-survivors guard already existed; the thin run in this note had 1 product before the gate, so the floor was not its cause. Tests: test/unit/validate.test.js.
+- [x] LOW: GOOGLE_CSE_ID env var (wrangler.toml) is dead since the /find CSE removal — drop
+      on next wrangler.toml edit. Stale 2026-10-19 (CP-812), merged in 4e9fdb7 (PR #21, deployed 2026-10-19): already removed on 2026-06-16; wrangler.toml keeps only a comment saying so, and no code reads env.GOOGLE_CSE_ID (grep, 2026-10-19).
 
 ## 2026-06-17 — DIRECTION: pure-ML extraction synthesis engine (no LLM) — design done
 
@@ -2212,16 +2349,54 @@ fixed prompt. Keep the swap gated.
       "2.6× slower" was variance — 25s here). opus is the honesty ceiling (0/0) at 8×
       cost. [godmode R3] — Full n≥20/≥5-judge re-bench still optional for the other
       axes (citations/omissions), but the numeric-fabrication signal is decisive. [R3]
-- [ ] #5 add legit_recall (catches kimi dropping legit picks) + link_correctness
+- [x] #5 add legit_recall (catches kimi dropping legit picks) + link_correctness
       (catches the trap-URL-on-legit-product mis-citation) auto-metrics. [deferred]
-- [ ] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
+      Fixed 2026-10-18 (CP-406): benchmarks/lib/synth-recall-links.mjs, wired
+      into glm52-synth-bench.mjs (per run and per model), tested in
+      benchmarks/tests/synth-recall-links.test.mjs. legit_recall = share of the
+      scenario's legit picks kept ("Kit (ConvertKit)" matches either name).
+      link_correctness = share of productUrl/manufacturerUrl links on non-trap
+      products that do not point at a trap source (a source that names the
+      trap and no legit pick). Re-scored the saved results, no new spend:
+      kimi-k2.6 keeps 0.78 to 0.95 of legit picks, glm-5.2 0.95 to 1.0, opus
+      1.0. No cloud model mis-cited a trap URL in the saved runs; the check
+      caught one in local-synth-nemotron-3-nano-4b.json (Soundcore Space One
+      given aurasonic.example.com as its manufacturerUrl). The extract-eval
+      legit_recall gate already existed and was left as is.
+- [x] #6 fixtures for untested lie-surfaces: comparative "X vs Y", discontinued/
       recalled product, location-with-no-address. [deferred]
-- [ ] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
+      Fixed 2026-10-18 (CP-407): benchmarks/synth-fixture-lie-surfaces.mjs +
+      test/unit/lie-surfaces.test.js (25 checks, production extraction synth).
+      The comparative fixture found a real lie: a source naming two products
+      gave each one the other's prices and specs (Bose got Sony's "30 hours").
+      Fixed in worker/engine/extract/scoring.js (ownedMatches): a number counts
+      for the product named in its clause, or nearest to it. On the 24 bench
+      products this removed 7 wrong prices and 3 wrong specs, all checked. On
+      the 8-query real corpus (benchmarks/results/corpus.json) spec entries
+      went 140 to 25 and prices 65 to 44; sampled drops were shared values
+      (every espresso machine had "54 mm"; now Gaggia Classic Pro 58 mm,
+      Bambino Plus 54 mm). Extraction time 1.3 s to 1.9 s for all 8 queries.
+      extract-eval gates unchanged. After code review: the longer of two
+      overlapping names owns its mention (AirPods Pro vs AirPods Pro 2), a
+      model code that is the number itself is ignored, and a page whose title
+      names only this product keeps its "It costs $X" facts.
+- [x] RESIDUAL (live no-lies monitoring): orchestrator.js:180 drops source `content`
       on persist → live pages can't be audited against sources. Persist
       content.slice(0,200) per source + add a groundedness check to run-eval.mjs so
       PRODUCTION (not just the bench) is monitored for fabrication. [deferred — HIGH]
-- [ ] DOC cleanup: glm52-synth-bench-2026-06.md has contradictory judge counts
+      Fixed 2026-10-18 (CP-408, persist half): persistEngineResult saves
+      {url, credibility, snippet} per source; snippet is the first 200 code
+      points of the page text, whitespace collapsed (toPersistedSources in
+      worker/lib/utils.js). Older rows keep no snippet. The run-eval.mjs
+      groundedness check is still open (new item below).
+- [x] DOC cleanup: glm52-synth-bench-2026-06.md has contradictory judge counts
       (54 vs 24) + two consensus tables; persist judge scores to results/. [R2]
+      Fixed 2026-10-18 (CP-409): "Data check" section added. 24 judged the
+      2-scenario pass, 54 the 6-scenario pass; every groundedness fraction,
+      cost and latency re-scored from results/ and matches. The judge scores
+      were never saved (Claude sessions), so they cannot be persisted now; the
+      doc says so and marks the 0.82 vs 0.90 conflict. Spend total corrected
+      from about $1.11 to about $2.65 (the two re-benches were missing).
 - [x] INSIGHT (model selection): honesty here is NOT predicted by raw intelligence
       (AA Index) OR generic instruction-following (AA IFBench — Claude clusters LOW
       ~55% there yet opus fabricated 0%). It IS predicted by FACTS-Grounding +
@@ -2295,9 +2470,16 @@ IndexNow, /find). State is mature; the two real defects (both monetization):
       honored); /feed.xml deliberately not in robots (Sitemap directive is the standard). [godmode R3]
 - [x] LOW (cleanup): removed dead GOOGLE_CSE_ID from wrangler.toml (no code reads
       env.GOOGLE_CSE_ID; the /find CSE widget was retired for a plain redirect). [godmode R3]
-- [ ] WATCH: if AdSense console shows an 'unsafe-eval' or fenced-frame CSP error
+- [x] WATCH: if AdSense console shows an 'unsafe-eval' or fenced-frame CSP error
       under real traffic, add `'unsafe-eval'` to script-src and/or a
       `fenced-frame-src` directive. Deferred (security cost; add only on real error).
+      RESOLVED 2026-10-22 (CP-412): a live console check on 2026-10-21 (home,
+      /reviews, one /research page) showed no 'unsafe-eval' and no fenced-frame
+      error, so neither was added. The check found two other CSP errors, both fixed:
+      (1) frame-src blocked the Ad Traffic Quality iframe: added
+      ep1/ep2.adtrafficquality.google to frame-src (`worker/lib/http-response.js`);
+      (2) script-src-attr blocked `onclick="resetUI()"` on the home "Try again"
+      button: it is now `#error-retry-btn`, wired in `public/js/app.js`.
 - [ ] DECISION (Google AI visibility): the LIVE /robots.txt is NOT just our static
       file — Cloudflare prepends a MANAGED block (zone-level "Content Signals" /
       AI Crawl Control) that sets `Content-Signal: search=yes,ai-train=no` and
@@ -2367,18 +2549,32 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
       (orchestrator.js:209, indexnow.js accepts arrays).
 - [x] MED: "Price as of <date>, check current price" caption near CTAs — honesty +
       click-trust, reuses lastModifiedTs (research-page.js:357). Fits the ethos.
-- [ ] MED: Email capture on home/hubs (backend fully built; research-page-only today).
+- [x] MED: Email capture on home/hubs (backend fully built; research-page-only today).
 - [x] MED: Amazon `ascsubtag` (slug+rank) on /api/go redirects → free EPC/earnings
       attribution per page via Associates report (affiliate.js:56-86).
 - [x] HIGH: Raise engine READ_MIN_SCORE so hands-on expert reviews scoring 45
       (50 base +hands-on +expert −45 affiliate-conflict) aren't dropped from
       full-text READ (parallel-engine.js:21). Still discount their verdicts in synth
       — read them, don't blindly trust. Direct moat lift.
-- [ ] MED: Add non-product (service/local/experience) queries to golden-query eval —
+- [x] MED: Add non-product (service/local/experience) queries to golden-query eval —
       it's 10/10 buyable products today, blind to the facets most likely broken.
-- [ ] LOW: Recompress og.png 210KB→~60KB (hygiene); delete dead db.js legacy helpers
+      Fixed 2026-10-18 (CP-415): eval/golden-queries.json has a "kind" per
+      query and 5 new ones (1 service, 2 local incl. "best pho in wichita",
+      2 experience). Non-product pages must show no Amazon button; service
+      pages need the Recommendations layout; local pages (and experience
+      pages that name a place) need the #1 pick in that place. Scorer:
+      scripts/lib/eval-score.mjs. First free audit: 4 pages scored, 3 show
+      Amazon buttons (new HIGH item, CP-800 section); pho in Wichita has no
+      live page yet (needs one --spend run).
+- [x] LOW: Recompress og.png 210KB→~60KB (hygiene); delete dead db.js legacy helpers
       (insertProductV2/completeResearch lack the idempotency latch = footgun);
       log when the decompose fallback fires (silent quality degradation).
+      Fixed 2026-10-18 (CP-416): og.png is a 256-color palette PNG, 206 KB to
+      38 KB, 1200x630, largest pixel change 3 of 255. The db.js helpers were
+      already deleted on 2026-06-25 (test copies live in
+      test/integration/_helpers.js). The decompose fallback already logs
+      "[parallel] planner gave no aspects, using the fixed aspects"
+      (worker/engine/parallel-engine.js decompose).
 
 ### STRATEGIC BETS (M/L, high impact)
 - [ ] HIGH/L: Ingest GSC Search Analytics → D1 via cron (the literal funnel-freeze
@@ -2392,15 +2588,18 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
 - [ ] MED/M: Internal-linking + topic-cluster — home/hubs → dynamic hubs + research;
       add category breadcrumb level (Home>Research>Category>title) hub↔spoke.
 - [x] HIGH/M: Log unservable demand (surface-only) (failed/thin/zero-match queries) → content roadmap.
-- [ ] MED/M: Route homepage search into the rich server-rendered processing page
+- [x] MED/M: Route homepage search into the rich server-rendered processing page
       (two different loading UIs today; homepage is a bare text log at peak abandonment).
-- [ ] MED/M: Atomic-ish KV rate limiter (concurrent burst bypasses limit);
+      Fixed 2026-10-18 (CP-421): public/js/app.js opens /research/<slug> as soon as the run is queued (saved to history first); the homepage log stays only as a fallback without a slug. Tests: test/unit/home-search-route.test.js runs the real app.js in a stubbed browser.
+- [x] MED/M: Atomic-ish KV rate limiter (concurrent burst bypasses limit); Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): with env.DB the hourly window is one conditional INSERT on D1 (schema/021_rate_limit_hits.sql, applied to production D1 on 2026-10-19), and D1 has one primary, so a parallel burst from any number of colos passes at most the limit (test: 25 parallel calls with limit 5 pass exactly 5; on KV alone more pass). Used on research, the site-wide paid-run gate (spend-gate.js), verify, chat, auth, subscribe, feedback and classify (feedback and classify now key on the salted IP hash, like the others, so no raw IP is stored in D1). The cron deletes hits past their window. worker/lib/rate-limit.js, worker/jobs.js. Left: /api/go and /find stay on the KV window (cheap dampers, per docs/rate-limit-design.md); a D1 error falls back to the KV window (logged). The pre-claim dedup half was already done: every claim is one guarded UPDATE ... WHERE status = 'pending' (worker/jobs.js, worker/pipeline/orchestrator.js claimNextPendingJob). Tests: test/integration/rate-limit.spec.js.
       pre-claim dedup so cron fallback + off-CF worker don't both run a paid engine.
 
 ### USER-ACTION-GATED (not code-only)
-- [ ] Non-Amazon retailer CTAs: code fully supports Walmart/Target/BestBuy/Newegg/
+- [x] Non-Amazon retailer CTAs: code fully supports Walmart/Target/BestBuy/Newegg/
       B&H (affiliate-links.js) but needs Impact program IDs in wrangler.toml —
       requires signing up for Impact + each retailer program.
+      Skipped by owner choice (Amazon only, 2026-10-23, CP-423). Non-Amazon
+      store links stay as plain, untagged buy links.
 - [ ] AI-crawler block: tracked DECISION (above) — relax in Cloudflare dashboard to
       allow Perplexity/ChatGPT/Google-AI-Overviews referral traffic.
 
@@ -2479,8 +2678,10 @@ Funnel-freeze NOTE: GSC is now verified; still awaiting impressions before new f
 - [x] MEDIUM: WORKER_SECRET compared non-constant-time — SHA-256 timingSafeEqual.
 - [x] LOW: zero-source burst could synthesize hallucinated products — short-circuit to an
       honest non-result; worker poll-loop sleep-timer churn cleared; cron fallback → ctx.waitUntil + 6-min cap.
-- [ ] LOW (deferred): metrics.js token compare non-constant-time (read-only); synthesis can
-      double-charge on malformed-but-successful streamed JSON (add cost telemetry / JSON-repair).
+- [x] LOW (deferred): metrics.js token compare non-constant-time (read-only). Already fixed in code:
+      worker/pages/metrics.js uses a SHA-256 timingSafeEqual (CP-425, ticked in CP-791).
+- [x] LOW (deferred): synthesis can double-charge on malformed-but-successful streamed JSON (add cost Stale 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): each call is already counted once. worker/engine/engine.js adds the streamed call's usage.cost, then the non-streaming retry's usage.cost; the second amount is a real second paid call, not a double count. The path is also off in production: wrangler.toml sets SYNTH_ENGINE = "extract", which returns from synthesizeHonest before the LLM synthesis runs, and EXTERNAL_WORKER_ENABLED is "false".
+      telemetry / JSON-repair). Split out of the metrics.js item above.
 
 ## Debate-verdict remediation (2026-06-12, adversarial debate: 64/100 on-track)
 
@@ -2503,9 +2704,12 @@ Source: 5-stance repo-grounded debate + judge. Full prescription executed same d
 - [x] MEDIUM: Scaled-content risk — thin-page gate in publicResearchFilter
       (≥3 products, ≥2 for comparative) now excludes thin pages from sitemap/browse/
       hubs/suggest, and research pages < threshold render noindex.
-- [ ] LOW: BullshitBench numbers (opus-4.8 94%, planner 15%) exist only as code
+- [x] LOW: BullshitBench numbers (opus-4.8 94%, planner 15%) exist only as code
       comments — harness was external (petergpt.github.io); not reproducible from this
       repo. Accept as provenance-noted, or rebuild a local trap-question eval later.
+      Fixed 2026-10-18 (CP-426): benchmarks/bullshitbench-numbers-2026-06.md
+      records every number, where it came from (commit 0dc8b3a), and the local
+      benches that replaced it.
 - [ ] NOTE: Funnel-feature freeze in effect until first real traffic data (judge
       recommendation): no new accounts-tier features, /find iterations, or chat
       expansion before GSC shows impressions.
@@ -2571,7 +2775,7 @@ All verified end-to-end on local dev (build green, 10/10 checks).
 - [x] Phase 5 (gated): keyword_queue + 122 seeded high-intent keywords; scheduled() flywheel tick claims 1 keyword/run, max FLYWHEEL_DAILY_MAX=6/day, refuses to run without SERPER_API_KEY and stops at the monthly budget cap. Category hub pages at /best/:category (static guides win via ASSETS-first probe); hubs linked from browse + sitemap.
 - [x] Phase 6: token-gated GET /metrics (503 unconfigured / 401 bad bearer): spend vs budget, runs by status/tier, top pages, per-product affiliate clicks, guide clicks, subscribers, keyword queue. Set METRICS_TOKEN via wrangler secret put.
 - [x] HIGH: DuckDuckGo fallback repaired (was anti-bot blocked): browser-like headers + parser rewrite, verified against live responses. Engine has free web search again even before SERPER_API_KEY arrives.
-- [ ] LOW: /metrics emits snake_case keys (top_pages, affiliate_clicks) — consumers should use those names.
+- [x] LOW: /metrics emits snake_case keys (top_pages, affiliate_clicks) — consumers should use those names. Fixed 2026-10-18 (CP-428): docs/metrics-api.md lists every key; test/integration/metrics.spec.js pins them.
 - [x] SERPER_API_KEY provided 2026-06-11, validated live, in .dev.vars (gitignored). Full-tier verification run: 6 products with verdicts/prices/ratings sourced from Tom's Hardware/Wirecutter/RTINGS/Reddit, credibility tags on sources (hands-on/expert-domain/community), 6 Review JSON-LD blocks, 6 click-tracked CTAs, cost $0.108 (matches the $0.099 bench estimate). REMAINING: `wrangler secret put SERPER_API_KEY` at first deploy (needs CF auth).
 - [x] MEDIUM (RESOLVED via worker/lib/asin-resolver.js): No direct /dp/ ASIN links yet — expert review pages link Amazon through affiliate redirects the extractor strips, so products fall back to tagged search links (still earn commission via /api/go). Improvement idea for a later round: post-synthesis ASIN resolution via one Serper `site:amazon.com` query per top product.
 - [x] RESOLVED (.cf-token deploys + sets secrets): CLOUDFLARE_API_TOKEN or `wrangler login` needed for Phase 3 (D1 migration + chrisputer.tech cutover) and for pushing secrets.
@@ -2597,7 +2801,7 @@ verified live. One real instant-tier run executed (cost $0.0102, correctly recor
 - [x] LOW: Canonical-dedup ROW_NUMBER CTE repeated across suggest/browse/sitemap. Extracted into `worker/lib/listable.js` (2026-08-03). Every caller (browse listing, browse count, sitemap, Atom feed, home, category hub, autocomplete) now builds its SQL from one filter + one cluster-winner rule. See the 2026-08-03 pagination section above.
 - [x] LOW: maybe304() duplicated between index.js and sitemap.js — unified via isNotModified() in worker/lib/utils.js; both call sites import it (2026-06-16).
 - [x] LOW: Static guide URLs hardcoded in sitemap.js + GUIDES_LASTMOD in index.js — derived from worker/lib/guides.js manifest (STATIC_GUIDES/STATIC_GUIDE_SLUGS/GUIDES_LASTMOD); add a guide in one place (2026-06-16).
-- [ ] LOW: research.result JSON shape is an implicit contract across orchestrator/report.js/research-page.js — Phase 2 engine swap defines the canonical shape.
+- [x] LOW: research.result JSON shape is an implicit contract across orchestrator/report.js/research-page.js — Phase 2 engine swap defines the canonical shape. Fixed 2026-10-18 (CP-429): docs/research-result-schema.md (ranking, rejection, error and verification shapes, writers and readers); test/unit/research-result-shape.test.js checks 18 real synth outputs against it.
 - [ ] LOW: Filtered/fake source evidence no longer persisted (only kept source URLs) — Phase 2 credibility layer stores tags+scores per source.
 
 ---
@@ -2651,7 +2855,7 @@ production domain, your Cloudflare credentials, or are intentional design choice
 
 - [x] MEDIUM: Tailwind loaded from the Play CDN. (Fixed: prebuilt `public/css/tailwind.css` via the standalone CLI, no runtime CDN. Verified in a real browser across static pages and a full dynamic report.)
 - [x] LOW: Unused vendored htmx shipped publicly. (Fixed: removed; docs updated.)
-- [ ] LOW (deploy step): Guide click logging needs migration `002_guide_clicks.sql` run. Logging is best-effort, so redirects work regardless.
+- [x] LOW (deploy step): Guide click logging needs migration `002_guide_clicks.sql` run. Logging is best-effort, so redirects work regardless. Stale 2026-10-19 (CP-819): the guide_clicks table exists in production D1 and holds 3,047 rows (read-only query, 2026-10-19). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
 
 ## Code Quality
 
@@ -2664,9 +2868,79 @@ production domain, your Cloudflare credentials, or are intentional design choice
 - [x] HIGH: SearXNG gave off-topic, Bing-only results, so frank paid Brave and Exa for every search. (Fixed: ten working engines on Blackbox, `worker/engine/searxng.js` cleanup and rerank, weak answers fall back to Brave. Bench: 7.1 good sources per query vs Exa 2.5.)
 - [x] HIGH: Production Brave answers HTTP 402 (out of credit) and Serper has no key, so the Amazon ASIN resolver found no product pages and affiliate links fell back to search links. (Fixed: the resolver uses SearXNG site: searches when SEARXNG_URL is set, Brave only as a per-query backup. worker/lib/asin-resolver.js)
 - [x] MEDIUM (OPS): Production Brave is out of credit (HTTP 402 on 2026-10-14). (Fixed 2026-10-15, CP-652: PM decided not to top up. BRAVE_API_KEY deleted from production; the live chain is SearXNG, then Exa. Live run 0903410q2a314y59: 29 `[searxng]` log lines, 0 `[brave]`, 0 `[exa]`, 0 HTTP 402, 373 sources.)
-- [ ] MEDIUM: The product-image resolver uses only Serper or Brave, and production has neither key, so product images do not resolve. Move images to a SearXNG image engine. worker/lib/image-resolver.js
-- [ ] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js
-- [ ] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js
-- [ ] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl
-- [ ] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml
-- [ ] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js
+- [x] MEDIUM: The product-image resolver uses only Serper or Brave, and production has neither key, so product images do not resolve. Move images to a SearXNG image engine. worker/lib/image-resolver.js Stale 2026-10-19 (CP-807): already fixed in e8211e4 (on main), see the HIGH images item above: worker/lib/image-resolver.js uses searxngImageSearch when SEARXNG_URL is set, with Brave as a per-query backup. Merged in 79da27b (PR #19), deployed 2026-10-19.
+- [x] LOW: SearXNG URLs are normalized (no www, https, no trailing slash) but Brave, Exa, and Tavily URLs are not, so the same page from two providers can count twice. worker/engine/tools.js, worker/engine/parallel-engine.js (Fixed 2026-10-17, CP-710 via CP-792: every provider's results dedupe on one URL key, `urlKey` in worker/engine/searxng.js, in tools.js (search and read_page), parallel-engine.js, opening-book.js, recall-gather.js, and engine.js.)
+- [x] LOW: The `news` provider asks SearXNG for category news, which none of the ten engines serve, so news searches always fall back to Exa (paid). worker/engine/searxng.js (Fixed 2026-10-17, CP-711 via CP-792: topic news sends no category, so the general web engines answer. Note: no current caller passed topic news to SearXNG; the news provider already reached SearXNG through the general web fallback, so live requests do not change.)
+- [x] LOW: SearXNG output removes `www.` and forces https, which can break a host that only answers on www or http. worker/engine/searxng.js normalizeResultUrl (Fixed 2026-10-17, CP-712 via CP-792: the normalized URL is only the merge key; results keep the engine's host and path (www. and trailing slash kept) minus credentials, tracking params, and fragment. https stays forced because read_page accepts only https.)
+- [x] LOW (OPS): Engines can block the home IP under load (gmx showed a CAPTCHA after about 10 fast queries). Watch the `[searxng] ... kept N` logs and the Brave spend; add a result cache if blocks grow. Blackbox stacks/searxng/settings.yml Fixed 2026-10-18 (CP-713): usable SearXNG answers (web, site:, images) are cached in KV for 4 hours (SEARXNG_CACHE_TTL_S, worker/engine/searxng.js); errors, weak or empty answers are never cached.
+- [x] LOW (test): `index.js routing > POST /api/classify` times out at 5,000 ms in about 2 of 7 full `npx vitest run` runs (seen 2026-10-14, unrelated to search; the classify call waits on the network). test/integration/index.spec.js (Fixed 2026-10-15 in 4605f18, the LLM reply is stubbed; CP-714, 8b5a965, adds checks that no real network call happens. 3 full runs of 607 tests green on 2026-10-17.)
+
+## 2026-10-18 — fix batch 5 follow-ups (CP-795)
+- [x] MEDIUM (monitoring): run-eval.mjs has no groundedness check against the new per-source snippets yet. scripts/run-eval.mjs Fixed 2026-10-19 (CP-807): run-eval.mjs reads GET /api/report/:slug (free) and scores, for the top 5 products, the share of names (every word) and of prices and spec numbers found in the saved snippets (groundedness in scripts/lib/eval-score.mjs; thresholds in eval/golden-queries.json). It is a soft check. Live 2026-10-19: the new robot-vacuum page (from the run noted in the batch 11 section) scores 4 of 5 names and 16 of 16 numbers grounded (the miss is "Shark PowerDetect 2-in-1 Robot Vacuum", a long generic name); the other 13 golden pages predate the snippets (CP-408), so they read "n/a" until they are re-run. Tests: test/unit/eval-score.test.js. Merged in 79da27b (PR #19), deployed 2026-10-19.
+- [x] LOW (benchmark): the SearXNG cache also serves forceFresh runs, so two stability-harness runs of one query within 4 hours share search answers and can look more stable than cold runs. Pass a cache bypass down from forceFresh if the harness needs cold gathers. worker/engine/tools.js Fixed 2026-10-19 (CP-819): a worker-secret forceFresh request adds bypassSearchCache to the queue message; the consumer (worker/jobs.js searchEnvFor) sets SEARXNG_CACHE_BYPASS for that run, and tools.js passes cacheBypass to searxngSearch, which skips the KV read but still saves the fresh answer. A public forceFresh or fresh run is unchanged. Left: a run claimed by the off-CF worker or the cron fallback has no queue message, so it reads the cache. worker/handlers/research.js, worker/jobs.js, worker/engine/tools.js, worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js, test/integration/searxng-cache.spec.js, test/integration/cp819-batch14.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (API): GET /api/report returns the new source snippets (about 20 KB per report). Strip them in the handler if the payload or quoting becomes a concern. worker/handlers/report.js Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): the API leaves each source's snippet out unless the request has ?snippets=1. The report page does not use the API; scripts/run-eval.mjs (groundedness) asks with ?snippets=1. On the newest page (robot vacuum, 372 sources) that is 69 KB of the 194 KB answer. worker/handlers/report.js, worker/index.js. Tests: test/integration/cp808-batch12.spec.js.
+- [ ] LOW (OPS): two runs of the same query that start together both miss the SearXNG cache (no in-flight dedupe). worker/engine/searxng.js Left open 2026-10-19 (CP-819): no small safe fix. The two runs are separate queue invocations, often in different isolates, so an in-memory in-flight map rarely sees both; KV has no lock or compare-and-set and its writes take up to a minute to show in other locations, so a "searching now" marker in KV would not stop the second run either. A real fix needs a Durable Object or a D1 lease per query, which is more than this item is worth (one extra free SearXNG request). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (architecture): worker/lib/keywords.js still imports budgetExhausted from worker/pipeline/orchestrator.js. Move the budget helpers to a lib module. worker/lib/keywords.js Fixed 2026-10-19 (CP-819): the budget helpers (incrementMonthlyCost, monthlyLedgerUsd, monthlySpendUsd, monthlyBudgetUsd, budgetExhausted) moved to worker/lib/budget.js. keywords.js and orchestrator.js import them from there, and so do jobs.js, the chat, research, verify and internal handlers, pages/metrics.js, verify-orchestrator.js and monthly-cost.spec.js. Guard: test/unit/lib-pure.test.js fails if any worker/lib module imports worker/pipeline. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (OPS): a SearXNG answer where some engines were blocked but 3 or more results came back counts as usable, so it stays cached for 4 hours with the thinner result set (QA note on PR #13). worker/engine/searxng.js Fixed 2026-10-19 (CP-819): a usable web answer is cached for 30 minutes (SEARXNG_PARTIAL_CACHE_TTL_S) instead of 4 hours when SearXNG lists unresponsive_engines AND it has fewer than 20 raw results (SEARXNG_THIN_RAW_RESULTS). Failed engines alone are not enough: gmx and neosearch failed on 6 of 6 live queries (2026-10-19, free requests) while those answers held 47 to 74 raw results, so that rule would have cut almost every answer to 30 minutes and brought back the CAPTCHA load the 4-hour cache removed. Site and image answers are small by nature and keep 4 hours. worker/engine/searxng.js. Tests: test/unit/searxng-cache.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+
+## 2026-10-18 — fix batch 6 findings (CP-796)
+- [ ] MEDIUM (Product, extraction recall): on the recalled-car-seat fixture the extraction synth finds only UPPAbaby Mesa Max (Chicco KeyFit 35, the expert top pick, is not harvested), and validateResearchResult's category gate then drops Mesa Max too, so the run would fail with zero products. benchmarks/synth-fixture-lie-surfaces.mjs RECALLED_SCENARIO, worker/engine/extract/candidates.js, worker/engine/validate.js
+- [ ] MEDIUM (Product, extraction recall): on the "best pizza in Austin" fixture the extraction synth finds no restaurant (Via 313, Home Slice Pizza, Bufalina) and shows no picks. Honest, but local queries get nothing. worker/engine/extract/candidates.js
+- [ ] LOW (Product, extraction): some real-corpus prices still look off after the CP-407 fix (Apple AirPods $250, Anker Soundcore Life A1 $13.99 on the earbuds query): a price in a clause that names the product is taken even when it is a bundle, a sale or another model's price. worker/engine/extract/scoring.js
+- [ ] LOW (Product, extraction): a number in a sentence that names only a rival but means the page's subject ("Compared with the Bose QC Ultra, it lasts 30 hours" on a Sony review) still goes to the rival. Needs pronoun handling (the page title names the subject). worker/engine/extract/scoring.js ownerOf
+- [ ] LOW (Product, extraction): Bose QuietComfort Ultra gets no con although two sources say it clamps hard and gets warm (comparative fixture). worker/engine/extract/scoring.js
+
+## 2026-10-18 — fix batch 8 findings (CP-801)
+- [ ] LOW (Product, extraction): Reddit usernames get harvested as products ("Frequent Chapter9874" on the linen replay); the strong-code rule takes the digits as a model code. worker/engine/extract/candidates.js
+- [ ] LOW (Product, extraction): bare brand names ("J Crew", "Lands End") survive as products on apparel pages, where reviews name the brand but not a shirt. worker/engine/extract/candidates.js
+- [ ] LOW (OPS): the free Jina reader answers HTTP 403 for Reddit threads and Etsy listings, so the thin-corpus fallback's direct reads often add nothing; its gain on the linen replay came from the new search results. Check whether production (with JINA_API_KEY) reads them. worker/lib/jina.js
+- [ ] LOW (engine): runSearch takes no abort signal, so a search the thin-corpus fallback stops waiting for keeps its connection until the provider's own timeout. worker/engine/tools.js
+- [ ] LOW (perf): the thin-corpus check runs one extra extraction preview (analyze) per run; measure its CPU on a large corpus. worker/engine/thin-corpus.js
+
+## 2026-10-19 — fix batch 9 findings (CP-803)
+- [x] LOW (Product, data): publicResearchFilter hides only queries that START with "test " or "verify ", so a test run with the marker at the end ("... diagnostic 20260621", "... unique test 4829") is listed and suggested. The two known rows are retired (schema/020); a run started by a script should carry a marker the filter can see. worker/lib/utils.js publicResearchFilter Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): publicNameFilter (used by publicResearchFilter and the homepage verdicts) also hides a query that ends in test, diagnostic, debug or smoke plus a run id of 5 or more digits, or in "unique test" plus any number. Four digits after "test" stay public ("stress test 4090", "covid test 2026"), and real names that start with "Test" are not touched by the new rule. On the 1,260 production rows (read-only query, 2026-10-19) it matches only the two known test runs, both already retired. worker/lib/utils.js. Tests: test/integration/cp808-batch12.spec.js.
+- [ ] LOW (Product, quality): extract/engine.js ranks by rating first, so a 4.5 on 2 sources can outrank a 4.0 on 8. The evidence cap limits it, but the old pages above show the shape. Measure on the next paid eval. worker/engine/extract/engine.js
+- [ ] LOW (Product, safety): "ps 5" (spaced model name with no 3+ letter word) is still read as a probe. worker/lib/safety.js isProbeQuery
+- [ ] LOW (Product, extraction): extract/engine.js decides `physical` (bare one-word names dropped) from its own facet test, not page-kind.js, so one-word venue names ("Sey", "Devocion") are dropped on local and experience queries. Related to the "best pizza in Austin" item above; changing it needs a replay to check the extra noise. worker/engine/extract/engine.js
+- [ ] LOW (Product, safety): rule 7 of isProbeQuery now passes "one real word plus any token", so near-garbage like "xyz 1" reaches the LLM classifier (cheap, and it rejects nonsense) instead of the free screen. worker/lib/safety.js
+
+### Safety (QA review of batch 9, CP-803)
+- [x] LOW (Security, safety): the drug test-kit exception applies after any verb, so adding "test kit" gets some drug phrases past the free screen: "how to cook heroin test kit", "how to get cocaine test kit", "order heroin testing kits". The AI classifier still checks them. Fix: apply the exception only after "buy" and "where to buy", not after "how to cook" or "how to get". worker/lib/safety.js Fixed 2026-10-19 (CP-804): the exception now applies only after "buy" and "where to buy". Tests: test/unit/safety.test.js section 12. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
+- [x] LOW (Security, safety): some spaced-out phrases were blocked on the old main only by the nonsense (probe) check and now reach the AI classifier: "make a b o m b", "b o m b making", "k i l l myself". The normal spelling of each was never blocked by the screen either, so this is no worse than before; consider joining spaced letters before the harm patterns run. worker/lib/safety.js Fixed 2026-10-19 (CP-804): new harm patterns (make/making/build a bomb, bomb making, kill myself / killing myself) run on the joined forms, so the spaced and plain spellings both block; bath bombs and bomb shelters pass, and the batch 9 normal searches still pass. Merged in 70d27f6 (PR #18), deployed 2026-10-19.
+
+## 2026-10-19 — fix batch 10 findings (CP-804)
+- [ ] LOW (UX, verify): with JavaScript off, a check that reaches needs_input shows "paste its URL" but no form (the URL form is built by script). worker/pages/verify-page.js renderUrlPromptMarkup
+- [ ] LOW (Product, safety): "order fentanyl test strips" and "where to get fentanyl test strips" are blocked, because the test-kit exception now applies only after "buy" and "where to buy" (as asked in CP-804). Widen it if real buyers hit this. worker/lib/safety.js
+- [x] LOW (Security, verify): the no-JavaScript POST /verify refuses cross-site posts by Origin and Sec-Fetch-Site; a very old browser that sends neither header is not refused. worker/handlers/verify.js isCrossSite Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): isCrossSite also refuses a post with neither Origin nor Sec-Fetch-Site (403, before any work). The normal form still works with either header. worker/handlers/verify.js. Tests: test/integration/cp808-batch12.spec.js.
+- [ ] LOW (UX, home): the homepage verdict list hides a real product whose name starts with "Test " or "Verify " (the shared test-run rule). worker/lib/utils.js publicNameFilter
+- [ ] LOW (Product, safety): "bomb making" blocks unless "bath" comes right before it, so "photo bomb making" is blocked. worker/lib/safety.js
+
+## 2026-10-19 — batch 11 (CP-807)
+- [x] LOW (Security, safety): the free screen missed "m a k e a bomb" (the verb spaced out, the article after it): the spaced letters joined into "makea". Fixed 2026-10-19 (CP-807): denylistForms also joins a run up to an "a" or "i" that stands before a word, so "m a k e a bomb", "how to m a k e a bomb", "b u i l d a bomb" and "m 4 k 3 a bomb" block; "m a k e a bath bomb", "b u i l d a bomb shelter" and every batch 9 and batch 10 normal search still pass, and the CP-394 cases stay blocked. worker/lib/safety.js. Tests: test/unit/safety.test.js section 13. Merged in 79da27b (PR #19), deployed 2026-10-19.
+- [ ] LOW (Product, verify): the engine still trims every type word and trailing spec before it searches (trimProductType in runVerification), so "Milwaukee M18 Fuel hammer drill" and "... impact driver" are checked as the same "Milwaukee M18 Fuel", and "MacBook Air 2024" as "MacBook Air". The saved-verdict keys now keep these apart (CP-807), but each run checks the shorter name. worker/engine/verify.js, worker/lib/product-link.js trimProductType.
+- [ ] LOW (Product, verify): an accessory case for a device not in DEVICE_WORDS ("Sony WH-1000XM5 case", "Meta Quest 3 case") is checked, and now keyed, as the device itself. worker/lib/product-link.js DEVICE_WORDS.
+- [ ] LOW (UX, verify): when the pasted page title gives the model, the report says "Antec C8" (result.product) but the row and page title keep the link name ("Antec Chamber"), because the row is written before the check runs. worker/handlers/verify.js, worker/pipeline/verify-orchestrator.js.
+- [ ] LOW (Product, verify): the name taken from the page title depends on that read working, so one link can be checked as "Antec C8" in one run and "Antec Chamber" in the next (a bot-check page), with separate saved claims. worker/engine/verify.js nameFromPastedPage.
+- [ ] LOW (Ops): the CP-807 live "cached search" check used "best robot vacuum for pet hair", whose page is from June (outside the 14-day cache), so it started one new paid run (about $0.10, id 1x3j17566064303m) on 2026-10-19. Next time, check with a query whose page is under 14 days old.
+
+## 2026-10-19 — batch 12 (CP-808, merged in 4ea5d77)
+- [x] LOW (Security, safety): "make an explosive" was not blocked, plain or spaced (QA note on PR #19). Fixed 2026-10-19 (CP-808), merged in 4ea5d77 (PR #20, deployed 2026-10-19): a harm pattern blocks make/making/build/building + an optional "a"/"an" + explosive(s), with the spaces optional so joined spaced letters match ("m a k e a n explosive", "m4ke an expl0sive"). "exploding kittens card game", "explosive proof storage cabinet" and every batch 9 to 11 normal search still pass. worker/lib/safety.js. Tests: test/unit/safety.test.js section 14.
+- [ ] LOW (Security, rate limit): the D1 window adds one D1 write (about 10 to 50 ms) to every checked POST (research, verify, chat, auth, subscribe, feedback, classify). Watch the latency of those routes; the RL_BURST binding still answers first. worker/lib/rate-limit.js
+- [ ] LOW (cost): the extractClaims hedge (hedged, worker/lib/deadline.js) sends a second request when the first is slow and takes the first reply; the cost of the losing request is not counted. Same shape as the judge hedge fixed in CP-808. worker/engine/verify.js extractClaims
+
+- [ ] LOW (cost): when persistVerificationResult throws (a D1 error on the final batch), the catch path adds only err.totalCostUsd, which is unset there, so the run's costUsd and any late hedge cost never reach the month counter. Older than CP-808. worker/pipeline/verify-orchestrator.js
+- [ ] LOW (Security, rate limit): during a D1 outage every check falls back to the KV window, which the D1 path never wrote, so each key starts with a full quota (the RL_BURST binding still caps bursts per colo), and every request logs one error line. worker/lib/rate-limit.js
+- [ ] LOW (Product, data): the trailing test-marker rule would also hide a real search that ends in "test", "diagnostic", "debug" or "smoke" plus a 5+ digit model number ("kidde smoke 21026059"). None of the 1,260 production rows match today (checked 2026-10-19). worker/lib/utils.js publicNameFilter
+- [ ] LOW (code quality): worker/engine/verify.js is about 1,550 lines, past the 800-line cap; the judge and its cost handling could move to their own module. worker/engine/verify.js
+
+## 2026-10-19 — batch 13 (CP-812)
+- [x] LOW (UX): the processing-page notify box still asks "Want an email when it's ready?" while mail is off; only the answer after submit is honest now. worker/pages/research-page.js Fixed 2026-10-19 (CP-819): the box uses mailConfigured(env), the same signal as the signup answer. With mail off it shows no form and says "Email alerts are not switched on yet, so keep this page open: it updates by itself when the report is ready." With mail on it is unchanged. worker/pages/research-page.js. Tests: test/integration/cp819-batch14.spec.js. Left: the "Get notified when we re-research this category" footer form on finished pages still shows while mail is off (its answer after submit is honest). Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] HIGH (Ops): apply schema/022_rekey_plus_names.sql to production D1 right after the CP-812 deploy (CI never runs migrations). Until then a plain "iRobot Roomba j7" check reuses the j7+ verdict. schema/022_rekey_plus_names.sql Done 2026-10-19 (CP-819): applied to production D1 right after the 4e9fdb7 deploy; one row written, and the only "verify:name:irobot j7%" row is now 6x525e1n0d3q3739 with key "verify:name:irobot j7 plus roomba". Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [x] LOW (Product, verify): other parseFencedJson callers that treat null as "no data" still drop a bad model reply without a log line; only recall-supplement logs it now. Logging inside the shared parser would cover all of them. worker/lib/llm-json.js Fixed 2026-10-19 (CP-819): parseFencedJson logs one console.warn line for every null it returns: "[llm-json] <caller> reply is not JSON (N chars)" or "... no reply (undefined)" (no "dropped": verify-stance still salvages complete verdicts from a cut-off reply). No model text. Each caller passes its name (classifier, planner, notes, synthesis, name-cleaner, verify-stance, verify-extract, recall-supplement). The duplicate recall-supplement line is gone; its "no missing list" line stays. worker/lib/llm-json.js. Tests: test/unit/llm-json.test.js, test/unit/silent-drops.test.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [ ] LOW (Testing): the real-world eval has no live page for 9 of 18 queries (mesh wifi, budget earbuds, budget espresso, home NAS, iPhone power bank, budget gaming headset, pet vacuum, 2026 laptop, local food). Filling them needs --spend (about $0.90). eval/real-world-benchmark.json
+
+## 2026-10-19 — batch 14 (CP-819)
+- [x] LOW (cost): parallel-engine extractNotes read parsed.notes on a reply that did not parse, threw inside its own try, and returned cost 0, so a billed notes call was left out of the run cost and the month. Fixed 2026-10-19 (CP-819): it reads parsed?.notes and keeps the cost; a failed call now logs one line. worker/engine/parallel-engine.js. Tests: test/integration/parallel-engine.spec.js. Merged in 0ef18ad (PR #22, deployed 2026-10-19).
+- [ ] LOW (UX): the "Get notified when we re-research this category" footer form on finished report pages still shows while mail is off; only its answer after submit is honest. Same fix as the processing box (mailConfigured). worker/pages/research-page.js
+- [ ] LOW (privacy, logs): worker/lib/classifier.js logs up to 200 characters of an unparseable classifier reply ("[classifier] unparseable response"), which can echo the user's query, and it now doubles the shared parser's line. Drop the text or the whole line. worker/lib/classifier.js
+

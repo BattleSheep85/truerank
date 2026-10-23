@@ -3,6 +3,7 @@
 // network-free, wait-free unit test — no real timers, no real requests.
 import { fetchPageContent } from '../../worker/lib/jina.js';
 import * as jina from '../../worker/lib/jina.js';
+import { createConnectionGate } from '../../worker/lib/connection-gate.js';
 
 // Read the Authorization header from a fetch init (plain object or Headers).
 function authOf(init) {
@@ -156,7 +157,156 @@ export async function runJinaTests() {
   // ── rerankPassages (Jina rerank API) ───────────────────────────────────
   await runRerankCases({ eq, ok, report });
 
+  // ── CP-718: the target site refused Jina (TechPowerUp 403) → direct fetch ──
+  {
+    const refused = 'Title: 403 - Access Denied\n\nURL Source: https://www.techpowerup.com/review/antec-c8/4.html\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\nAccess denied';
+    const directHtml = '<html><body><article>' + 'The case fits a 360 mm radiator on top with room to spare. '.repeat(4) + '</article></body></html>';
+    const quietLog = console.log;
+    console.log = () => {};
+    try {
+      const passes = await fetchPageContent('https://www.techpowerup.com/review/antec-c8/4.html', '', {
+        fetchImpl: scriptedFetch([jsonResponse(200, refused)], jsonResponse(200, directHtml)),
+        sleepImpl: noopSleep,
+      });
+      ok('CP-718 refused: the direct fetch text is used', passes.includes('360 mm radiator'));
+      const bothBlocked = await fetchPageContent('https://www.techpowerup.com/review/antec-c8/4.html', '', {
+        fetchImpl: scriptedFetch([jsonResponse(200, refused)], jsonResponse(403, '')),
+        sleepImpl: noopSleep,
+      });
+      eq('CP-718 refused: a failed direct fetch gives no text (the refusal is not the page)', bothBlocked, '');
+    } finally {
+      console.log = quietLog;
+    }
+    eq('CP-718 refused: detects the 403 warning', jina.isTargetRefused(refused), true);
+    eq('CP-718 refused: a normal page is not refused', jina.isTargetRefused('Title: Review\n\nMarkdown Content:\nWarning: Target URL returned error 403 is in the body far below'.padStart(900, ' ')), false);
+    eq('CP-718 refused: non-string is not refused', jina.isTargetRefused(null), false);
+  }
+
+  await runConnectionGateCases({ eq, ok, longBody });
+
   return report;
+}
+
+// CP-718 round 3: with a connection gate, a read opens its connection (and
+// starts its timer) only when it holds a slot, and frees it after the body.
+async function runConnectionGateCases({ eq, ok, longBody }) {
+  const quietLog = console.log;
+  console.log = () => {};
+  try {
+    {
+      const gate = createConnectionGate(1);
+      let open = 0;
+      let maxOpen = 0;
+      const fetchImpl = async () => {
+        open++;
+        maxOpen = Math.max(maxOpen, open);
+        await new Promise((r) => setTimeout(r, 5));
+        return { ok: true, status: 200, text: async () => { open--; return longBody; } };
+      };
+      const texts = await Promise.all([1, 2, 3].map((n) => fetchPageContent(`https://example.com/p${n}`, '', { fetchImpl, sleepImpl: noopSleep, gate })));
+      eq('gate: every read returns its text', texts.map((t) => t.length), [200, 200, 200]);
+      eq('gate: one connection at a time with one slot', maxOpen, 1);
+      eq('gate: no slot held after the reads', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(1);
+      const seen = [];
+      const fetchImpl = async (url) => {
+        seen.push(url.startsWith('https://r.jina.ai/') ? 'jina' : 'direct');
+        if (url.startsWith('https://r.jina.ai/')) return jsonResponse(200, 'short');
+        return jsonResponse(200, `<html><body>${longBody}</body></html>`);
+      };
+      const text = await fetchPageContent('https://example.com/thin', '', { fetchImpl, sleepImpl: noopSleep, gate });
+      eq('gate: the direct fallback also runs through the gate', seen, ['jina', 'direct']);
+      eq('gate: the direct fallback text is kept', text.length, 200);
+      eq('gate: slots freed after the fallback', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(1);
+      let cancelled = 0;
+      const fetchImpl = async (url) => {
+        if (url.startsWith('https://r.jina.ai/')) {
+          return { ok: false, status: 404, body: { cancel: async () => { cancelled++; } }, text: async () => '' };
+        }
+        return jsonResponse(404, '');
+      };
+      const text = await fetchPageContent('https://example.com/gone', '', { fetchImpl, sleepImpl: noopSleep, gate });
+      eq('gate: an HTTP error gives no text', text, '');
+      eq('gate: the unread error body is cancelled so its connection closes', cancelled, 1);
+      eq('gate: slot freed after an HTTP error', gate.active(), 0);
+    }
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      const stop = new AbortController();
+      let calls = 0;
+      const waiting = fetchPageContent('https://example.com/late', '', {
+        fetchImpl: async () => { calls++; return jsonResponse(200, longBody); },
+        sleepImpl: noopSleep,
+        gate,
+        signal: stop.signal,
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      stop.abort();
+      eq('gate: a read stopped while it waits for a slot gives no text', await waiting, '');
+      eq('gate: a read stopped while it waits never fetches', calls, 0);
+      release();
+      await held;
+    }
+    {
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      let timerStartedEarly = false;
+      let fetchStarted = false;
+      const fetchImpl = async (_url, init) => {
+        fetchStarted = true;
+        timerStartedEarly = Boolean(init?.signal?.aborted);
+        return jsonResponse(200, longBody);
+      };
+      const read = fetchPageContent('https://example.com/queued', '', { fetchImpl, sleepImpl: noopSleep, gate });
+      await new Promise((r) => setTimeout(r, 5));
+      eq('gate: a queued read has not opened its connection yet', fetchStarted, false);
+      release();
+      await held;
+      eq('gate: the queued read then returns its text', (await read).length, 200);
+      eq('gate: its timer was not already spent while it queued', timerStartedEarly, false);
+    }
+    {
+      // A read that waited 10 s in line for a slot still gets its 429 retry:
+      // the retry budget counts from the slot, not from the call.
+      const gate = createConnectionGate(1);
+      let release;
+      const held = gate.run(() => new Promise((r) => { release = r; }));
+      const realNow = Date.now;
+      let offset = 0;
+      Date.now = () => realNow() + offset;
+      try {
+        const urls = [];
+        const fetchImpl = scriptedFetch([jsonResponse(429, ''), jsonResponse(200, longBody)]);
+        const read = fetchPageContent('https://example.com/waited', '', {
+          fetchImpl: async (url, init) => { urls.push(url.startsWith('https://r.jina.ai/') ? 'jina' : 'direct'); return fetchImpl(url, init); },
+          sleepImpl: noopSleep,
+          gate,
+        });
+        await new Promise((r) => setTimeout(r, 5));
+        offset = 10_000;
+        release();
+        await held;
+        eq('gate: a read that queued 10 s still retries a 429', [await read, urls], [longBody, ['jina', 'jina']]);
+      } finally {
+        Date.now = realNow;
+      }
+    }
+    {
+      let signalSeen = null;
+      const out = await jina.gatedFetchText(async (_url, init) => { signalSeen = init.signal; return jsonResponse(200, 'ok'); }, 'https://example.com/x');
+      eq('gatedFetchText: no timeoutMs uses the default timer', [out, signalSeen instanceof AbortSignal], [{ ok: true, status: 200, text: 'ok' }, true]);
+    }
+  } finally {
+    console.log = quietLog;
+  }
 }
 
 // Records every Jina call (url + Authorization header) and every direct call.
