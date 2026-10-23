@@ -2584,9 +2584,11 @@ CSP-blocked/no traffic signal). Strategic frame: traffic + measurement first
       pre-claim dedup so cron fallback + off-CF worker don't both run a paid engine.
 
 ### USER-ACTION-GATED (not code-only)
-- [ ] Non-Amazon retailer CTAs: code fully supports Walmart/Target/BestBuy/Newegg/
+- [x] Non-Amazon retailer CTAs: code fully supports Walmart/Target/BestBuy/Newegg/
       B&H (affiliate-links.js) but needs Impact program IDs in wrangler.toml —
       requires signing up for Impact + each retailer program.
+      Skipped by owner choice (Amazon only, 2026-10-23, CP-423). Non-Amazon
+      store links stay as plain, untagged buy links.
 - [ ] AI-crawler block: tracked DECISION (above) — relax in Cloudflare dashboard to
       allow Perplexity/ChatGPT/Google-AI-Overviews referral traffic.
 
