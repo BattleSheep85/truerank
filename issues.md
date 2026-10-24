@@ -1,6 +1,10 @@
 # Issues
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
+
+## 2026-10-24: dev tool advisories in undici and zod (CP-912)
+
+- [x] HIGH (Security, dev tools): `@cloudflare/vitest-plugin` 1.4.5 pulled in undici 7.29.1 (GHSA-xjj6-f33q-929c, plus 2 MODERATE) and zod 4.6.5 (GHSA-mrhx-c7xc-m3w5). Dev-only, the deployed worker is not affected. The newest plugin (1.4.7) still pins zod 4.6.5 and its miniflare still pins undici 7.29.1, so a plugin update does not fix it. Fixed 2026-10-24: `overrides` in `package.json` force undici `^7.30.1` (lock: 7.30.1) and zod `^4.6.6` (lock: 4.6.7). `npm audit` finds 0 vulnerabilities. Remove the overrides when a plugin release ships fixed versions. `package.json`, `package-lock.json`.
 
 ## 2026-10-23: cross-site pages start paid runs via /research/new (CP-895)
 
