@@ -46,7 +46,7 @@ ${list}`,
       reasoning: { effort: 'low' }, maxTokens: 6000,
       responseFormat: { type: 'json_schema', json_schema: { name: 'cleanup', strict: true, schema: SCHEMA } },
     });
-    decisions = parseFencedJson(r.choices?.[0]?.message?.content);
+    decisions = parseFencedJson(r.choices?.[0]?.message?.content, 'name-cleaner');
   } catch (e) { console.log('[name-cleaner] skipped:', e?.message); return report; }
   if (!decisions || !Array.isArray(decisions.items)) return report;
   const byI = new Map(decisions.items.map((d) => [d.i, d]));

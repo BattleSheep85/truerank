@@ -1,6 +1,7 @@
 // Full-coverage assertions for the remaining small pure modules:
 // status.js, guides.js, engine-config.js, ads.js, html.js's pure helpers + layout(),
 // and product-link.js.
+import { readdirSync, readFileSync } from 'node:fs';
 import { apiStatus } from '../../worker/lib/status.js';
 import { STATIC_GUIDES, STATIC_GUIDE_SLUGS, GUIDES_LASTMOD } from '../../worker/lib/guides.js';
 import { ENGINE_CONFIG } from '../../worker/lib/engine-config.js';
@@ -25,6 +26,15 @@ export function runLibPureTests() {
     if (A === E) report.passed++; else { report.failed++; report.failures.push(`${name}: expected ${E}, got ${A}`); }
   };
   const ok = (name, c) => eq(name, !!c, true);
+
+  // CP-819: shared lib modules never import the pipeline layer (keywords.js
+  // used to pull budgetExhausted from pipeline/orchestrator.js).
+  {
+    const libDir = new URL('../../worker/lib/', import.meta.url);
+    const offenders = readdirSync(libDir).filter((f) => f.endsWith('.js'))
+      .filter((f) => /from\s+['"]\.\.\/pipeline\//.test(readFileSync(new URL(f, libDir), 'utf8')));
+    eq('architecture: no worker/lib module imports worker/pipeline', offenders, []);
+  }
 
   // status.js
   eq('apiStatus complete', apiStatus('complete'), 'completed');
@@ -177,10 +187,12 @@ const PRODUCT_LINK_CASES = [
   ['review: query-identified product', 'https://item.taobao.com/item.htm?id=111',
     { kind: 'url', name: null, url: 'https://item.taobao.com/item.htm?id=111',
       key: 'verify:url:item.taobao.com/item.htm?id=111' }],
-  ['review: query-identified product, tracking removed and sorted',
+  ['review: query-identified product, tracking removed and sorted (ref goes when another param names the product)',
     'https://item.taobao.com/item.htm?utm_source=x&spm=a1&id=111&fbclid=z&ref=abc&gclid=q&UTM_Medium=y#reviews',
     { kind: 'url', url: 'https://item.taobao.com/item.htm?id=111&spm=a1',
       key: 'verify:url:item.taobao.com/item.htm?id=111&spm=a1' }],
+  ['review: CP-812 a lone ref is the product id', 'https://shop.example/item.htm?ref=AB123&utm_source=x',
+    { kind: 'url', url: 'https://shop.example/item.htm?ref=AB123', key: 'verify:url:shop.example/item.htm?ref=AB123' }],
   ['review: query-identified product, only tracking params', 'https://item.taobao.com/item.htm?utm_source=x',
     { kind: 'url', url: 'https://item.taobao.com/item.htm', key: 'verify:url:item.taobao.com/item.htm' }],
   ['review: extra links stripped from name', 'Great https://amzn.to/xyz http://169.254.169.254/latest',

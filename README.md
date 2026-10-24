@@ -4,7 +4,7 @@ Honest product research. We search real reviews across the web (expert review si
 
 > **Current stack of record:** `CLAUDE.md` is the authoritative, always-current description of the models, search providers, and architecture. This README is a high-level overview; if the two disagree, `CLAUDE.md` wins.
 
-> **Name:** the product was renamed from TrueRank to Frank. Infrastructure identifiers keep the old name on purpose (Worker `truerank`, D1 `truerank-db`, queues, the `truerank-research-worker` container, `TRUERANK_*` secret keys in BWS, browser storage keys), because renaming them needs a coordinated redeploy and data migration.
+> **Name:** the product was renamed from TrueRank to Frank. Infrastructure identifiers keep the old name on purpose (Worker `truerank`, D1 `truerank-db`, queues, `TRUERANK_*` secret keys in BWS, browser storage keys), because renaming them needs a coordinated redeploy and data migration.
 
 ## What it does
 
@@ -21,7 +21,7 @@ Honest product research. We search real reviews across the web (expert review si
 | API | Cloudflare Workers (plain JS) | $5/mo |
 | Database | Cloudflare D1 (SQLite) | Free tier |
 | Cache | Cloudflare KV | Free tier |
-| Background jobs | Cloudflare Queues (+ off-CF research worker) | Free tier |
+| Background jobs | Cloudflare Queues | Free tier |
 | AI - classifier | `google/gemini-2.5-flash-lite` via OpenRouter | paid |
 | AI - planner/agent | `google/gemini-2.5-flash` via OpenRouter | paid |
 | AI - synthesis | `minimax/minimax-m3` via OpenRouter | paid |

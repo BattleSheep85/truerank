@@ -126,10 +126,11 @@ export const CSP = (nonce) =>
     "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com https://fundingchoicesmessages.google.com; " +
     // frame-src governs the ad creative iframes: doubleclick + SafeFrame
     // (tpc.googlesyndication.com) + some formats served from www.google.com +
-    // the GDPR consent dialog (fundingchoicesmessages.google.com). If the live
+    // the GDPR consent dialog (fundingchoicesmessages.google.com) + the Ad Traffic
+    // Quality check iframe (ep1/ep2.adtrafficquality.google, CP-412). If the live
     // console logs a CSP frame violation from another *.googlesyndication.com
     // host during EEA verification, add that exact host here.
-    "frame-src https://challenges.cloudflare.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com; " +
+    "frame-src https://challenges.cloudflare.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.google.com https://fundingchoicesmessages.google.com; " +
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests";
 
 export function makeNonce() {

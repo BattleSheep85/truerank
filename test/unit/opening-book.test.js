@@ -173,6 +173,13 @@ export async function runOpeningBookTests() {
       deps: { search: dupSearch },
     });
     eq('sources deduped by url across searches and within searches', resDup.sources.length, 5);
+
+    // CP-710: the same page from two providers (www, http, trailing slash) merges.
+    const variantSearch = async (q) => (q.includes('reddit')
+      ? [{ url: 'http://www.example.com/page/', title: 'Variant' }]
+      : [{ url: 'https://example.com/page', title: 'Plain' }]);
+    const resVariant = await runOpeningBook({ query: 'air purifiers', maxSearches: 4, deps: { search: variantSearch } });
+    eq('url variants of one page merge to one source', resVariant.sources.map((s) => s.url), ['https://example.com/page']);
     eq('sources first url is shared', resDup.sources[0].url, 'https://example.com/shared');
 
     // Throwing search does not abort the rest

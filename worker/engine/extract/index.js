@@ -9,6 +9,7 @@ import { buildVerdict, buildBestFor, buildSummary, buildBuyersGuide } from './pr
 import { selectCons } from './con-selector.js';
 import { cleanProducts } from './name-cleaner.js';
 import { proposeMissingLeaders } from './recall-supplement.js';
+import { attachCriticalReviews } from './critical-excerpts.js';
 import { norm } from './text.js';
 import { routeHasKey } from '../../lib/llm-route.js';
 
@@ -124,5 +125,6 @@ export async function synthesizeHonest({ query, notes, sources, facets, topicalC
       ]);
     } catch (e) { console.log('[synthesizeHonest] con-selector skipped:', e?.message); }
   }
-  return report;
+  // CP-399: verbatim 1-2★ quotes per product, on the FINAL (cleaned) names.
+  return attachCriticalReviews(report, sources || []);
 }

@@ -1,3 +1,4 @@
+# RETIRED 2026-09-25: Blackbox stack 138 was deleted. History only, do not deploy. See deploy/README.md.
 # truerank-research-worker — off-Cloudflare research worker (track 2 / Approach B)
 #
 # Polls https://chrisputer.tech for pending research, runs the PARALLEL engine

@@ -11,7 +11,8 @@
 
 import { layout, jsonLdScript } from '../lib/html.js';
 import { escapeHtml, parseJsonSafe, isValidHttpsUrl, displayQuery } from '../lib/utils.js';
-import { renderItemImage, resolveProductCtas, isNonProductCategory } from './research-primitives.js';
+import { renderItemImage, resolveProductCtas } from './research-primitives.js';
+import { pageKind } from '../lib/page-kind.js';
 import { resolveAmazonTag } from '../lib/affiliate-links.js';
 import { adSlot } from '../lib/ads.js';
 import { jsonEmbed, listLayoutBoot } from '../lib/list-layout-boot.js';
@@ -42,8 +43,7 @@ function renderReviewCard(row, affiliateIds) {
   const pros = parseJsonSafe(row.pros, []).slice(0, 3);
   const cons = parseJsonSafe(row.cons, []).slice(0, 2);
   const facets = parseJsonSafe(row.facets, {}) || {};
-  const isService = isNonProductCategory(row.category) || facets.is_service === true;
-  const webOnly = facets.sold_on_amazon === false;
+  const { isService, webOnly } = pageKind(row.category, facets);
 
   // Reuse the research page's CTA resolver so labels/tracking stay identical.
   const p = {

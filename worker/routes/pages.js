@@ -11,6 +11,7 @@ import { renderCategoryHub } from '../pages/category.js';
 import { classifyQuery } from '../lib/classifier.js';
 import { renderClarifyPage, extractClarifications } from '../pages/clarify.js';
 import { handleStartResearch } from '../handlers/research.js';
+import { isCrossSiteBrowser, isCrossSiteEmbed } from '../lib/cross-site.js';
 import { displayQuery, escapeLikeWildcards, canonicalizeQuery } from '../lib/utils.js';
 import { listableRowsSql } from '../lib/listable.js';
 import { recordView, parsePageMeta, buildPageMeta } from '../lib/view-counter.js';
@@ -102,8 +103,9 @@ export async function handleBestHub(slug, request, env) {
 }
 
 // GET|POST /research/new — target of the server-rendered search forms (GET)
-// and action buttons like re-run (POST). q/fresh come from query params on
-// GET, and from the form body (falling back to query params) on POST.
+// and action buttons like "Try again" (POST). q comes from query params on
+// GET, and from the form body (falling back to query params) on POST. There
+// is no public fresh flag (CP-352): handleStartResearch ignores it.
 // Phase 1: no tiers/Turnstile/clarifying questions; submit and redirect.
 export async function handleNewResearch(request, url, env) {
     // Speculative prefetch (Chrome prerender, link hover prefetchers) must
@@ -111,6 +113,14 @@ export async function handleNewResearch(request, url, env) {
     const purposeHeaders = `${request.headers.get('Sec-Purpose') || ''} ${request.headers.get('Purpose') || ''}`.toLowerCase();
     if (purposeHeaders.includes('prefetch')) {
         return new Response(null, { status: 204 });
+    }
+
+    // The internal request below carries no browser headers, so the CP-894
+    // guard in handleStartResearch never sees them. Refuse here, before any
+    // work: a cross-site form post, or a cross-site embed of a GET (CP-895).
+    const crossSite = request.method === 'POST' ? isCrossSiteBrowser(request) : isCrossSiteEmbed(request);
+    if (crossSite) {
+        return Response.redirect(new URL('/research', url.origin).toString(), 302);
     }
 
     let form = null;
@@ -125,16 +135,12 @@ export async function handleNewResearch(request, url, env) {
     };
 
     const query = param('q').trim();
-    const fresh = param('fresh') === '1';
     if (!query) {
         return Response.redirect(new URL('/', url.origin).toString(), 302);
     }
 
-    // Tier: default 'full'. Only 'full' submissions get the clarifying-questions
-    // grill below; instant (if ever wired) skips it for speed.
-
-    // Clarifying-questions interstitial. For a Full-tier submission that is NOT a
-    // re-run (fresh), does NOT already carry clarification answers, and was NOT
+    // Clarifying-questions interstitial. For a submission that does NOT
+    // already carry clarification answers, and was NOT
     // an explicit skip, ask the classifier (KV-cached, so cheap) whether the
     // query needs disambiguation. If it returns >=1 question, render the clarify
     // page instead of starting research. Prefetches already returned 204 above.
@@ -142,7 +148,7 @@ export async function handleNewResearch(request, url, env) {
         || (form ? Array.from(form.keys()).some((k) => k.startsWith('clarify_')) : false);
     const skipClarify = param('skip_clarify') === '1';
     let clarifications = {};
-    if (!fresh && !hasAnswers && !skipClarify) {
+    if (!hasAnswers && !skipClarify) {
         try {
             const classification = await classifyQuery(env, query, canonicalizeQuery(query.toLowerCase()));
             if (classification.accept && classification.clarifying_questions.length > 0) {
@@ -161,7 +167,6 @@ export async function handleNewResearch(request, url, env) {
     }
 
     const apiBody = { query };
-    if (fresh) apiBody.fresh = true;
     if (Object.keys(clarifications).length > 0) apiBody.clarifications = clarifications;
 
     const result = await handleStartResearch(new Request(new URL('/api/research', url.origin), {
