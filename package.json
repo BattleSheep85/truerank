@@ -12,5 +12,9 @@
     "@cloudflare/vitest-plugin": "^1.4.5",
     "@vitest/coverage-istanbul": "~5.0.4",
     "vitest": "~5.0.4"
+  },
+  "overrides": {
+    "undici": "^7.30.1",
+    "zod": "^4.6.6"
   }
 }
