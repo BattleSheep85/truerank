@@ -17,6 +17,8 @@ import {
   hasAiInjection,
   hasSponsoredContent,
   hasClickbaitFraming,
+  hasThinPromo,
+  NONCREDIBLE_GENRES,
   hasSelfPurchase,
   hasSeededUnit,
   hasIncentivizedReview,
@@ -72,6 +74,18 @@ export function runCredibilityTests() {
     ['plain-genius-word', isAffiliateUrl('https://example.com/genius-bar-review'), false],
     ['geni-us-lookalike-host', isAffiliateUrl('https://homegeni.us/review'), false],
     ['lmg-gg-in-path', isAffiliateUrl('https://example.com/assets/lmg.gg-logo.png'), false],
+    // CP-928: more affiliate redirect hosts and the Amazon Influencer storefront.
+    ['btodtv-host', isAffiliateUrl('https://btodtv.com/r/abc123'), true],
+    ['scg-click-host', isAffiliateUrl('https://scg.click/xyz'), true],
+    ['aliexpress-s-click', isAffiliateUrl('https://s.click.aliexpress.com/e/_DlMqZ3b'), true],
+    ['aliexpress-click', isAffiliateUrl('https://click.aliexpress.com/e/abc'), true],
+    ['aliexpress-item-clean', isAffiliateUrl('https://www.aliexpress.com/item/100500.html'), false],
+    ['scg-click-in-path', isAffiliateUrl('https://example.com/scg.click/notes'), false],
+    ['amazon-shop-storefront', isAffiliateUrl('https://www.amazon.com/shop/lancehedrick'), true],
+    ['amazon-uk-shop-storefront', isAffiliateUrl('https://www.amazon.co.uk/shop/somecreator?ref=x'), true],
+    ['amazon-ie-shop-storefront', isAffiliateUrl('https://www.amazon.ie/shop/creator'), true],
+    ['amazon-shop-lookalike-host', isAffiliateUrl('https://notamazon.com/shop/creator'), false],
+    ['amazon-shop-not-at-path-start', isAffiliateUrl('https://www.amazon.com/b/shop/creator'), false],
     ['clean-url', isAffiliateUrl('https://rtings.com/tv/reviews/lg/c4-oled'), false],
     ['empty-url', isAffiliateUrl(''), false],
 
@@ -121,6 +135,19 @@ export function runCredibilityTests() {
     ['not-listicle-top-ranked-tail', isListicle('Sony WH-1000XM6 review: still top-ranked', ''), false],
     ['not-listicle-top-ranked-caps', isListicle('LG C5 TOP-RANKED IN RTINGS TESTS', ''), false],
     ['not-listicle-matter-no-number', isListicle('Does Driver Size Really Matter?', ''), false],
+    // CP-928: roundup titles from the bait-oracle recall gaps.
+    ['listicle-tier-list', isListicle('Ultimate Budget Espresso Machine Tier List!', ''), true],
+    ['listicle-top-n-after-colon', isListicle('Best Running Shoes For Overpronation: Top 10 Stability Shoes', ''), true],
+    ['listicle-n-top', isListicle('7 Top Robot Vacuums Worth Buying', ''), true],
+    ['listicle-for-all-budgets', isListicle('The best noise-cancelling earbuds for all budgets, tested by experts', ''), true],
+    ['listicle-here-are-the-best', isListicle('Data hoarders, here are the best free Docker containers to help you', ''), true],
+    ['not-listicle-top-n-problems', isListicle('Top 3 problems with my XM5 after 6 months', ''), false],
+    ['not-listicle-number-then-top', isListicle('Pixel 9 top tips after a month', ''), false],
+    ['not-listicle-model-3-top-speed', isListicle('Tesla Model 3 top speed test', ''), false],
+    ['listicle-n-top-after-colon', isListicle('Home Espresso Gear Guide: 3 Top Machines for Every Budget', ''), true],
+    ['not-listicle-here-are-best-settings', isListicle('LG C4 review: here are the best picture settings', ''), false],
+    ['not-listicle-tier-list-question', isListicle('Is there a tier list for IEMs?', ''), false],
+    ['not-listicle-best-for-all-budgets-mid', isListicle('Is the best TV for all budgets a myth? An analysis', ''), false],
 
     // ── Domain classification ─────────────────────────────────────────────
     ['expert-rtings', isExpertDomain('https://www.rtings.com/tv/reviews/lg/c4'), true],
@@ -201,6 +228,11 @@ export function runCredibilityTests() {
     ['cp782-denial-then-real-marker', hasSponsoredContent('Not sponsored by Sony. This video is sponsored by NordVPN.'), true],
     ['cp782-hashtag-never-denied', hasSponsoredContent('Say no to bad coffee #ad'), true],
     ['cp782-denial-far-before-marker', hasSponsoredContent('I am not a fan of the color. Sponsored by Acme.'), true],
+    // CP-928: the YouTube ad-read form.
+    ['sponsored-thanks-for-sponsoring', hasSponsoredContent('Thanks to Squarespace for sponsoring this video.'), true],
+    ['sponsored-thank-you-for-sponsoring', hasSponsoredContent('Thank you to NordVPN for sponsoring today\'s episode.'), true],
+    ['sponsored-negative-patreon-sponsoring', hasSponsoredContent('Thanks to all my Patreon supporters for sponsoring this channel.'), false],
+    ['sponsored-thanks-far-from-sponsoring', hasSponsoredContent('Thanks to my wife for putting up with the noise during weeks of testing, and to the readers who are sponsoring the channel on Patreon.'), false],
 
     // ── hasClickbaitFraming ───────────────────────────────────────────────
     ['clickbait-trick-big-brands', hasClickbaitFraming("This $89 purifier SHOCKED engineers — the trick big brands don't want you to know", ''), true],
@@ -208,12 +240,31 @@ export function runCredibilityTests() {
     ['clickbait-one-weird-trick', hasClickbaitFraming('Cut your energy bill', 'One weird trick the power companies hate.'), true],
     ['clickbait-what-they-dont-tell', hasClickbaitFraming("What they don't tell you about cheap purifiers", ''), true],
     ['clickbait-will-shock', hasClickbaitFraming('This result will SHOCK you', ''), true],
+    // CP-928: video-title curiosity gaps.
+    ['clickbait-dont-buy-until', hasClickbaitFraming("Don't Buy a New Espresso Machine Until You See This!", ''), true],
+    ['clickbait-dont-buy-until-watch', hasClickbaitFraming('DON’T BUY an OLED until you watch this', ''), true],
+    ['clickbait-siren-truth', hasClickbaitFraming('Robot vacuum myths 🚨 Here\'s the truth:', ''), true],
+    ['clickbait-negative-dont-buy-advice', hasClickbaitFraming("Don't buy the 128GB model until prices drop; the 256GB is better value.", ''), false],
+    ['clickbait-negative-dont-buy-in-sidebar', hasClickbaitFraming('Best Budget Earbuds (RANKED)', "Up next: Don't Buy Under $100 Earbuds Until You Watch This! Scott's Tek"), false],
+    ['clickbait-negative-sound-amazing', hasClickbaitFraming('Sennheiser HD 600 thread', 'These sound amazing! Best $300 I ever spent.'), false],
     // FALSE POSITIVES — legal puffery / normal enthusiasm must stay CLEAN.
     ['clickbait-negative-puffery', hasClickbaitFraming('The Best Air Purifier We Tested', 'Whisper-quiet and impressive CADR — we loved it.'), false],
     ['clickbait-negative-hands-on', hasClickbaitFraming('Hands-on: Acme Purifier', 'We love it, and the minimalist design really impressed us.'), false],
     ['clickbait-negative-empty', hasClickbaitFraming('', ''), false],
 
     // ── hasSelfPurchase ───────────────────────────────────────────────────
+    // ── hasThinPromo (CP-928) ─────────────────────────────────────────────
+    ['thin-promo-channel-fluff', hasThinPromo('Budget Review', "Welcome to MYSTERY CURTAIN – your gateway to the latest technology. Don't forget to subscribe!"), true],
+    ['thin-promo-brand-family', hasThinPromo('Assembling the Desk', 'Congratulations on your new desk, and welcome to the UPLIFT Desk family.'), true],
+    ['thin-promo-featured-products', hasThinPromo('Setup Guide', 'Featured machines & grinder pairings include:\nProfitec GO: https://www.wholelattelove.com/products/profitec-go'), true],
+    ['thin-promo-shop-the-arrow', hasThinPromo('Comparison', 'Shop the Breville Barista Pro ▸▸ https://bit.ly/2TWcnNA\nShop the Rancilio Silvia ▸▸ https://bit.ly/2Xyz'), true],
+    ['thin-promo-negative-one-merch-link', hasThinPromo('XM5 Review', 'Shop the merch → https://example.com/merch'), false],
+    ['thin-promo-negative-forum-congrats', hasThinPromo('r/espresso', 'Congratulations on your new machine! Welcome to the Gaggia family.'), false],
+    ['thin-promo-negative-gateway-hands-on', hasThinPromo('XM5 Review', "Welcome to TechBox, your one-stop tech channel. I tested the ANC for three weeks. Don't forget to subscribe!"), false],
+    ['thin-promo-negative-real-channel', hasThinPromo('XM5 Review', "Welcome back to the channel. I've been using the XM5 for three months and measured the ANC. Don't forget to subscribe!"), false],
+    ['thin-promo-negative-review', hasThinPromo('LG C4 OLED Review', 'We tested peak brightness at 1400 nits across 5 window sizes.'), false],
+    ['thin-promo-negative-empty', hasThinPromo('', ''), false],
+
     ['self-purchase-positive', hasSelfPurchase('We bought this unit ourselves at full retail price.'), true],
     ['self-purchase-negative-buy-link', hasSelfPurchase('You can buy this on Amazon for $99.'), false],
     ['self-purchase-negative-empty', hasSelfPurchase(''), false],
@@ -366,6 +417,18 @@ export function runCredibilityTests() {
   });
   cases.push(['composite-clickbait-flagged', clickbaitPage.tags.includes('clickbait'), true]);
   cases.push(['composite-clickbait-reason', clickbaitPage.reasons.some((r) => r.includes('clickbait')), true]);
+
+  // ── Thin-promo composite (CP-928): channel fluff is flagged, penalized, and noncredible.
+  const thinPromoPage = scoreSource({
+    url: 'https://youtube.com/watch?v=6-EZVvIr1x4',
+    title: 'Budget Wireless Earbuds Review After One Week of Use',
+    content: "Welcome to MYSTERY CURTAIN – your gateway to the latest technology products through honest and sharp review videos. Don't forget to subscribe!",
+    sourceType: 'web',
+  });
+  cases.push(['composite-thin-promo-flagged', thinPromoPage.tags.includes('thin-promo'), true]);
+  cases.push(['composite-thin-promo-penalized', thinPromoPage.score < 45, true]);
+  cases.push(['composite-thin-promo-independence-lowered', thinPromoPage.independence < 60, true]);
+  cases.push(['composite-thin-promo-noncredible', NONCREDIBLE_GENRES.has('thin-promo'), true]);
 
   // ── Category-D reviewer-override composite → ai-injection (noncredible).
   const overridePage = scoreSource({
