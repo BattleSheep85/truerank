@@ -15,6 +15,7 @@
 //   'ai-injection'        — page contains instructions addressed to AI tools — manipulation attempt
 //   'sponsored-content'   — paid promotion (#ad, paid partnership) — marketing, not a review
 //   'clickbait'           — curiosity-gap / hype framing — SEO bait, not evidence
+//   'thin-promo'          — channel fluff / brand onboarding / storefront copy — marketing, not evidence
 //   'self-purchased'      — reviewer bought the product themselves — independence-positive
 //   'seeded-unit'         — reviewer disclosed a manufacturer-provided loaner/sample — honest, but lowers independence
 //   'incentivized-review' — free/discounted product given IN EXCHANGE FOR a review — real conflict
@@ -36,7 +37,7 @@
 // (an honest loaner disclosure) is deliberately NOT added here — loaners are
 // how legit review outlets operate; only the free-for-review incentive taints
 // the source's ability to anchor a verdict.
-export const NONCREDIBLE_GENRES = new Set(['listicle', 'affiliate-conflict', 'manufacturer', 'ai-injection', 'sponsored-content', 'incentivized-review']);
+export const NONCREDIBLE_GENRES = new Set(['listicle', 'affiliate-conflict', 'manufacturer', 'ai-injection', 'sponsored-content', 'incentivized-review', 'thin-promo']);
 
 // ─── Affiliate-link detection ────────────────────────────────────────────────
 
@@ -59,13 +60,32 @@ const AFFILIATE_HOPS = [
 ];
 
 // Video-description shortlink hosts (CP-370): Genius Link, Linus Media Group,
-// Tradedoubler. They only exist to route a click through an affiliate tag.
-// Matched on the hostname, not as a substring: "homegeni.us" is not one.
-const AFFILIATE_SHORTLINK_HOSTS = ['geni.us', 'lmg.gg', 'tidd.ly'];
+// Tradedoubler, plus (CP-928) btodtv.com, scg.click and the AliExpress
+// affiliate portal. They only exist to route a click through an affiliate tag.
+// Matched on the hostname, not as a substring: "homegeni.us" is not one, and
+// "click.aliexpress.com" also covers "s.click.aliexpress.com".
+const AFFILIATE_SHORTLINK_HOSTS = [
+  'geni.us', 'lmg.gg', 'tidd.ly',
+  'btodtv.com', 'scg.click', 'click.aliexpress.com',
+];
 
 function isShortlinkHost(url) {
   const h = hostOf(url);
   return AFFILIATE_SHORTLINK_HOSTS.some((d) => h === d || h.endsWith('.' + d));
+}
+
+// Amazon Influencer storefront (CP-928): amazon.<tld>/shop/<creator> pays the
+// creator a commission on every sale, the same conflict as a tag= link.
+const AMAZON_HOST = /^(?:[a-z0-9-]+\.)?amazon\.(?:com|ca|com\.mx|com\.br|co\.uk|ie|de|fr|it|es|nl|com\.be|se|pl|com\.tr|in|co\.jp|com\.au|sg|ae|sa|eg)$/;
+const AMAZON_STOREFRONT_PATH = /^\/shop\/[a-z0-9_-]+/i;
+
+function isAmazonStorefront(url) {
+  if (!AMAZON_HOST.test(hostOf(url))) return false;
+  try {
+    return AMAZON_STOREFRONT_PATH.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
 }
 
 // Amazon affiliate tag param pattern — Amazon tags look like `xxxxx-20` or
@@ -99,6 +119,7 @@ export function isAffiliateUrl(url) {
     if (lower.includes(hop)) return true;
   }
   if (isShortlinkHost(url)) return true;
+  if (isAmazonStorefront(url)) return true;
   for (const pat of GENERIC_AFFILIATE_PARAMS) {
     if (pat.test(url)) return true;
   }
@@ -228,6 +249,9 @@ const SPONSORED_CONTENT_PATTERNS = [
   /\bsponsored by\b/i,
   // "this post|article|video|review|content is sponsored"
   /\bthis (?:post|article|video|review|content|page) is sponsored\b/i,
+  // "thanks (you) to <brand> for sponsoring" — the YouTube ad-read form (CP-928).
+  // Fans who "sponsor the channel" on Patreon are not a brand deal.
+  /\bthanks?(?:\s+you)?\s+to\b(?![^.?!]{0,40}?\b(?:patreon|patrons?|supporters|members|viewers|subscribers)\b)[^.?!]{0,40}?\bfor\s+sponsoring\b/i,
   // "brought to you by <brand>" — classic advertorial header.
   /\bbrought to you by\b/i,
 ];
@@ -439,6 +463,14 @@ const CLICKBAIT_PATTERNS = [
   /\bone weird trick\b/i,
   /\bthis (?:simple |one )?(?:trick|hack)\b[^.?!]{0,30}?\b(?:shock|will|that)/i,
   /\bwhat they don['’]?t tell you\b/i,
+  // "🚨 Here's the truth:" (CP-928).
+  /🚨\s*here['’]?s the truth:/i,
+];
+
+// Matched on the title only: YouTube page text lists related videos, so the
+// phrase in the body is often another channel's title (CP-928).
+const CLICKBAIT_TITLE_PATTERNS = [
+  /\bdon['’]?t buy\b[^.?!]{0,50}?\buntil you (?:see|watch|read) this\b/i,
 ];
 
 /**
@@ -452,7 +484,38 @@ export function hasClickbaitFraming(title, content) {
   for (const pat of CLICKBAIT_PATTERNS) {
     if (pat.test(haystack)) return true;
   }
-  return false;
+  return CLICKBAIT_TITLE_PATTERNS.some((pat) => pat.test(title || ''));
+}
+
+// ─── Thin-promo / storefront / channel-fluff detection (CP-928) ──────────────
+
+// High-precision markers of promotional copy with no review substance.
+const THIN_PROMO_PATTERNS = [
+  // Brand onboarding in one sentence: "Congratulations on your new desk, and
+  // welcome to the UPLIFT Desk family." A forum reply ("...new machine!
+  // Welcome to the Gaggia family") has a sentence break and stays clean.
+  /\bcongratulations\s+on\s+your\s+new\b[^.?!]{0,80}?\bwelcome\s+to\s+the\b[^.?!]{0,40}?\bfamily\b/i,
+  // Retailer copy: "Featured <products> include: ... https://<shop>/products/..."
+  /\bfeatured\s+[^:\n]{2,40}\s+include\s*:[\s\S]{0,400}?https?:\/\/[^\s/]+\/products\//i,
+  // Retailer storefront list: two "Shop the <Product> ▸▸ https://" lines. One
+  // "Shop the merch → link" is a normal creator link.
+  /\bshop\s+the\s+[^\n]{2,50}?▸+\s*https?:\/\/[\s\S]{0,300}?\bshop\s+the\s+[^\n]{2,50}?▸+\s*https?:\/\//i,
+];
+
+// Channel fluff: "Welcome to <CHANNEL> – your gateway to ... Don't forget to
+// subscribe". A real review channel can use the same boilerplate, so a page
+// with hands-on testing language is never tagged by this marker.
+const CHANNEL_FLUFF = /\bwelcome\s+to\b[^.?!\n]{0,60}?\byour\s+(?:gateway|one-stop)\b[\s\S]{0,300}?\bdon['’]?t\s+forget\s+to\s+subscribe\b/i;
+
+/**
+ * Returns true if title/content carries unambiguous thin-promo copy: channel
+ * fluff, brand onboarding, or retailer storefront promotion.
+ */
+export function hasThinPromo(title, content) {
+  const haystack = ((title || '') + '\n' + (content || ''));
+  if (!haystack.trim()) return false;
+  if (THIN_PROMO_PATTERNS.some((pat) => pat.test(haystack))) return true;
+  return CHANNEL_FLUFF.test(haystack) && !isHandsOn(haystack);
 }
 
 // ─── Hands-on vs listicle content detection ──────────────────────────────────
@@ -507,6 +570,18 @@ const LISTICLE_TITLE = [
   /(?<![-\w])ranked\s*[!.]*\s*(?:$|[|\-–—]\s)/i,
   // "N things that (actually) matter".
   /\b\d+\s+[a-z][a-z\s-]{2,50}\s+that\s+(?:actually\s+|really\s+)?matter\b/i,
+  // Roundups from the bait-oracle recall gaps (CP-928). A bare "Top N" is not
+  // enough ("Top 3 problems with my XM5" is a hands-on piece): it needs a
+  // "best" title before it, or "N top X" at the start of a title segment
+  // ("Pixel 9 top tips" stays clean). A question ("Is there a tier list
+  // for IEMs?") is not a ranking.
+  /^(?![^\n]*\?\s*$)[^\n]*\btier\s+list\b/i,
+  /\bbest\b[^:|]{2,60}:\s*top\s+\d+\b/i,
+  /(?:^|[:|–—]\s*|\s-\s+)\d+\s+top\s+[a-z][a-z\s-]{2,50}\b/i,
+  /^the\s+best\s+[a-z][a-z\s-]{2,50}\s+for\s+all\s+budgets\b/i,
+  // "Data hoarders, here are the best X" (not "LG C4 review: here are the
+  // best picture settings").
+  /(?:^|,\s*)here\s+are\s+the\s+best\s+(?:free\s+)?[a-z][a-z\s-]{2,40}\b/i,
 ];
 
 /**
@@ -751,6 +826,12 @@ export function scoreSource(input) {
     score -= 20;
   }
 
+  if (hasThinPromo(input.title, fullContent)) {
+    tags.push('thin-promo');
+    reasons.push('thin promotional / storefront / channel-fluff copy');
+    score -= 25;
+  }
+
   if (isHandsOn(fullContent)) {
     tags.push('hands-on');
     reasons.push('hands-on testing language detected');
@@ -803,6 +884,7 @@ export function scoreSource(input) {
   if (tags.includes('embargo-nda')) independence -= 25;
   if (tags.includes('affiliate-conflict')) independence -= 20;
   if (tags.includes('sponsored-content')) independence -= 40;
+  if (tags.includes('thin-promo')) independence -= 30;
   if (tags.includes('manufacturer')) independence -= 50;
   if (tags.includes('ai-injection')) independence -= 60;
   independence = Math.max(0, Math.min(100, independence));

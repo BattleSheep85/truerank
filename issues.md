@@ -1145,10 +1145,35 @@ User: "Grok 4.5 is out, use only this model" + "improve our searches via BaitBen
 - [ ] LOW (detector coverage): only the main eBay country sites are in the marketplace list, and
       the "Ranked" title rule needs "Ranked" at the end or before a " | " / " - " suffix. Extend
       both if the oracle shows misses. worker/lib/credibility.js
-- [ ] LOW (detector recall): 11 of 24 grok-bait sources still pass. Most are retailer-channel videos
+- [x] LOW (detector recall): 11 of 24 grok-bait sources still pass. Most are retailer-channel videos
       (seattlecoffeegear, wholelattelove, letsrunmoore) whose links go to the channel's own shop, plus
       expert-site "best of" roundups and "Top 10" video titles. A "links to its own store" detector
       for video sources is the next candidate. benchmarks/bait-detector-oracle.mjs (REPLAY=1 is free).
+      Done 2026-10-27 (CP-928, ported from archive/cp-370-inc3 9d6d696): new 'thin-promo' genre
+      (hasThinPromo: "your gateway to ... subscribe" channel fluff, "welcome to the <Brand> family",
+      "Featured X include: .../products/", "Shop the X ▸▸ http"; -25 score, -30 independence,
+      NONCREDIBLE); affiliate hosts btodtv.com, scg.click, click.aliexpress.com (hostname match);
+      Amazon storefront amazon.<tld>/shop/<name>; "thanks (you) to X for sponsoring"; clickbait
+      "Don't buy X until you see this" (title only) and "🚨 Here's the truth:"; listicle "tier list",
+      "Best X: Top N", "N top X", "the best X for all budgets", "here are the best X". Oracle REPLAY:
+      recall 54% -> 83% (13 -> 20 of 24), specificity 92% -> 83% (11 -> 10 of 12). The new over-flag
+      is UPLIFT's own assembly video ("welcome to the UPLIFT Desk family"): brand copy, so ASSUMED kept.
+      Rejected: "These sound amazing!" (normal buyer praise), a bare "Top N" title ("Top 3 problems
+      with my XM5" is hands-on), and the archive's oracle re-stratification (REPLAY uses saved verdicts).
+      Corpus check (1,721 sources): "Don't buy ... until you watch this" hit 6 pages through
+      related-video titles in YouTube page text, so it reads the title only. Review guards: the
+      channel-fluff marker skips pages with hands-on language, "Shop the X ▸▸" needs two such lines,
+      the brand-family marker needs one sentence, Patreon "sponsoring" stays clean, "N top X" must
+      start a title segment, and a tier-list question stays clean.
+- [ ] LOW (verify policy): 'thin-promo' is not in verdict.js NON_INDEPENDENT_TAGS or verify.js
+      NON_CORROBORATING_TAGS, so a thin-promo page can still count as a corroborator in verify
+      (it is already out of NONCREDIBLE synthesis). worker/lib/verdict.js, worker/engine/verify.js
+- [ ] LOW (detector recall): 4 of 24 grok-bait sources still pass: a Prime Day video, a retailer
+      shoe-fit video with a promo code, a "Which One Is the Best" vs page, and a self-hosting puffery
+      blurb. benchmarks/bait-detector-oracle.mjs (REPLAY=1 is free).
+- [ ] LOW (sample size): the oracle has only 12 grok-clean sources, so one page moves specificity
+      8 points. A larger live oracle run (about $0.13 per 36 sources) would give a firmer number.
+      benchmarks/bait-detector-oracle.mjs
 
 
 ## 2026-07-08 — UI/UX review board (14-persona, focus: improve UI/UX)

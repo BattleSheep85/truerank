@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { callLLM } from '../worker/engine/llm.js';
 import {
   hasSponsoredContent, hasClickbaitFraming, hasAiInjection,
-  isListicle, hasAffiliateLinks, scoreSource,
+  isListicle, hasAffiliateLinks, hasThinPromo, scoreSource,
 } from '../worker/lib/credibility.js';
 
 const REPLAY = process.env.REPLAY === '1';
@@ -118,6 +118,7 @@ function ourVerdict(src) {
     injection: hasAiInjection(content),
     listicle: isListicle(src.title, content),
     affiliate: hasAffiliateLinks(content),
+    thinPromo: hasThinPromo(src.title, content),
   };
   const anyDetector = Object.values(hits).some(Boolean);
   // "Flagged" = any bait tag OR any score penalty below the neutral 50 baseline.
