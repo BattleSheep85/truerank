@@ -19,7 +19,7 @@ import { checkRateLimit, ipRateKey } from '../lib/rate-limit.js';
 import { checkBurstGate } from '../lib/burst-gate.js';
 import { getResearchBySlug, getProductsByResearchId } from '../lib/db.js';
 import { parseJsonSafe, displayQuery } from '../lib/utils.js';
-import { budgetExhausted, incrementMonthlyCost } from '../pipeline/orchestrator.js';
+import { budgetExhausted, incrementMonthlyCost } from '../lib/budget.js';
 import { llmRouteFromEnv, fetchWithFallback, costFromUsage, LITELLM_MODEL_MAP } from '../lib/llm-route.js';
 
 const CHAT_MODEL = 'google/gemini-3.8-flash';
@@ -172,7 +172,7 @@ export async function handleChat(request, env) {
     const rateKey = await ipRateKey('chat', ip, env);
     const burst = await checkBurstGate(env.RL_BURST, rateKey);
     const rate = burst.allowed
-        ? await checkRateLimit(env.KV, rateKey, 20, 3600)
+        ? await checkRateLimit(env.KV, rateKey, 20, 3600, env.DB)
         : burst;
     if (!rate.allowed) {
         return jsonResponse({ error: 'Chat limit reached for now — try again in a bit.' }, 429);
@@ -190,7 +190,7 @@ export async function handleChat(request, env) {
     if (slug) {
         if (!/^[a-z0-9-]+$/.test(slug)) return jsonResponse({ error: 'Invalid slug' }, 400);
         const entry = await getResearchBySlug(env.DB, slug);
-        if (!entry || entry.status !== 'complete') {
+        if (!entry || entry.status !== 'complete' || entry.retired_at != null) {
             return jsonResponse({ error: 'Report not found' }, 404);
         }
         const productRows = await getProductsByResearchId(env.DB, entry.id);
