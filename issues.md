@@ -1174,6 +1174,10 @@ User: "Grok 4.5 is out, use only this model" + "improve our searches via BaitBen
 - [ ] LOW (sample size): the oracle has only 12 grok-clean sources, so one page moves specificity
       8 points. A larger live oracle run (about $0.13 per 36 sources) would give a firmer number.
       benchmarks/bait-detector-oracle.mjs
+- [ ] LOW (detector precision): the "N top X" listicle title rule also fires after " - " in a review
+      title, so "Sony XM5 review - 3 top features I love" is tagged listicle (QA probe, CP-928). No title
+      in the 2,197 saved sources hits this, so it is theoretical for now. Fix: skip the rule when the
+      title has a "review" segment, or drop the " - " separator. worker/lib/credibility.js LISTICLE_TITLE
 
 
 ## 2026-07-08 — UI/UX review board (14-persona, focus: improve UI/UX)
